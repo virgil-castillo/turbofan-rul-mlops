@@ -1,4 +1,5 @@
 """Tests for turbofan.data.loader."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +8,12 @@ import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig
-from turbofan.data.loader import COLUMN_NAMES, load_raw_test, load_raw_train, load_rul_labels
+from turbofan.data.loader import (
+    COLUMN_NAMES,
+    load_raw_test,
+    load_raw_train,
+    load_rul_labels,
+)
 
 
 def test_load_raw_train_column_names(data_cfg: DataConfig) -> None:
@@ -36,7 +42,7 @@ def test_load_raw_test_column_names(data_cfg: DataConfig) -> None:
 
 
 def test_load_raw_train_missing_file_raises(tmp_path: Path) -> None:
-    """load_raw_train raises FileNotFoundError with download hint when file is missing."""
+    """load_raw_train raises FileNotFoundError when file is missing."""
     cfg = DataConfig(
         raw_dir=tmp_path / "nonexistent",
         processed_dir=tmp_path,
@@ -47,7 +53,7 @@ def test_load_raw_train_missing_file_raises(tmp_path: Path) -> None:
 
 
 def test_load_raw_test_missing_file_raises(tmp_path: Path) -> None:
-    """load_raw_test raises FileNotFoundError with download hint when file is missing."""
+    """load_raw_test raises FileNotFoundError when file is missing."""
     cfg = DataConfig(
         raw_dir=tmp_path / "nonexistent",
         processed_dir=tmp_path,
@@ -70,7 +76,7 @@ def test_load_rul_labels_length(data_cfg: DataConfig) -> None:
 
 
 def test_load_rul_labels_missing_file_raises(tmp_path: Path) -> None:
-    """load_rul_labels raises FileNotFoundError with download hint when file is missing."""
+    """load_rul_labels raises FileNotFoundError when file is missing."""
     cfg = DataConfig(
         raw_dir=tmp_path / "nonexistent",
         processed_dir=tmp_path,
