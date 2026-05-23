@@ -21,12 +21,12 @@ conda activate mlops
 ## Commands
 
 ```bash
-ruff check cnmf_lensless_roi/ tests/        # lint
-mypy cnmf_lensless_roi/                     # type-check
+ruff check src/ tests/ scripts/        # lint
+mypy src/turbofan                       # type-check
 
-pytest                                      # all tests
-pytest tests/test_file.py                   # single file
-pytest -k "test_name"                       # single test by name
+pytest                                  # all tests
+pytest tests/test_file.py               # single file
+pytest -k "test_name"                   # single test by name
 ```
 
 ## Coding style
