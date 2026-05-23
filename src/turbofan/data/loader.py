@@ -76,7 +76,7 @@ def load_raw_test(cfg: DataConfig) -> pd.DataFrame:
     return _load_txt(cfg.raw_dir / f"test_{cfg.fd_subset}.txt")
 
 
-def load_rul_labels(cfg: DataConfig) -> pd.Series:  # type: ignore[type-arg]
+def load_rul_labels(cfg: DataConfig) -> pd.Series[int]:
     """Load ground-truth RUL values for test engines.
 
     Args:
