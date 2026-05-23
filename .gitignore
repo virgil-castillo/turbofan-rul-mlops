@@ -43,3 +43,6 @@ outputs/*
 # MLflow
 mlruns/
 mlartifacts/
+
+# Claude Code
+.claude/
