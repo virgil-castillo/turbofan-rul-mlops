@@ -1,0 +1,59 @@
+"""Configuration schema for the turbofan package."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel
+
+
+class DataConfig(BaseModel):
+    """Configuration for the data layer.
+
+    Args:
+        raw_dir: Path to raw data directory.
+        processed_dir: Path to processed data directory.
+        interim_dir: Path to interim data directory.
+        fd_subset: C-MAPSS fault dataset subset identifier.
+        max_rul: Maximum RUL cap for piecewise-linear labels.
+        test_size: Fraction of training engines held out for validation.
+        random_seed: Seed for all random operations.
+    """
+
+    raw_dir: Path
+    processed_dir: Path
+    interim_dir: Path
+    fd_subset: Literal["FD001", "FD002", "FD003", "FD004"] = "FD001"
+    max_rul: int = 125
+    test_size: float = 0.2
+    random_seed: int = 42
+
+
+class ProjectConfig(BaseModel):
+    """Top-level project configuration.
+
+    Args:
+        project_name: Human-readable project name.
+        data: Data layer configuration.
+    """
+
+    project_name: str
+    data: DataConfig
+
+
+def load_config(path: Path) -> ProjectConfig:
+    """Load and validate project configuration from a YAML file.
+
+    Args:
+        path: Path to the YAML configuration file.
+
+    Returns:
+        Validated ProjectConfig instance.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        pydantic.ValidationError: If the config is invalid.
+    """
+    raw = yaml.safe_load(path.read_text())
+    return ProjectConfig.model_validate(raw)
