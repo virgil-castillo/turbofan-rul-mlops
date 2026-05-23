@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from turbofan.config.schema import DataConfig, ProjectConfig, load_config
 
 
-def _write_config(tmp_path: Path, data: dict) -> Path:  # type: ignore[type-arg]
+def _write_config(tmp_path: Path, data: dict[str, object]) -> Path:
     """Write a config dict to a YAML file and return the path."""
     path = tmp_path / "config.yaml"
     path.write_text(yaml.dump(data))
@@ -88,3 +88,49 @@ def test_missing_data_section_raises(tmp_path: Path) -> None:
     cfg_file = _write_config(tmp_path, {"project_name": "test"})
     with pytest.raises(ValidationError):
         load_config(cfg_file)
+
+
+def test_invalid_max_rul_raises(tmp_path: Path) -> None:
+    """max_rul <= 0 raises ValidationError."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+                "max_rul": -1,
+            },
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
+def test_invalid_test_size_raises(tmp_path: Path) -> None:
+    """test_size outside (0, 1) raises ValidationError."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+                "test_size": 1.5,
+            },
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
+def test_malformed_yaml_raises(tmp_path: Path) -> None:
+    """Syntactically invalid YAML raises yaml.YAMLError."""
+    import yaml as _yaml
+
+    bad_yaml = tmp_path / "bad.yaml"
+    bad_yaml.write_text("key: [unclosed bracket")
+    with pytest.raises(_yaml.YAMLError):
+        load_config(bad_yaml)

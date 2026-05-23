@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DataConfig(BaseModel):
@@ -25,8 +25,8 @@ class DataConfig(BaseModel):
     processed_dir: Path
     interim_dir: Path
     fd_subset: Literal["FD001", "FD002", "FD003", "FD004"] = "FD001"
-    max_rul: int = 125
-    test_size: float = 0.2
+    max_rul: int = Field(default=125, gt=0)
+    test_size: float = Field(default=0.2, gt=0.0, lt=1.0)
     random_seed: int = 42
 
 
@@ -53,7 +53,11 @@ def load_config(path: Path) -> ProjectConfig:
 
     Raises:
         FileNotFoundError: If the config file does not exist.
-        pydantic.ValidationError: If the config is invalid.
+        yaml.YAMLError: If the file is not valid YAML.
+        pydantic.ValidationError: If the config structure is invalid.
     """
-    raw = yaml.safe_load(path.read_text())
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
     return ProjectConfig.model_validate(raw)
