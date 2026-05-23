@@ -11,6 +11,7 @@ dependencies = [
     "pandas>=2.0",
     "pydantic>=2.0",
     "pyyaml",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,10 @@ mypy_path = "src"
 
 [[tool.mypy.overrides]]
 module = "scipy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
