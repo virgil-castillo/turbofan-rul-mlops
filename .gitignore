@@ -28,3 +28,21 @@ notebooks/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data directories — populated by download script
+data/raw/*
+data/interim/*
+data/processed/*
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# Outputs
+outputs/*
+!outputs/models/.gitkeep
+!outputs/figures/.gitkeep
+!outputs/logs/.gitkeep
+
+# MLflow
+mlruns/
+mlartifacts/
