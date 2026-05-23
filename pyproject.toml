@@ -22,6 +22,10 @@ dev = [
     "types-pyyaml",
     "pandas-stubs",
     "kaggle",
+    "nbstripout",
+    "nbformat",
+    "jupyter",
+    "scipy",
 ]
 
 [tool.setuptools.packages.find]

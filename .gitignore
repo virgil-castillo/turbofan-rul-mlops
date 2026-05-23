@@ -19,9 +19,6 @@ env/
 .coverage
 htmlcov/
 
-# Notebooks
-notebooks/
-
 # VS Code
 .vscode/
 
