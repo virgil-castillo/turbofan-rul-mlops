@@ -1,0 +1,10 @@
+project_name: turbofan-rul-mlops
+
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  interim_dir: data/interim
+  fd_subset: FD001
+  max_rul: 125
+  test_size: 0.2
+  random_seed: 42

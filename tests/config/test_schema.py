@@ -7,7 +7,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from turbofan.config.schema import DataConfig, ProjectConfig, load_config
+from turbofan.config.schema import DataConfig, load_config
 
 
 def _write_config(tmp_path: Path, data: dict[str, object]) -> Path:
@@ -134,3 +134,13 @@ def test_malformed_yaml_raises(tmp_path: Path) -> None:
     bad_yaml.write_text("key: [unclosed bracket")
     with pytest.raises(_yaml.YAMLError):
         load_config(bad_yaml)
+
+
+def test_load_default_config() -> None:
+    """The committed default.yaml loads and validates without error."""
+    project_root = Path(__file__).parent.parent.parent
+    cfg_path = project_root / "configs" / "default.yaml"
+    cfg = load_config(cfg_path)
+    assert cfg.project_name == "turbofan-rul-mlops"
+    assert cfg.data.fd_subset == "FD001"
+    assert cfg.data.max_rul == 125
