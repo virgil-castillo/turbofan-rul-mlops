@@ -22,6 +22,9 @@ htmlcov/
 # VS Code
 .vscode/
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
