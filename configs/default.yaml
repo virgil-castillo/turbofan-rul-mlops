@@ -13,3 +13,16 @@ model:
   name: ridge
   alpha: 1.0
   artifact_dir: artifacts/models
+
+sequence:
+  architecture: gru
+  window_size: 30
+  batch_size: 64
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.0
+  learning_rate: 0.001
+  epochs: 50
+  patience: 8
+  device: cpu
+  artifact_dir: artifacts/models

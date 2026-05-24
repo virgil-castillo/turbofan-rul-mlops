@@ -44,6 +44,36 @@ class ModelConfig(BaseModel):
     artifact_dir: Path = Path("artifacts/models")
 
 
+class SequenceConfig(BaseModel):
+    """Configuration for GRU sequence model training.
+
+    Args:
+        architecture: Sequence model architecture identifier.
+        window_size: Number of cycles per sequence window.
+        batch_size: Training batch size.
+        hidden_size: GRU hidden state width.
+        num_layers: Number of stacked GRU layers.
+        dropout: Dropout probability between GRU layers.
+        learning_rate: Adam optimizer learning rate.
+        epochs: Maximum training epochs.
+        patience: Early-stopping patience in epochs.
+        device: Requested torch device.
+        artifact_dir: Directory for local sequence run artifacts.
+    """
+
+    architecture: Literal["gru"] = "gru"
+    window_size: int = Field(default=30, gt=0)
+    batch_size: int = Field(default=64, gt=0)
+    hidden_size: int = Field(default=64, gt=0)
+    num_layers: int = Field(default=1, gt=0)
+    dropout: float = Field(default=0.0, ge=0.0, lt=1.0)
+    learning_rate: float = Field(default=1e-3, gt=0.0)
+    epochs: int = Field(default=50, gt=0)
+    patience: int = Field(default=8, gt=0)
+    device: Literal["cpu", "cuda"] = "cpu"
+    artifact_dir: Path = Path("artifacts/models")
+
+
 class ProjectConfig(BaseModel):
     """Top-level project configuration.
 
@@ -51,11 +81,13 @@ class ProjectConfig(BaseModel):
         project_name: Human-readable project name.
         data: Data layer configuration.
         model: Baseline model training configuration.
+        sequence: GRU sequence model training configuration.
     """
 
     project_name: str
     data: DataConfig
     model: ModelConfig = Field(default_factory=ModelConfig)
+    sequence: SequenceConfig = Field(default_factory=SequenceConfig)
 
 
 def load_config(path: Path) -> ProjectConfig:

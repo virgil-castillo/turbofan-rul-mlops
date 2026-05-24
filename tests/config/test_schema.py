@@ -223,3 +223,106 @@ def test_invalid_model_alpha_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ValidationError):
         load_config(cfg_file)
+
+
+def test_sequence_config_defaults_when_section_omitted(tmp_path: Path) -> None:
+    """Sequence config has stable defaults when omitted from YAML."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.sequence.architecture == "gru"
+    assert cfg.sequence.window_size == 30
+    assert cfg.sequence.batch_size == 64
+    assert cfg.sequence.hidden_size == 64
+    assert cfg.sequence.num_layers == 1
+    assert cfg.sequence.dropout == 0.0
+    assert cfg.sequence.learning_rate == 0.001
+    assert cfg.sequence.epochs == 50
+    assert cfg.sequence.patience == 8
+    assert cfg.sequence.device == "cpu"
+    assert cfg.sequence.artifact_dir == Path("artifacts/models")
+
+
+def test_sequence_config_loads_custom_values(tmp_path: Path) -> None:
+    """Sequence config accepts configured GRU training values."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "sequence": {
+                "architecture": "gru",
+                "window_size": 12,
+                "batch_size": 8,
+                "hidden_size": 16,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "learning_rate": 0.01,
+                "epochs": 5,
+                "patience": 2,
+                "device": "cpu",
+                "artifact_dir": "artifacts/custom-sequence",
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.sequence.window_size == 12
+    assert cfg.sequence.batch_size == 8
+    assert cfg.sequence.hidden_size == 16
+    assert cfg.sequence.num_layers == 2
+    assert cfg.sequence.dropout == 0.1
+    assert cfg.sequence.learning_rate == 0.01
+    assert cfg.sequence.epochs == 5
+    assert cfg.sequence.patience == 2
+    assert cfg.sequence.device == "cpu"
+    assert cfg.sequence.artifact_dir == Path("artifacts/custom-sequence")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("architecture", "lstm"),
+        ("window_size", 0),
+        ("batch_size", 0),
+        ("hidden_size", 0),
+        ("num_layers", 0),
+        ("dropout", 1.0),
+        ("learning_rate", 0.0),
+        ("epochs", 0),
+        ("patience", 0),
+        ("device", "mps"),
+    ],
+)
+def test_invalid_sequence_config_raises(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    """Invalid sequence config values raise ValidationError."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "sequence": {field: value},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
