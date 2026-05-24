@@ -1,12 +1,54 @@
 """Smoke tests for scripts/train_sequence_gru.py."""
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 from csv import DictReader
 from pathlib import Path
+from types import ModuleType
+
+import pandas as pd
+import pytest
+import torch
+
+from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
+from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_training import TrainingResult
+
+
+class _FakeNormalizer:
+    """Minimal sequence normalizer test double."""
+
+    def __init__(self, feature_cols: list[str]) -> None:
+        self.feature_cols = feature_cols
+        self.means_ = pd.Series({feature: 0.0 for feature in feature_cols})
+        self.stds_ = pd.Series({feature: 1.0 for feature in feature_cols})
+
+    def fit_transform(self, frame: object) -> object:
+        """Return the input training frame unchanged.
+
+        Args:
+            frame: Training frame placeholder.
+
+        Returns:
+            Unchanged frame placeholder.
+        """
+        return frame
+
+    def transform(self, frame: object) -> object:
+        """Return the input frame unchanged.
+
+        Args:
+            frame: Frame placeholder.
+
+        Returns:
+            Unchanged frame placeholder.
+        """
+        return frame
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -127,6 +169,151 @@ def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         env=env,
     )
+
+
+def _load_train_sequence_gru_module() -> ModuleType:
+    """Load the GRU training CLI module from the scripts directory.
+
+    Returns:
+        Imported CLI module.
+    """
+    project_root = Path(__file__).parent.parent.parent
+    module_path = project_root / "scripts" / "train_sequence_gru.py"
+    spec = importlib.util.spec_from_file_location(
+        "train_sequence_gru_test_module",
+        module_path,
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_train_sequence_gru_cli_seeds_model_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CLI seeds torch before constructing the GRU model."""
+    module = _load_train_sequence_gru_module()
+    seed = 123
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path / "raw",
+            processed_dir=tmp_path / "processed",
+            interim_dir=tmp_path / "interim",
+            random_seed=seed,
+        ),
+        sequence=SequenceConfig(
+            architecture="gru",
+            window_size=3,
+            batch_size=4,
+            hidden_size=4,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+            artifact_dir=tmp_path / "artifacts",
+        ),
+    )
+    captured_state: dict[str, torch.Tensor] = {}
+
+    def fake_train_gru_model(
+        *,
+        model: GRURULRegressor,
+        train_loader: object,
+        validation_final_loader: object,
+        validation_windows_loader: object,
+        config: SequenceConfig,
+        device: torch.device,
+        random_seed: int,
+    ) -> TrainingResult:
+        del train_loader
+        del validation_final_loader
+        del validation_windows_loader
+        del config
+        del device
+        del random_seed
+        captured_state.update(
+            {
+                name: value.detach().clone()
+                for name, value in model.state_dict().items()
+            }
+        )
+        return TrainingResult(
+            model=model,
+            history=pd.DataFrame([{"epoch": 1}]),
+            best_epoch=1,
+            best_metric=0.0,
+        )
+
+    def fake_torch_save(payload: object, path: Path) -> None:
+        del payload
+        del path
+
+    monkeypatch.setattr(
+        module,
+        "_parse_args",
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+    )
+    monkeypatch.setattr(module, "load_config", lambda path: cfg)
+    monkeypatch.setattr(
+        module,
+        "resolve_device",
+        lambda requested: torch.device("cpu"),
+    )
+    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(
+        module,
+        "split_by_engine",
+        lambda frame, test_size, random_seed: (frame, frame),
+    )
+    monkeypatch.setattr(module, "SequenceNormalizer", _FakeNormalizer)
+    monkeypatch.setattr(
+        module,
+        "build_sliding_windows",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_final_windows",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_sequence_loader",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(module, "train_gru_model", fake_train_gru_model)
+    monkeypatch.setattr(
+        module,
+        "_evaluate_windows",
+        lambda *args, **kwargs: (
+            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            pd.DataFrame(),
+        ),
+    )
+    monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "create_run_dir", lambda artifact_dir, name: tmp_path)
+    monkeypatch.setattr(module, "save_json", lambda payload, path: None)
+    monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
+    monkeypatch.setattr(module.torch, "save", fake_torch_save)
+
+    torch.manual_seed(999)
+    module.main()
+
+    torch.manual_seed(seed)
+    expected = GRURULRegressor(
+        input_size=2,
+        hidden_size=cfg.sequence.hidden_size,
+        num_layers=cfg.sequence.num_layers,
+        dropout=cfg.sequence.dropout,
+    ).state_dict()
+    assert captured_state
+    for name, value in expected.items():
+        assert torch.equal(captured_state[name], value)
 
 
 def test_train_sequence_gru_cli_writes_artifacts_with_official_test(

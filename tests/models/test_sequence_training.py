@@ -104,6 +104,21 @@ class _BiasRegressor(torch.nn.Module):
         return self.bias.expand(features.shape[0])
 
 
+class _NegativeRegressor(torch.nn.Module):
+    """Fixed-output regressor that emits negative RUL predictions."""
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Return negative predictions for every sequence window.
+
+        Args:
+            features: Sequence feature batch.
+
+        Returns:
+            One negative prediction per sequence window.
+        """
+        return torch.full((features.shape[0],), -5.0, dtype=torch.float32)
+
+
 def test_resolve_device_cpu_returns_cpu_device() -> None:
     """CPU device resolution returns a torch CPU device."""
     device = resolve_device("cpu")
@@ -146,6 +161,19 @@ def test_evaluate_loader_keeps_predictions_and_targets_paired() -> None:
     metrics = _evaluate_loader(model, loader, torch.device("cpu"))
 
     assert metrics["rmse"] == 0.0
+
+
+def test_evaluate_loader_clips_negative_predictions_before_metrics() -> None:
+    """Evaluation clips impossible negative RUL predictions before metrics."""
+    targets = torch.tensor([2.0, 4.0], dtype=torch.float32)
+    features = torch.zeros((2, 1, 1), dtype=torch.float32)
+    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    model = _NegativeRegressor()
+
+    metrics = _evaluate_loader(model, loader, torch.device("cpu"))
+
+    assert metrics["rmse"] == pytest.approx(np.sqrt(10.0))
+    assert metrics["mae"] == pytest.approx(3.0)
 
 
 def test_train_gru_model_returns_result_with_expected_history() -> None:

@@ -79,7 +79,7 @@ def train_gru_model(
     Returns:
         Training result containing the best restored model and metric history.
     """
-    _seed_everything(random_seed)
+    seed_everything(random_seed)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     criterion = nn.MSELoss()
@@ -173,7 +173,12 @@ def _predict_windows_and_targets(
     )
 
 
-def _seed_everything(random_seed: int) -> None:
+def seed_everything(random_seed: int) -> None:
+    """Seed Python, NumPy, and torch random generators.
+
+    Args:
+        random_seed: Seed applied to all supported random generators.
+    """
     random.seed(random_seed)
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)

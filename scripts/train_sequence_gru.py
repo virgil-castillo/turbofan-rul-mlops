@@ -18,6 +18,7 @@ from turbofan.models.metrics import regression_metrics
 from turbofan.models.sequence_training import (
     predict_windows,
     resolve_device,
+    seed_everything,
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
@@ -274,6 +275,7 @@ def main() -> None:
         shuffle=False,
     )
 
+    seed_everything(cfg.data.random_seed)
     model = GRURULRegressor(
         input_size=len(feature_cols),
         hidden_size=cfg.sequence.hidden_size,
