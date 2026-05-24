@@ -5,8 +5,23 @@ from typing import Literal
 
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
 
 from turbofan.features.pipeline import build_feature_pipeline
+
+
+def _drop_identifier_columns(X: object) -> object:
+    """Remove identifier columns that should not be model features.
+
+    Args:
+        X: Feature matrix after feature engineering.
+
+    Returns:
+        Feature matrix without arbitrary row identifier columns.
+    """
+    if hasattr(X, "drop"):
+        return X.drop(columns=["engine_id"], errors="ignore")
+    return X
 
 
 def build_baseline_pipeline(
@@ -24,7 +39,8 @@ def build_baseline_pipeline(
         op_cols: Operational setting columns for normalization.
 
     Returns:
-        Unfitted sklearn Pipeline with ``features`` and ``model`` steps.
+        Unfitted sklearn Pipeline with feature engineering, identifier
+        dropping, and model steps.
 
     Raises:
         ValueError: If ``model_name`` is unsupported.
@@ -34,6 +50,10 @@ def build_baseline_pipeline(
     return Pipeline(
         [
             ("features", build_feature_pipeline(windows=windows, op_cols=op_cols)),
+            (
+                "drop_identifiers",
+                FunctionTransformer(_drop_identifier_columns, validate=False),
+            ),
             ("model", Ridge(alpha=alpha)),
         ]
     )

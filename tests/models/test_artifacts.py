@@ -25,6 +25,16 @@ def test_create_run_dir_uses_timestamp_and_run_name(tmp_path: Path) -> None:
     assert path.exists()
 
 
+def test_create_run_dir_uses_suffix_on_collision(tmp_path: Path) -> None:
+    """Run directory creation is collision-safe for same-second runs."""
+    timestamp = datetime(2026, 5, 24, 12, 30, 5, tzinfo=UTC)
+    first = create_run_dir(tmp_path, "baseline", timestamp=timestamp)
+    second = create_run_dir(tmp_path, "baseline", timestamp=timestamp)
+    assert first == tmp_path / "baseline" / "20260524-123005"
+    assert second == tmp_path / "baseline" / "20260524-123005-001"
+    assert second.exists()
+
+
 def test_save_model_round_trip(tmp_path: Path) -> None:
     """Saved joblib model can be loaded again."""
     model = Ridge().fit([[0.0], [1.0]], [0.0, 1.0])

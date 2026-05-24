@@ -34,10 +34,10 @@ def _make_df() -> tuple[pd.DataFrame, pd.Series]:
 
 
 def test_build_baseline_pipeline_named_steps() -> None:
-    """Baseline pipeline exposes features and model steps."""
+    """Baseline pipeline exposes expected named steps."""
     pipe = build_baseline_pipeline()
     assert isinstance(pipe, Pipeline)
-    assert list(pipe.named_steps) == ["features", "model"]
+    assert list(pipe.named_steps) == ["features", "drop_identifiers", "model"]
 
 
 def test_default_model_is_ridge() -> None:
@@ -62,6 +62,17 @@ def test_pipeline_can_fit_and_predict() -> None:
     preds = pipe.predict(X)
     assert len(preds) == len(y)
     assert not np.isnan(preds).any()
+
+
+def test_pipeline_drops_engine_id_before_model() -> None:
+    """Arbitrary engine identifiers are not passed into Ridge."""
+    X, y = _make_df()
+    pipe = build_baseline_pipeline(windows=[3])
+    pipe.fit(X, y)
+    model = pipe.named_steps["model"]
+    assert isinstance(model, Ridge)
+    assert "engine_id" not in model.feature_names_in_
+    assert "cycle" in model.feature_names_in_
 
 
 def test_unknown_model_name_raises() -> None:

@@ -6,6 +6,46 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
+import pytest
+
+from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+
+
+def _load_train_baseline_module(project_root: Path) -> ModuleType:
+    """Load the train_baseline script as a module for helper testing."""
+    import importlib.util
+
+    script_path = project_root / "scripts" / "train_baseline.py"
+    spec = importlib.util.spec_from_file_location("train_baseline", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load script module from {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class RecordingEstimator:
+    """Estimator that records prediction input length."""
+
+    def __init__(self) -> None:
+        self.seen_rows = 0
+
+    def predict(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
+        """Return row-position predictions for inspection.
+
+        Args:
+            X: Feature rows.
+
+        Returns:
+            Increasing float predictions.
+        """
+        self.seen_rows = len(X)
+        return np.arange(len(X), dtype=np.float64)
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -76,3 +116,45 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert "validation" in metrics
     assert "official_test" in metrics
     assert set(metrics["validation"]) == {"rmse", "mae", "phm08_score"}
+
+
+def test_official_eval_predicts_full_trajectory_before_final_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Official evaluation preserves full trajectory context for rolling features."""
+    project_root = Path(__file__).parent.parent.parent
+    module = _load_train_baseline_module(project_root)
+    test_raw = pd.DataFrame(
+        {
+            "engine_id": [1, 1, 1, 2, 2],
+            "cycle": [1, 2, 3, 1, 2],
+            "op_1": [0.0] * 5,
+            "op_2": [0.0] * 5,
+            "op_3": [0.0] * 5,
+            "s_1": [1.0, 2.0, 3.0, 10.0, 20.0],
+        }
+    )
+    monkeypatch.setattr(module, "load_raw_test", lambda cfg: test_raw)
+    monkeypatch.setattr(
+        module,
+        "load_rul_labels",
+        lambda cfg: pd.Series([10.0, 20.0], name="rul"),
+    )
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path,
+            processed_dir=tmp_path,
+            interim_dir=tmp_path,
+        ),
+        model=ModelConfig(),
+    )
+    estimator = RecordingEstimator()
+
+    _, predictions = module._evaluate_official_test(cfg, estimator)
+
+    assert estimator.seen_rows == len(test_raw)
+    assert list(predictions["engine_id"]) == [1, 2]
+    assert list(predictions["cycle"]) == [3, 2]
+    assert list(predictions["prediction"]) == [2.0, 4.0]

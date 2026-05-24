@@ -27,9 +27,17 @@ def create_run_dir(
         Created run directory path.
     """
     ts = timestamp if timestamp is not None else datetime.now(tz=UTC)
-    run_dir = artifact_dir / run_name / ts.strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=False)
-    return run_dir
+    base_dir = artifact_dir / run_name / ts.strftime("%Y%m%d-%H%M%S")
+    run_dir = base_dir
+    suffix = 1
+    while True:
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            run_dir = base_dir.with_name(f"{base_dir.name}-{suffix:03d}")
+            suffix += 1
+        else:
+            return run_dir
 
 
 def save_model(estimator: BaseEstimator, path: Path) -> Path:
