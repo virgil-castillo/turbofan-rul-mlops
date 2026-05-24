@@ -161,6 +161,8 @@ def main() -> None:
             official_predictions,
             run_dir / "official_test_predictions.csv",
         )
+    else:
+        print("official test evaluation skipped: test or RUL files not found")
 
     save_model(estimator, run_dir / "model.joblib")
     save_json(metrics_payload, run_dir / "metrics.json")

@@ -178,9 +178,11 @@ def build_baseline_pipeline(
     """Build an unfitted feature-plus-regressor sklearn Pipeline."""
 ```
 
-The returned pipeline has two named steps:
+The returned pipeline has three named steps:
 
 - `"features"`: the existing `build_feature_pipeline(windows, op_cols)`
+- `"drop_identifiers"`: removes arbitrary row identifier columns such as
+  `engine_id` before fitting the estimator
 - `"model"`: `Ridge(alpha=alpha)`
 
 The design deliberately keeps the first model simple. A stronger sklearn
@@ -302,9 +304,11 @@ or network access is required.
 - `regression_metrics()` returns `rmse`, `mae`, and `phm08_score`
 
 **`tests/models/test_baseline.py`**
-- `build_baseline_pipeline()` returns named steps `features` and `model`
+- `build_baseline_pipeline()` returns named steps `features`,
+  `drop_identifiers`, and `model`
 - default model is `Ridge`
 - synthetic training data can fit and predict without NaNs
+- arbitrary `engine_id` identifiers are not passed into Ridge
 - unknown model names raise `ValueError`
 
 **`tests/models/test_evaluate.py`**

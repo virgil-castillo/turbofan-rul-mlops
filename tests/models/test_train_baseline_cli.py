@@ -118,6 +118,55 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert set(metrics["validation"]) == {"rmse", "mae", "phm08_score"}
 
 
+def test_train_baseline_cli_skips_missing_official_test(
+    tmp_path: Path,
+) -> None:
+    """CLI trains validation model when official test files are absent."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "project_name: test",
+                "data:",
+                f"  raw_dir: {raw_dir.as_posix()}",
+                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
+                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
+                "  fd_subset: FD001",
+                "  max_rul: 30",
+                "  test_size: 0.25",
+                "  random_seed: 42",
+                "model:",
+                "  name: ridge",
+                "  alpha: 1.0",
+                f"  artifact_dir: {artifact_dir.as_posix()}",
+            ]
+        )
+    )
+
+    project_root = Path(__file__).parent.parent.parent
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+    result = subprocess.run(
+        [sys.executable, "scripts/train_baseline.py", "--config", str(cfg_path)],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert "official test evaluation skipped" in result.stdout
+    run_dir = next((artifact_dir / "baseline").iterdir())
+    assert not (run_dir / "official_test_predictions.csv").exists()
+    metrics = json.loads((run_dir / "metrics.json").read_text())
+    assert set(metrics) == {"validation"}
+
+
 def test_official_eval_predicts_full_trajectory_before_final_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
