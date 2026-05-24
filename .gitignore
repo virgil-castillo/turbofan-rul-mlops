@@ -43,6 +43,9 @@ outputs/*
 !outputs/figures/.gitkeep
 !outputs/logs/.gitkeep
 
+# Model artifacts
+artifacts/
+
 # MLflow
 mlruns/
 mlartifacts/

@@ -8,3 +8,8 @@ data:
   max_rul: 125
   test_size: 0.2
   random_seed: 42
+
+model:
+  name: ridge
+  alpha: 1.0
+  artifact_dir: artifacts/models

@@ -30,16 +30,32 @@ class DataConfig(BaseModel):
     random_seed: int = 42
 
 
+class ModelConfig(BaseModel):
+    """Configuration for baseline model training.
+
+    Args:
+        name: Baseline model identifier.
+        alpha: Ridge regularization strength.
+        artifact_dir: Directory for local run artifacts.
+    """
+
+    name: Literal["ridge"] = "ridge"
+    alpha: float = Field(default=1.0, gt=0.0)
+    artifact_dir: Path = Path("artifacts/models")
+
+
 class ProjectConfig(BaseModel):
     """Top-level project configuration.
 
     Args:
         project_name: Human-readable project name.
         data: Data layer configuration.
+        model: Baseline model training configuration.
     """
 
     project_name: str
     data: DataConfig
+    model: ModelConfig = Field(default_factory=ModelConfig)
 
 
 def load_config(path: Path) -> ProjectConfig:

@@ -144,3 +144,82 @@ def test_load_default_config() -> None:
     assert cfg.project_name == "turbofan-rul-mlops"
     assert cfg.data.fd_subset == "FD001"
     assert cfg.data.max_rul == 125
+
+
+def test_model_config_defaults_when_section_omitted(tmp_path: Path) -> None:
+    """Model config has stable defaults when omitted from YAML."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.model.name == "ridge"
+    assert cfg.model.alpha == 1.0
+    assert cfg.model.artifact_dir == Path("artifacts/models")
+
+
+def test_model_config_loads_custom_values(tmp_path: Path) -> None:
+    """Model config accepts configured baseline values."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "model": {
+                "name": "ridge",
+                "alpha": 2.5,
+                "artifact_dir": "artifacts/custom",
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.model.name == "ridge"
+    assert cfg.model.alpha == 2.5
+    assert cfg.model.artifact_dir == Path("artifacts/custom")
+
+
+def test_invalid_model_name_raises(tmp_path: Path) -> None:
+    """Unsupported model name raises ValidationError."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "model": {"name": "neural-net"},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
+def test_invalid_model_alpha_raises(tmp_path: Path) -> None:
+    """Ridge alpha must be positive."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "model": {"alpha": 0.0},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
