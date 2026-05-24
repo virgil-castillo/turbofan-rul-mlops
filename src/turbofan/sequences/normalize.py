@@ -67,6 +67,7 @@ class SequenceNormalizer:
             raise RuntimeError("SequenceNormalizer must be fit before transform.")
         self._validate_columns(df)
         result = df.copy()
+        result[self.feature_cols] = result[self.feature_cols].astype("float64")
         result.loc[:, self.feature_cols] = (
             result.loc[:, self.feature_cols] - self.means_
         ) / self.stds_

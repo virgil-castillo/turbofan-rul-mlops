@@ -1,6 +1,8 @@
 """Tests for turbofan.sequences.normalize."""
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -68,6 +70,28 @@ def test_transform_uses_training_statistics_for_validation_rows() -> None:
     result = normalizer.transform(validation)
 
     assert result["op_1"].tolist() == [3.0, 5.0]
+
+
+def test_transform_with_integer_features_returns_floats_without_warning() -> None:
+    """Transform safely normalizes integer feature columns to floats."""
+    train = pd.DataFrame({"op_1": [1, 4], "s_1": [10, 15]})
+    validation = pd.DataFrame({"op_1": [5, 7], "s_1": [18, 22]})
+    normalizer = SequenceNormalizer(feature_cols=["op_1", "s_1"]).fit(train)
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        result = normalizer.transform(validation)
+
+    future_warnings = [
+        warning
+        for warning in caught_warnings
+        if issubclass(warning.category, FutureWarning)
+    ]
+    assert future_warnings == []
+    assert result["op_1"].tolist() == pytest.approx([5.0 / 3.0, 3.0])
+    assert result["s_1"].tolist() == pytest.approx([2.2, 3.8])
+    assert pd.api.types.is_float_dtype(result["op_1"])
+    assert pd.api.types.is_float_dtype(result["s_1"])
 
 
 def test_fit_missing_feature_column_raises_key_error() -> None:
