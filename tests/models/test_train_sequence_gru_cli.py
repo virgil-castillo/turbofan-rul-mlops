@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from csv import DictReader
 from pathlib import Path
 
 
@@ -18,6 +19,26 @@ def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
     """
     lines = []
     for engine_id in range(1, n_engines + 1):
+        for cycle in range(1, n_cycles + 1):
+            op_cols = [0.0, 0.0, 0.0]
+            sensors = [
+                float((engine_id * 0.1) + (cycle * 0.2) + sensor_idx)
+                for sensor_idx in range(1, 22)
+            ]
+            values = [engine_id, cycle, *op_cols, *sensors]
+            lines.append(" ".join(str(value) for value in values))
+    path.write_text("\n".join(lines))
+
+
+def _write_cmapps_file_by_cycles(path: Path, cycles_by_engine: dict[int, int]) -> None:
+    """Write a small C-MAPSS-style file with per-engine cycle counts.
+
+    Args:
+        path: Destination file path.
+        cycles_by_engine: Mapping from engine ID to number of cycles.
+    """
+    lines = []
+    for engine_id, n_cycles in cycles_by_engine.items():
         for cycle in range(1, n_cycles + 1):
             op_cols = [0.0, 0.0, 0.0]
             sensors = [
@@ -70,6 +91,20 @@ def _write_config(
             ]
         )
     )
+
+
+def _assert_metric_keys(metrics: dict[str, object], section: str) -> None:
+    """Assert a metrics section contains the expected regression metrics.
+
+    Args:
+        metrics: Metrics payload loaded from JSON.
+        section: Top-level metric section name.
+    """
+    assert set(metrics[section]) == {
+        "rmse",
+        "mae",
+        "phm08_score",
+    }
 
 
 def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
@@ -128,11 +163,39 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
         "validation_windows",
         "official_test",
     }
-    assert set(metrics["validation_final_window"]) == {
-        "rmse",
-        "mae",
-        "phm08_score",
-    }
+    _assert_metric_keys(metrics, "validation_final_window")
+    _assert_metric_keys(metrics, "validation_windows")
+    _assert_metric_keys(metrics, "official_test")
+
+
+def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
+    tmp_path: Path,
+) -> None:
+    """Official test labels align to eligible final-window test engines only."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
+    _write_cmapps_file_by_cycles(raw_dir / "test_FD001.txt", {1: 2, 2: 5})
+    (raw_dir / "RUL_FD001.txt").write_text("11\n22\n")
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
+
+    _run_cli(cfg_path)
+
+    run_dir = next((artifact_dir / "sequence_gru").iterdir())
+    with (run_dir / "official_test_predictions.csv").open(newline="") as csv_file:
+        rows = list(DictReader(csv_file))
+
+    assert len(rows) == 1
+    assert rows[0]["engine_id"] == "2"
+    assert rows[0]["rul"] == "22.0"
+
+    metrics = json.loads((run_dir / "metrics.json").read_text())
+    _assert_metric_keys(metrics, "validation_final_window")
+    _assert_metric_keys(metrics, "validation_windows")
+    _assert_metric_keys(metrics, "official_test")
 
 
 def test_train_sequence_gru_cli_skips_missing_official_test(
@@ -155,3 +218,5 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation_final_window", "validation_windows"}
+    _assert_metric_keys(metrics, "validation_final_window")
+    _assert_metric_keys(metrics, "validation_windows")
