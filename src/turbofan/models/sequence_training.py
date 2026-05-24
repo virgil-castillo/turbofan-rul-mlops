@@ -142,20 +142,35 @@ def predict_windows(
     Returns:
         One-dimensional float64 array with one prediction per input window.
     """
+    predictions, _ = _predict_windows_and_targets(model, loader, device)
+    return predictions
+
+
+def _predict_windows_and_targets(
+    model: nn.Module,
+    loader: SequenceLoader,
+    device: torch.device,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     was_training = model.training
     model.eval()
     predictions: list[npt.NDArray[np.float64]] = []
+    targets: list[npt.NDArray[np.float64]] = []
     with torch.no_grad():
-        for features, _ in loader:
+        for features, batch_targets in loader:
             batch_predictions = model(features.to(device))
             predictions.append(
                 batch_predictions.detach().cpu().numpy().astype(np.float64)
             )
+            targets.append(batch_targets.detach().cpu().numpy().astype(np.float64))
     if was_training:
         model.train()
     if not predictions:
-        return np.asarray([], dtype=np.float64)
-    return np.concatenate(predictions).astype(np.float64)
+        empty = np.asarray([], dtype=np.float64)
+        return empty, empty
+    return (
+        np.concatenate(predictions).astype(np.float64),
+        np.concatenate(targets).astype(np.float64),
+    )
 
 
 def _seed_everything(random_seed: int) -> None:
@@ -204,15 +219,6 @@ def _evaluate_loader(
     loader: SequenceLoader,
     device: torch.device,
 ) -> dict[str, float]:
-    predictions = np.clip(predict_windows(model, loader, device), 0.0, None)
-    targets = _collect_targets(loader)
+    predictions, targets = _predict_windows_and_targets(model, loader, device)
+    predictions = np.clip(predictions, 0.0, None)
     return regression_metrics(targets, predictions)
-
-
-def _collect_targets(loader: SequenceLoader) -> npt.NDArray[np.float64]:
-    targets: list[npt.NDArray[np.float64]] = []
-    for _, batch_targets in loader:
-        targets.append(batch_targets.detach().cpu().numpy().astype(np.float64))
-    if not targets:
-        return np.asarray([], dtype=np.float64)
-    return np.concatenate(targets).astype(np.float64)
