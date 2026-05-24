@@ -112,7 +112,22 @@ def test_missing_required_feature_or_target_columns_raise_key_error() -> None:
         build_sliding_windows(_df().drop(columns=["rul"]), FEATURE_COLS, 2)
 
 
+def test_missing_engine_id_column_raises_key_error() -> None:
+    """Missing engine identifier column raises KeyError."""
+    with pytest.raises(KeyError, match="engine_id"):
+        build_sliding_windows(_df().drop(columns=["engine_id"]), FEATURE_COLS, 2)
+
+
+def test_missing_cycle_column_raises_key_error() -> None:
+    """Missing cycle column raises KeyError."""
+    with pytest.raises(KeyError, match="cycle"):
+        build_sliding_windows(_df().drop(columns=["cycle"]), FEATURE_COLS, 2)
+
+
 def test_window_size_must_be_positive() -> None:
     """Non-positive window sizes raise ValueError."""
     with pytest.raises(ValueError, match="window_size"):
         build_final_windows(_df(), FEATURE_COLS, window_size=0)
+
+    with pytest.raises(ValueError, match="window_size"):
+        build_final_windows(_df(), FEATURE_COLS, window_size=-1)
