@@ -51,30 +51,34 @@ class RollingFeatureExtractor(BaseEstimator, TransformerMixin):  # type: ignore[
         Returns:
             DataFrame with original columns plus rolling features.
         """
-        result = X.copy()
+        feature_columns: dict[str, pd.Series] = {}
         for window in self.windows:
             for col in self.sensor_cols_:
                 grp = X.groupby("engine_id")[col]
-                result[f"{col}_rmean_{window}"] = grp.transform(
+                feature_columns[f"{col}_rmean_{window}"] = grp.transform(
                     lambda s: s.rolling(
                         window, min_periods=1
                     ).mean()
                 )
-                result[f"{col}_rstd_{window}"] = (
+                feature_columns[f"{col}_rstd_{window}"] = (
                     grp.transform(
                         lambda s: s.rolling(
                             window, min_periods=1
                         ).std()
                     ).fillna(0.0)
                 )
-                result[f"{col}_rmin_{window}"] = grp.transform(
+                feature_columns[f"{col}_rmin_{window}"] = grp.transform(
                     lambda s: s.rolling(
                         window, min_periods=1
                     ).min()
                 )
-                result[f"{col}_rmax_{window}"] = grp.transform(
+                feature_columns[f"{col}_rmax_{window}"] = grp.transform(
                     lambda s: s.rolling(
                         window, min_periods=1
                     ).max()
                 )
-        return result
+        if not feature_columns:
+            return X.copy()
+
+        features = pd.DataFrame(feature_columns, index=X.index)
+        return pd.concat([X.copy(), features], axis=1)

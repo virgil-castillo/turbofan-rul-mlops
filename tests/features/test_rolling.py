@@ -1,6 +1,8 @@
 """Tests for turbofan.features.rolling."""
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -97,3 +99,23 @@ def test_original_columns_preserved() -> None:
     pd.testing.assert_series_equal(
         result["s_1"], df["s_1"], check_names=True
     )
+
+
+def test_transform_does_not_fragment_dataframe() -> None:
+    """Rolling features are added without pandas fragmentation warnings."""
+    sensor_data = {
+        f"s_{sensor_idx}": [float(sensor_idx + cycle) for cycle in range(5)]
+        for sensor_idx in range(1, 31)
+    }
+    df = pd.DataFrame(
+        {
+            "engine_id": [1, 1, 1, 1, 1],
+            "cycle": [1, 2, 3, 4, 5],
+            **sensor_data,
+        }
+    )
+    ext = RollingFeatureExtractor(windows=[3])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", pd.errors.PerformanceWarning)
+        ext.fit_transform(df)
