@@ -128,6 +128,16 @@ def test_default_ridge_alpha_is_conservative() -> None:
     assert model.alpha == 100.0
 
 
+def test_default_baseline_uses_final_phm08_feature_selection() -> None:
+    """Default baseline uses the PHM08-selected rolling window."""
+    pipe = build_baseline_pipeline()
+    selector = pipe.named_steps["select_model_features"]
+    rolling = pipe.named_steps["features"].named_steps["rolling_features"]
+
+    assert selector.feature_set == "rolling"
+    assert rolling.windows == [10]
+
+
 def test_configures_sensor_std_threshold() -> None:
     """Sensor std threshold is passed into the feature pipeline."""
     pipe = build_baseline_pipeline(sensor_std_threshold=0.01)
@@ -217,7 +227,8 @@ def test_pipeline_drops_identifier_columns_before_model() -> None:
     }
 
     assert forbidden_cols.isdisjoint(Xt.columns)
-    assert {"s_1", "s_3"}.issubset(Xt.columns)
+    assert "s_1" not in Xt.columns
+    assert "s_1_rmean_3" in Xt.columns
 
 
 def test_raw_feature_set_exposes_only_raw_sensor_features() -> None:

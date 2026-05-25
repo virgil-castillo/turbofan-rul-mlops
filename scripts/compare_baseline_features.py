@@ -223,7 +223,7 @@ def run_feature_comparison(
         n_jobs: Parallel job count for independent experiments.
 
     Returns:
-        Results sorted by validation RMSE.
+        Results sorted by validation PHM08 score.
 
     Raises:
         ValueError: If inputs are invalid.
@@ -257,7 +257,7 @@ def run_feature_comparison(
         )
         for spec in specs
     )
-    return pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
+    return pd.DataFrame(rows).sort_values("phm08_score").reset_index(drop=True)
 
 
 def main() -> None:

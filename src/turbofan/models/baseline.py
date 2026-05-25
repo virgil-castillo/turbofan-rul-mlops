@@ -14,6 +14,7 @@ from turbofan.features.pipeline import build_feature_pipeline
 
 BaselineFeatureSet = Literal["raw", "raw_plus_rolling", "rolling"]
 ROLLING_MARKERS = ("_rmean_", "_rstd_", "_rmin_", "_rmax_")
+DEFAULT_BASELINE_WINDOWS = (10,)
 
 
 def _is_rolling_feature(column: str) -> bool:
@@ -163,7 +164,7 @@ def build_baseline_pipeline(
     op_cols: list[str] | None = None,
     sensor_std_threshold: float = 0.0,
     sensor_keep: list[str] | None = None,
-    feature_set: BaselineFeatureSet = "raw_plus_rolling",
+    feature_set: BaselineFeatureSet = "rolling",
 ) -> Pipeline:
     """Build an unfitted feature-plus-regressor sklearn Pipeline.
 
@@ -171,6 +172,7 @@ def build_baseline_pipeline(
         model_name: Baseline model identifier. Only ``"ridge"`` is supported.
         alpha: Ridge regularization strength.
         windows: Rolling window sizes for the feature pipeline.
+            Default ``[10]`` for the PHM08-selected baseline.
         op_cols: Operational setting columns for normalization.
         sensor_std_threshold: Maximum training standard deviation at
             which sensor columns are dropped.
@@ -188,12 +190,15 @@ def build_baseline_pipeline(
         raise ValueError(f"Unsupported model: {model_name}")
     if feature_set not in {"raw", "raw_plus_rolling", "rolling"}:
         raise ValueError(f"Unsupported feature_set: {feature_set}")
+    effective_windows = (
+        list(DEFAULT_BASELINE_WINDOWS) if windows is None else windows
+    )
     return Pipeline(
         [
             (
                 "features",
                 build_feature_pipeline(
-                    windows=windows,
+                    windows=effective_windows,
                     op_cols=op_cols,
                     sensor_std_threshold=sensor_std_threshold,
                     sensor_keep=sensor_keep,

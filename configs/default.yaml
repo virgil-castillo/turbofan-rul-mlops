@@ -16,6 +16,9 @@ features:
 model:
   name: ridge
   alpha: 100.0
+  feature_set: rolling
+  windows:
+    - 10
   artifact_dir: artifacts/models
 
 sequence:

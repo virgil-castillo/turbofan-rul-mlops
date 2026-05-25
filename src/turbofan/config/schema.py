@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, Field
+
+PositiveWindow = Annotated[int, Field(gt=0)]
 
 
 class DataConfig(BaseModel):
@@ -49,11 +51,15 @@ class ModelConfig(BaseModel):
     Args:
         name: Baseline model identifier.
         alpha: Ridge regularization strength.
+        feature_set: Sensor-derived feature family for the baseline estimator.
+        windows: Rolling window sizes for baseline feature engineering.
         artifact_dir: Directory for local run artifacts.
     """
 
     name: Literal["ridge"] = "ridge"
     alpha: float = Field(default=100.0, gt=0.0)
+    feature_set: Literal["raw", "raw_plus_rolling", "rolling"] = "rolling"
+    windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
     artifact_dir: Path = Path("artifacts/models")
 
 

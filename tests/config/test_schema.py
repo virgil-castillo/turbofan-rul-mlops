@@ -150,6 +150,8 @@ def test_load_default_config() -> None:
     assert cfg.inference.allow_partial is False
     assert cfg.features.sensor_std_threshold == 0.01
     assert cfg.features.sensor_keep == []
+    assert cfg.model.feature_set == "rolling"
+    assert cfg.model.windows == [10]
 
 
 def test_feature_config_defaults_when_section_omitted(tmp_path: Path) -> None:
@@ -240,6 +242,8 @@ def test_model_config_defaults_when_section_omitted(tmp_path: Path) -> None:
     cfg = load_config(cfg_file)
     assert cfg.model.name == "ridge"
     assert cfg.model.alpha == 100.0
+    assert cfg.model.feature_set == "rolling"
+    assert cfg.model.windows == [10]
     assert cfg.model.artifact_dir == Path("artifacts/models")
 
 
@@ -257,6 +261,8 @@ def test_model_config_loads_custom_values(tmp_path: Path) -> None:
             "model": {
                 "name": "ridge",
                 "alpha": 2.5,
+                "feature_set": "raw_plus_rolling",
+                "windows": [5, 20],
                 "artifact_dir": "artifacts/custom",
             },
         },
@@ -264,6 +270,8 @@ def test_model_config_loads_custom_values(tmp_path: Path) -> None:
     cfg = load_config(cfg_file)
     assert cfg.model.name == "ridge"
     assert cfg.model.alpha == 2.5
+    assert cfg.model.feature_set == "raw_plus_rolling"
+    assert cfg.model.windows == [5, 20]
     assert cfg.model.artifact_dir == Path("artifacts/custom")
 
 
@@ -297,6 +305,42 @@ def test_invalid_model_alpha_raises(tmp_path: Path) -> None:
                 "interim_dir": "data/interim",
             },
             "model": {"alpha": 0.0},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
+def test_invalid_model_feature_set_raises(tmp_path: Path) -> None:
+    """Unsupported baseline feature sets are rejected."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "model": {"feature_set": "ops"},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
+def test_invalid_model_window_raises(tmp_path: Path) -> None:
+    """Baseline rolling windows must be positive."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "model": {"windows": [0]},
         },
     )
     with pytest.raises(ValidationError):

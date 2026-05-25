@@ -174,4 +174,4 @@ def test_compare_baseline_features_cli_writes_csv(tmp_path: Path) -> None:
     assert "feature_set" in result.stdout
     results = pd.read_csv(output_path)
     assert len(results) == 3
-    assert results["rmse"].is_monotonic_increasing
+    assert results["phm08_score"].is_monotonic_increasing

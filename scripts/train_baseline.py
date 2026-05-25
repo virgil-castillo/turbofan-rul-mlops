@@ -198,6 +198,8 @@ def main() -> None:
     estimator = build_baseline_pipeline(
         model_name=cfg.model.name,
         alpha=cfg.model.alpha,
+        windows=cfg.model.windows,
+        feature_set=cfg.model.feature_set,
         sensor_std_threshold=cfg.features.sensor_std_threshold,
         sensor_keep=cfg.features.sensor_keep,
     )
