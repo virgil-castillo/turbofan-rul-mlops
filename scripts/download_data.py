@@ -7,6 +7,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +80,14 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
     if result.returncode != 0:
         print("\nDownload failed. Check your Kaggle API credentials and connection.")
         sys.exit(1)
+
+    # Flatten directory structure if files extracted to subdirectory
+    cmaps_dir = raw_dir / "CMaps"
+    if cmaps_dir.exists():
+        for txt_file in cmaps_dir.glob("*.txt"):
+            shutil.move(str(txt_file), str(raw_dir / txt_file.name))
+        shutil.rmtree(cmaps_dir)
+
     print("Download complete.\n")
 
 
