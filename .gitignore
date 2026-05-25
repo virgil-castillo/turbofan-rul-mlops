@@ -52,3 +52,5 @@ mlartifacts/
 
 # Claude Code
 .claude/
+
+.ipynb_checkpoints/
