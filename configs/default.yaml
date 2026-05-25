@@ -9,6 +9,10 @@ data:
   test_size: 0.2
   random_seed: 42
 
+features:
+  sensor_std_threshold: 0.01
+  sensor_keep: []
+
 model:
   name: ridge
   alpha: 1.0

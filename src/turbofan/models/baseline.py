@@ -29,6 +29,8 @@ def build_baseline_pipeline(
     alpha: float = 1.0,
     windows: list[int] | None = None,
     op_cols: list[str] | None = None,
+    sensor_std_threshold: float = 0.0,
+    sensor_keep: list[str] | None = None,
 ) -> Pipeline:
     """Build an unfitted feature-plus-regressor sklearn Pipeline.
 
@@ -37,6 +39,9 @@ def build_baseline_pipeline(
         alpha: Ridge regularization strength.
         windows: Rolling window sizes for the feature pipeline.
         op_cols: Operational setting columns for normalization.
+        sensor_std_threshold: Maximum training standard deviation at
+            which sensor columns are dropped.
+        sensor_keep: Sensor columns to force-keep even when low-variance.
 
     Returns:
         Unfitted sklearn Pipeline with feature engineering, identifier
@@ -49,7 +54,15 @@ def build_baseline_pipeline(
         raise ValueError(f"Unsupported model: {model_name}")
     return Pipeline(
         [
-            ("features", build_feature_pipeline(windows=windows, op_cols=op_cols)),
+            (
+                "features",
+                build_feature_pipeline(
+                    windows=windows,
+                    op_cols=op_cols,
+                    sensor_std_threshold=sensor_std_threshold,
+                    sensor_keep=sensor_keep,
+                ),
+            ),
             (
                 "drop_identifiers",
                 FunctionTransformer(_drop_identifier_columns, validate=False),

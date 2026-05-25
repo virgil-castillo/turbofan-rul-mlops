@@ -30,6 +30,19 @@ class DataConfig(BaseModel):
     random_seed: int = 42
 
 
+class FeatureConfig(BaseModel):
+    """Configuration for feature engineering.
+
+    Args:
+        sensor_std_threshold: Maximum training standard deviation at which
+            sensor columns are dropped.
+        sensor_keep: Sensor columns to force-keep even when low-variance.
+    """
+
+    sensor_std_threshold: float = Field(default=0.0, ge=0.0)
+    sensor_keep: list[str] = Field(default_factory=list)
+
+
 class ModelConfig(BaseModel):
     """Configuration for baseline model training.
 
@@ -96,6 +109,7 @@ class ProjectConfig(BaseModel):
     Args:
         project_name: Human-readable project name.
         data: Data layer configuration.
+        features: Feature engineering configuration.
         model: Baseline model training configuration.
         sequence: GRU sequence model training configuration.
         inference: Local inference serving configuration.
@@ -103,6 +117,7 @@ class ProjectConfig(BaseModel):
 
     project_name: str
     data: DataConfig
+    features: FeatureConfig = Field(default_factory=FeatureConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     sequence: SequenceConfig = Field(default_factory=SequenceConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)

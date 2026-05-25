@@ -29,6 +29,32 @@ def test_drops_constant_sensor() -> None:
     assert "s_2" not in result.columns
 
 
+def test_drops_sensor_at_or_below_std_threshold() -> None:
+    """Near-constant sensors are removed by configured std threshold."""
+    df = pd.DataFrame(
+        {
+            "engine_id": [1, 1, 1],
+            "cycle": [1, 2, 3],
+            "op_1": [0.0, 0.0, 0.0],
+            "s_low": [10.0, 10.005, 10.01],
+            "s_high": [1.0, 2.0, 3.0],
+        }
+    )
+    dropper = SensorDropper(std_threshold=0.01)
+    result = dropper.fit_transform(df)
+    assert "s_low" not in result.columns
+    assert "s_high" in result.columns
+
+
+def test_stores_training_sensor_standard_deviations() -> None:
+    """Fitted dropper exposes training standard deviations for audit."""
+    df = _make_df_with_constant()
+    dropper = SensorDropper()
+    dropper.fit(df)
+    assert set(dropper.sensor_stds_.index) == {"s_1", "s_2", "s_3"}
+    assert dropper.sensor_stds_["s_2"] == 0.0
+
+
 def test_keeps_varying_sensors() -> None:
     """Non-constant sensors s_1 and s_3 survive."""
     df = _make_df_with_constant()

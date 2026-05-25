@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -86,6 +87,10 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
                 "  name: ridge",
                 "  alpha: 1.0",
                 f"  artifact_dir: {artifact_dir.as_posix()}",
+                "features:",
+                "  sensor_std_threshold: 0.02",
+                "  sensor_keep:",
+                "    - s_2",
             ]
         )
     )
@@ -128,6 +133,11 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert "validation" in metrics
     assert "official_test" in metrics
     assert set(metrics["validation"]) == {"rmse", "mae", "phm08_score"}
+
+    estimator = joblib.load(run_dir / "model.joblib")
+    dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]
+    assert dropper.std_threshold == 0.02
+    assert dropper.keep == ["s_2"]
 
 
 def test_train_baseline_cli_skips_missing_official_test(

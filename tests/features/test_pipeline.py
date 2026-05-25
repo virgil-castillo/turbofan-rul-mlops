@@ -78,6 +78,19 @@ def test_constant_sensor_dropped() -> None:
     assert s2_rolling == []
 
 
+def test_sensor_std_threshold_drops_near_constant_sensor() -> None:
+    """Pipeline passes the configured std threshold to the sensor dropper."""
+    train = _make_train_df()
+    train["s_2"] = np.linspace(200.0, 200.005, len(train))
+    pipe = build_feature_pipeline(windows=[3], sensor_std_threshold=0.01)
+    result = pipe.fit_transform(train)
+    assert "s_2" not in result.columns
+    s2_rolling = [
+        c for c in result.columns if c.startswith("s_2_")
+    ]
+    assert s2_rolling == []
+
+
 def test_rolling_columns_present() -> None:
     """Rolling feature columns exist in output."""
     train = _make_train_df()

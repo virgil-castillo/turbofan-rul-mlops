@@ -160,6 +160,8 @@ def main() -> None:
     estimator = build_baseline_pipeline(
         model_name=cfg.model.name,
         alpha=cfg.model.alpha,
+        sensor_std_threshold=cfg.features.sensor_std_threshold,
+        sensor_keep=cfg.features.sensor_keep,
     )
     estimator.fit(X_train, y_train)
 

@@ -7,7 +7,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from turbofan.config.schema import DataConfig, load_config
+from turbofan.config.schema import DataConfig, FeatureConfig, load_config
 
 
 def _write_config(tmp_path: Path, data: dict[str, object]) -> Path:
@@ -148,6 +148,54 @@ def test_load_default_config() -> None:
     assert cfg.inference.host == "0.0.0.0"
     assert cfg.inference.port == 8000
     assert cfg.inference.allow_partial is False
+    assert cfg.features.sensor_std_threshold == 0.01
+    assert cfg.features.sensor_keep == []
+
+
+def test_feature_config_defaults_when_section_omitted(tmp_path: Path) -> None:
+    """Feature config has stable defaults when omitted from YAML."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.features.sensor_std_threshold == 0.0
+    assert cfg.features.sensor_keep == []
+
+
+def test_feature_config_loads_custom_values(tmp_path: Path) -> None:
+    """Feature config accepts sensor dropper controls."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "features": {
+                "sensor_std_threshold": 0.02,
+                "sensor_keep": ["s_2", "s_7"],
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.features.sensor_std_threshold == 0.02
+    assert cfg.features.sensor_keep == ["s_2", "s_7"]
+
+
+def test_invalid_feature_config_raises() -> None:
+    """Negative sensor std thresholds are rejected."""
+    with pytest.raises(ValidationError):
+        FeatureConfig(sensor_std_threshold=-0.01)
 
 
 def test_inference_config_loads_custom_values(tmp_path: Path) -> None:
