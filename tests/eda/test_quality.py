@@ -6,6 +6,7 @@ import pandas as pd
 
 from turbofan.eda.quality import (
     find_constant_sensors,
+    find_low_variance_sensors,
     find_missing_values,
     summarize_dtypes,
 )
@@ -65,6 +66,37 @@ def test_find_constant_sensors_empty_when_all_vary() -> None:
     )
     result = find_constant_sensors(df)
     assert result == []
+
+
+def test_find_low_variance_sensors_flags_near_constant() -> None:
+    """Flags a sensor whose population std is at or below the tolerance."""
+    df = pd.DataFrame({"s_1": [1.0, 1.0001, 1.0], "s_2": [1.0, 5.0, 9.0]})
+    result = find_low_variance_sensors(df, tol=1e-3)
+    assert "s_1" in result
+
+
+def test_find_low_variance_sensors_excludes_varying() -> None:
+    """Does not flag a sensor with std well above the tolerance."""
+    df = pd.DataFrame({"s_1": [1.0, 1.0001, 1.0], "s_2": [1.0, 5.0, 9.0]})
+    result = find_low_variance_sensors(df, tol=1e-3)
+    assert "s_2" not in result
+
+
+def test_find_low_variance_sensors_default_tol() -> None:
+    """Uses 1e-3 as the default tolerance."""
+    df = pd.DataFrame({"s_1": [1.0, 1.0, 1.0]})
+    result = find_low_variance_sensors(df)
+    assert "s_1" in result
+
+
+def test_find_low_variance_sensors_ignores_non_sensors() -> None:
+    """Does not flag engine_id or cycle columns."""
+    df = pd.DataFrame(
+        {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "s_1": [0.0, 0.0, 0.0]}
+    )
+    result = find_low_variance_sensors(df)
+    assert "engine_id" not in result
+    assert "cycle" not in result
 
 
 def test_summarize_dtypes_columns() -> None:
