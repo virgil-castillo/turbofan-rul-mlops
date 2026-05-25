@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH -J rul_gru_sweep
+#SBATCH --partition=cluster_long
 #SBATCH -N 1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=52
 #SBATCH --gres=gpu:1
-#SBATCH --time=08:00:00
+#SBATCH --time=4-04:00:00
 #SBATCH --output=outputs/logs/gru_sweep.%j.out
 
 set -euo pipefail
