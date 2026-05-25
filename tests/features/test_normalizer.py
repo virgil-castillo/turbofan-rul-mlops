@@ -1,6 +1,8 @@
 """Tests for turbofan.features.normalizer."""
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -112,6 +114,34 @@ def test_zero_std_no_nan() -> None:
     result = norm.fit_transform(df)
     assert not result["s_1"].isna().any()
     assert not np.isinf(result["s_1"]).any()
+
+
+def test_integer_sensor_columns_normalize_without_dtype_warning() -> None:
+    """Integer sensor columns are cast before float z-scores are assigned."""
+    df = pd.DataFrame(
+        {
+            "engine_id": [1, 1],
+            "cycle": [1, 2],
+            "op_1": [0.0, 0.0],
+            "op_2": [0.0, 0.0],
+            "op_3": [0.0, 0.0],
+            "s_1": [100, 102],
+        }
+    )
+    norm = OperationalNormalizer()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = norm.fit_transform(df)
+
+    dtype_warnings = [
+        warning
+        for warning in caught
+        if issubclass(warning.category, FutureWarning)
+        and "incompatible dtype" in str(warning.message)
+    ]
+    assert dtype_warnings == []
+    assert pd.api.types.is_float_dtype(result["s_1"])
 
 
 def test_non_sensor_columns_unchanged() -> None:

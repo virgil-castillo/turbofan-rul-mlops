@@ -72,6 +72,12 @@ class OperationalNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[mi
             DataFrame with normalized numeric columns.
         """
         result = X.copy()
+        existing_numeric_cols = [
+            col for col in self.numeric_cols_ if col in result.columns
+        ]
+        result[existing_numeric_cols] = result[existing_numeric_cols].astype(
+            "float64"
+        )
         for condition, group in result.groupby(self.op_cols):
             if not isinstance(condition, tuple):
                 condition = (condition,)
