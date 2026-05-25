@@ -144,6 +144,36 @@ def test_load_default_config() -> None:
     assert cfg.project_name == "turbofan-rul-mlops"
     assert cfg.data.fd_subset == "FD001"
     assert cfg.data.max_rul == 125
+    assert cfg.inference.artifact_path is None
+    assert cfg.inference.host == "0.0.0.0"
+    assert cfg.inference.port == 8000
+    assert cfg.inference.allow_partial is False
+
+
+def test_inference_config_loads_custom_values(tmp_path: Path) -> None:
+    """Inference config accepts local serving values."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "inference": {
+                "artifact_path": "artifacts/models/baseline/run",
+                "host": "127.0.0.1",
+                "port": 9000,
+                "allow_partial": True,
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.inference.artifact_path == Path("artifacts/models/baseline/run")
+    assert cfg.inference.host == "127.0.0.1"
+    assert cfg.inference.port == 9000
+    assert cfg.inference.allow_partial is True
 
 
 def test_model_config_defaults_when_section_omitted(tmp_path: Path) -> None:

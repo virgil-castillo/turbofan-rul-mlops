@@ -339,10 +339,22 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     assert (run_dir / "model.pt").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
+    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "training_history.csv").exists()
     assert (run_dir / "validation_final_window_predictions.csv").exists()
     assert (run_dir / "validation_window_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
+
+    manifest = json.loads((run_dir / "model_manifest.json").read_text())
+    assert manifest == {
+        "schema_version": 1,
+        "model_type": "gru",
+        "artifact_id": f"sequence_gru/{run_dir.name}",
+        "prediction_scope": "final_window",
+        "model_path": "model.pt",
+        "config_path": "config.json",
+        "metrics_path": "metrics.json",
+    }
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {

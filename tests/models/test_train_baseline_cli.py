@@ -109,8 +109,20 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "model.joblib").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
+    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "validation_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
+
+    manifest = json.loads((run_dir / "model_manifest.json").read_text())
+    assert manifest == {
+        "schema_version": 1,
+        "model_type": "ridge",
+        "artifact_id": f"baseline/{run_dir.name}",
+        "prediction_scope": "row",
+        "model_path": "model.joblib",
+        "config_path": "config.json",
+        "metrics_path": "metrics.json",
+    }
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert "validation" in metrics

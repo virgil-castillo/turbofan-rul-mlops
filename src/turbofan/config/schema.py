@@ -74,6 +74,22 @@ class SequenceConfig(BaseModel):
     artifact_dir: Path = Path("artifacts/models")
 
 
+class InferenceConfig(BaseModel):
+    """Configuration for local inference serving.
+
+    Args:
+        artifact_path: Optional model artifact manifest or run directory.
+        host: Host interface for the API server.
+        port: Port for the API server.
+        allow_partial: Whether serving clients may skip invalid records.
+    """
+
+    artifact_path: Path | None = None
+    host: str = "0.0.0.0"
+    port: int = Field(default=8000, gt=0, lt=65536)
+    allow_partial: bool = False
+
+
 class ProjectConfig(BaseModel):
     """Top-level project configuration.
 
@@ -82,12 +98,14 @@ class ProjectConfig(BaseModel):
         data: Data layer configuration.
         model: Baseline model training configuration.
         sequence: GRU sequence model training configuration.
+        inference: Local inference serving configuration.
     """
 
     project_name: str
     data: DataConfig
     model: ModelConfig = Field(default_factory=ModelConfig)
     sequence: SequenceConfig = Field(default_factory=SequenceConfig)
+    inference: InferenceConfig = Field(default_factory=InferenceConfig)
 
 
 def load_config(path: Path) -> ProjectConfig:
