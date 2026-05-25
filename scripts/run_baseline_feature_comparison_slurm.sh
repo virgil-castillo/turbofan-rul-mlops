@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH -J rul_feat_cmp
-#SBATCH -N 52
+#SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=52
 #SBATCH --time=04:00:00
