@@ -33,11 +33,58 @@ def _make_df() -> tuple[pd.DataFrame, pd.Series]:
     return pd.DataFrame(rows), pd.Series(labels, name="rul")
 
 
+def _make_near_zero_std_df() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+    """Build train/validation rows that expose tiny rolling-feature stds."""
+    train_rows = []
+    labels = []
+    for engine_id, offset in [(1, 0.0), (2, 1e-9)]:
+        for cycle in range(1, 7):
+            train_rows.append(
+                {
+                    "engine_id": engine_id,
+                    "cycle": cycle,
+                    "op_1": 0.0,
+                    "op_2": 0.0,
+                    "op_3": 0.0,
+                    "s_1": 100.0 + offset + cycle * 1e-9,
+                    "s_2": float(cycle),
+                }
+            )
+            labels.append(float(7 - cycle))
+
+    val_rows = []
+    for cycle in range(1, 7):
+        val_rows.append(
+            {
+                "engine_id": 3,
+                "cycle": cycle,
+                "op_1": 0.0,
+                "op_2": 0.0,
+                "op_3": 0.0,
+                "s_1": 100.0 + cycle * 25.0,
+                "s_2": float(cycle),
+            }
+        )
+
+    return (
+        pd.DataFrame(train_rows),
+        pd.Series(labels, name="rul"),
+        pd.DataFrame(val_rows),
+    )
+
+
 def test_build_baseline_pipeline_named_steps() -> None:
     """Baseline pipeline exposes expected named steps."""
     pipe = build_baseline_pipeline()
     assert isinstance(pipe, Pipeline)
-    assert list(pipe.named_steps) == ["features", "drop_identifiers", "model"]
+    assert list(pipe.named_steps) == [
+        "features",
+        "drop_identifiers",
+        "low_variance_filter",
+        "imputer",
+        "scaler",
+        "model",
+    ]
 
 
 def test_default_model_is_ridge() -> None:
@@ -52,6 +99,13 @@ def test_configures_ridge_alpha() -> None:
     model = pipe.named_steps["model"]
     assert isinstance(model, Ridge)
     assert model.alpha == 2.5
+
+
+def test_default_ridge_alpha_is_conservative() -> None:
+    """The default Ridge alpha is conservative for engineered features."""
+    model = build_baseline_pipeline().named_steps["model"]
+    assert isinstance(model, Ridge)
+    assert model.alpha == 100.0
 
 
 def test_configures_sensor_std_threshold() -> None:
@@ -72,15 +126,70 @@ def test_pipeline_can_fit_and_predict() -> None:
     assert not np.isnan(preds).any()
 
 
-def test_pipeline_drops_engine_id_before_model() -> None:
-    """Arbitrary engine identifiers are not passed into Ridge."""
+def test_transformed_train_and_validation_features_are_finite() -> None:
+    """Pre-Ridge train and validation matrices contain only finite values."""
+    X, y, X_val = _make_near_zero_std_df()
+    pipe = build_baseline_pipeline(windows=[3])
+    pipe.fit(X, y)
+
+    Xt_train = pipe[:-1].transform(X)
+    Xt_val = pipe[:-1].transform(X_val)
+
+    assert isinstance(Xt_train, pd.DataFrame)
+    assert isinstance(Xt_val, pd.DataFrame)
+    assert np.isfinite(Xt_train.to_numpy(dtype=np.float64)).all()
+    assert np.isfinite(Xt_val.to_numpy(dtype=np.float64)).all()
+
+
+def test_transformed_validation_features_are_not_catastrophically_large() -> None:
+    """Near-zero rolling-feature stds do not explode validation features."""
+    X, y, X_val = _make_near_zero_std_df()
+    pipe = build_baseline_pipeline(windows=[3])
+    pipe.fit(X, y)
+
+    Xt_val = pipe[:-1].transform(X_val)
+
+    assert np.abs(Xt_val.to_numpy(dtype=np.float64)).max() < 1e6
+
+
+def test_predictions_are_finite_and_bounded_on_toy_instability_case() -> None:
+    """Raw toy predictions remain finite and below catastrophic magnitudes."""
+    X, y, X_val = _make_near_zero_std_df()
+    pipe = build_baseline_pipeline(windows=[3])
+    pipe.fit(X, y)
+
+    preds = np.asarray(pipe.predict(X_val), dtype=np.float64)
+
+    assert np.isfinite(preds).all()
+    assert np.abs(preds).max() < 1e6
+
+
+def test_model_receives_dataframe_feature_names() -> None:
+    """The final estimator keeps sklearn feature_names_in_ metadata."""
     X, y = _make_df()
     pipe = build_baseline_pipeline(windows=[3])
     pipe.fit(X, y)
+
     model = pipe.named_steps["model"]
-    assert isinstance(model, Ridge)
-    assert "engine_id" not in model.feature_names_in_
-    assert "cycle" in model.feature_names_in_
+
+    assert hasattr(model, "feature_names_in_")
+    assert "engine_id" not in set(model.feature_names_in_)
+    assert "cycle" in set(model.feature_names_in_)
+
+
+def test_pipeline_drops_identifier_columns_before_model() -> None:
+    """Identifier columns are removed before the regressor."""
+    X, y = _make_df()
+
+    pipe = build_baseline_pipeline(windows=[3])
+    pipe.fit(X, y)
+
+    Xt = pipe[:-1].transform(X)
+
+    forbidden_cols = {"engine_id", "unit_number", "rul"}
+
+    assert forbidden_cols.isdisjoint(Xt.columns)
+    assert "cycle" in Xt.columns
 
 
 def test_unknown_model_name_raises() -> None:

@@ -53,7 +53,7 @@ class ModelConfig(BaseModel):
     """
 
     name: Literal["ridge"] = "ridge"
-    alpha: float = Field(default=1.0, gt=0.0)
+    alpha: float = Field(default=100.0, gt=0.0)
     artifact_dir: Path = Path("artifacts/models")
 
 

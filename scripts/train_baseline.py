@@ -102,6 +102,47 @@ def _prediction_frame(
     )
 
 
+def _clip_rul_predictions(
+    values: npt.ArrayLike,
+    rul_cap: int,
+) -> npt.NDArray[np.float64]:
+    """Clip raw predictions into the configured RUL range.
+
+    Args:
+        values: Raw model predictions.
+        rul_cap: Maximum allowed RUL value.
+
+    Returns:
+        Float64 predictions clipped to ``[0, rul_cap]``.
+    """
+    return np.clip(np.asarray(values, dtype=np.float64), 0.0, float(rul_cap))
+
+
+def _predict_with_clipping(
+    estimator: Pipeline,
+    rows: pd.DataFrame,
+    rul_cap: int,
+    label: str,
+) -> npt.NDArray[np.float64]:
+    """Predict rows, log raw prediction range, and clip to valid RUL bounds.
+
+    Args:
+        estimator: Fitted sklearn estimator.
+        rows: Feature rows to predict.
+        rul_cap: Maximum allowed RUL value.
+        label: Human-readable prediction set label for logs.
+
+    Returns:
+        Float64 predictions clipped to ``[0, rul_cap]``.
+    """
+    raw = np.asarray(estimator.predict(rows), dtype=np.float64)
+    print(
+        f"{label} raw prediction min/max: "
+        f"{raw.min():.6f}/{raw.max():.6f}"
+    )
+    return _clip_rul_predictions(raw, rul_cap=rul_cap)
+
+
 def _evaluate_official_test(
     cfg: ProjectConfig,
     estimator: Pipeline,
@@ -123,19 +164,16 @@ def _evaluate_official_test(
 
     last_rows = select_last_cycle_per_engine(test_raw)
     y_true = align_official_test_labels(last_rows, rul_labels)
-    all_pred = np.clip(
-        np.asarray(estimator.predict(test_raw), dtype=np.float64),
-        0.0,
-        None,
+    all_pred = _predict_with_clipping(
+        estimator,
+        test_raw,
+        rul_cap=cfg.data.max_rul,
+        label="official_test",
     )
     pred_rows = test_raw[["engine_id", "cycle"]].copy()
     pred_rows["prediction"] = all_pred
     last_pred_rows = select_last_cycle_per_engine(pred_rows)
-    y_pred = np.clip(
-        last_pred_rows["prediction"].to_numpy(dtype=np.float64),
-        0.0,
-        None,
-    )
+    y_pred = last_pred_rows["prediction"].to_numpy(dtype=np.float64)
     metrics = regression_metrics(y_true, y_pred)
     predictions = _prediction_frame(last_rows, y_true, y_pred)
     return metrics, predictions
@@ -165,10 +203,11 @@ def main() -> None:
     )
     estimator.fit(X_train, y_train)
 
-    val_pred = np.clip(
-        np.asarray(estimator.predict(X_val), dtype=np.float64),
-        0.0,
-        None,
+    val_pred = _predict_with_clipping(
+        estimator,
+        X_val,
+        rul_cap=cfg.data.max_rul,
+        label="validation",
     )
     val_metrics = regression_metrics(y_val, val_pred)
     val_predictions = _prediction_frame(X_val, y_val, val_pred)

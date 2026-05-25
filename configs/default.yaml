@@ -15,7 +15,7 @@ features:
 
 model:
   name: ridge
-  alpha: 1.0
+  alpha: 100.0
   artifact_dir: artifacts/models
 
 sequence:

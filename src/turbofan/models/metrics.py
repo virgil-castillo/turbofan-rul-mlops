@@ -114,10 +114,11 @@ def phm08_score(y_true: MetricInput, y_pred: MetricInput) -> float:
     """
     true_arr, pred_arr = _as_arrays(y_true, y_pred)
     diff = pred_arr - true_arr
+    max_exponent = 700.0
     penalties = np.where(
         diff < 0.0,
-        np.exp(-diff / 13.0) - 1.0,
-        np.exp(diff / 10.0) - 1.0,
+        np.exp(np.clip(-diff / 13.0, a_min=None, a_max=max_exponent)) - 1.0,
+        np.exp(np.clip(diff / 10.0, a_min=None, a_max=max_exponent)) - 1.0,
     )
     return float(np.sum(penalties))
 

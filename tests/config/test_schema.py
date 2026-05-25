@@ -239,7 +239,7 @@ def test_model_config_defaults_when_section_omitted(tmp_path: Path) -> None:
     )
     cfg = load_config(cfg_file)
     assert cfg.model.name == "ridge"
-    assert cfg.model.alpha == 1.0
+    assert cfg.model.alpha == 100.0
     assert cfg.model.artifact_dir == Path("artifacts/models")
 
 

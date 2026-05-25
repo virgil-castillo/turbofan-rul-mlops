@@ -32,6 +32,14 @@ def test_phm08_score_matches_early_and_late_errors() -> None:
     assert phm08_score(y_true, y_pred) == pytest.approx(expected)
 
 
+def test_phm08_score_does_not_overflow_for_large_residuals() -> None:
+    """PHM08 clips exponent inputs while preserving finite penalties."""
+    score = phm08_score([0.0, 10_000.0], [10_000.0, 0.0])
+
+    assert math.isfinite(score)
+    assert score > 0.0
+
+
 def test_regression_metrics_returns_all_metrics() -> None:
     """Combined metrics returns the expected values."""
     metrics = regression_metrics(
