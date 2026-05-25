@@ -12,6 +12,35 @@ from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 from turbofan.features.pipeline import build_feature_pipeline
 
+BaselineFeatureSet = Literal["raw", "raw_plus_rolling", "rolling"]
+ROLLING_MARKERS = ("_rmean_", "_rstd_", "_rmin_", "_rmax_")
+
+
+def _is_rolling_feature(column: str) -> bool:
+    """Return whether a column is a rolling sensor feature.
+
+    Args:
+        column: Feature column name.
+
+    Returns:
+        Whether the column is a rolling sensor-derived feature.
+    """
+    return column.startswith("s_") and any(
+        marker in column for marker in ROLLING_MARKERS
+    )
+
+
+def _is_raw_sensor_feature(column: str) -> bool:
+    """Return whether a column is a raw sensor feature.
+
+    Args:
+        column: Feature column name.
+
+    Returns:
+        Whether the column is a raw sensor column.
+    """
+    return column.startswith("s_") and not _is_rolling_feature(column)
+
 
 class _LowVarianceFeatureDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Drop near-constant model features after feature engineering."""
@@ -49,6 +78,70 @@ class _LowVarianceFeatureDropper(BaseEstimator, TransformerMixin):  # type: igno
         return X.drop(columns=self.columns_to_drop_, errors="ignore")
 
 
+class _ModelFeatureSelector(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """Select estimator-facing columns for a baseline feature family.
+
+    Args:
+        feature_set: Feature family to expose to the final estimator.
+    """
+
+    def __init__(
+        self,
+        feature_set: BaselineFeatureSet = "raw_plus_rolling",
+    ) -> None:
+        self.feature_set = feature_set
+
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+        """Validate and store selected model feature columns.
+
+        Args:
+            X: Engineered feature matrix.
+            y: Ignored. Present for sklearn compatibility.
+
+        Returns:
+            Fitted selector.
+
+        Raises:
+            ValueError: If the feature set is unsupported or empty.
+        """
+        if self.feature_set not in {"raw", "raw_plus_rolling", "rolling"}:
+            raise ValueError(f"Unsupported feature_set: {self.feature_set}")
+        self.columns_: list[str] = [
+            column for column in X.columns if self._should_keep(column)
+        ]
+        if not self.columns_:
+            raise ValueError(
+                f"Feature set {self.feature_set!r} produced no model features."
+            )
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Return estimator-facing feature columns.
+
+        Args:
+            X: Engineered feature matrix.
+
+        Returns:
+            DataFrame containing only selected feature columns.
+        """
+        return X.loc[:, self.columns_]
+
+    def _should_keep(self, column: str) -> bool:
+        """Return whether a column belongs in the configured feature family.
+
+        Args:
+            column: Engineered feature column name.
+
+        Returns:
+            Whether to keep the feature.
+        """
+        if self.feature_set == "raw":
+            return _is_raw_sensor_feature(column)
+        if self.feature_set == "rolling":
+            return _is_rolling_feature(column)
+        return _is_raw_sensor_feature(column) or _is_rolling_feature(column)
+
+
 def _drop_identifier_columns(X: object) -> object:
     """Remove identifier columns that should not be model features.
 
@@ -70,6 +163,7 @@ def build_baseline_pipeline(
     op_cols: list[str] | None = None,
     sensor_std_threshold: float = 0.0,
     sensor_keep: list[str] | None = None,
+    feature_set: BaselineFeatureSet = "raw_plus_rolling",
 ) -> Pipeline:
     """Build an unfitted feature-plus-regressor sklearn Pipeline.
 
@@ -81,16 +175,19 @@ def build_baseline_pipeline(
         sensor_std_threshold: Maximum training standard deviation at
             which sensor columns are dropped.
         sensor_keep: Sensor columns to force-keep even when low-variance.
+        feature_set: Sensor-derived feature family to expose to the estimator.
 
     Returns:
         Unfitted sklearn Pipeline with feature engineering, identifier
         dropping, imputation, scaling, and model steps.
 
     Raises:
-        ValueError: If ``model_name`` is unsupported.
+        ValueError: If ``model_name`` or ``feature_set`` is unsupported.
     """
     if model_name != "ridge":
         raise ValueError(f"Unsupported model: {model_name}")
+    if feature_set not in {"raw", "raw_plus_rolling", "rolling"}:
+        raise ValueError(f"Unsupported feature_set: {feature_set}")
     return Pipeline(
         [
             (
@@ -105,6 +202,10 @@ def build_baseline_pipeline(
             (
                 "drop_identifiers",
                 FunctionTransformer(_drop_identifier_columns, validate=False),
+            ),
+            (
+                "select_model_features",
+                _ModelFeatureSelector(feature_set=feature_set),
             ),
             ("low_variance_filter", _LowVarianceFeatureDropper()),
             (

@@ -10,6 +10,25 @@ from sklearn.pipeline import Pipeline
 from turbofan.models.baseline import build_baseline_pipeline
 
 
+def _fit_columns(feature_set: str) -> set[str]:
+    """Return Ridge feature names for a fitted baseline feature set.
+
+    Args:
+        feature_set: Baseline feature family name.
+
+    Returns:
+        Set of fitted Ridge feature names.
+    """
+    X, y = _make_df()
+    pipe = build_baseline_pipeline(
+        windows=[3],
+        feature_set=feature_set,  # type: ignore[arg-type]
+    )
+    pipe.fit(X, y)
+    model = pipe.named_steps["model"]
+    return set(model.feature_names_in_)
+
+
 def _make_df() -> tuple[pd.DataFrame, pd.Series]:
     """Build model-ready synthetic turbofan rows and labels."""
     rng = np.random.default_rng(42)
@@ -80,6 +99,7 @@ def test_build_baseline_pipeline_named_steps() -> None:
     assert list(pipe.named_steps) == [
         "features",
         "drop_identifiers",
+        "select_model_features",
         "low_variance_filter",
         "imputer",
         "scaler",
@@ -174,7 +194,7 @@ def test_model_receives_dataframe_feature_names() -> None:
 
     assert hasattr(model, "feature_names_in_")
     assert "engine_id" not in set(model.feature_names_in_)
-    assert "cycle" in set(model.feature_names_in_)
+    assert "cycle" not in set(model.feature_names_in_)
 
 
 def test_pipeline_drops_identifier_columns_before_model() -> None:
@@ -186,10 +206,51 @@ def test_pipeline_drops_identifier_columns_before_model() -> None:
 
     Xt = pipe[:-1].transform(X)
 
-    forbidden_cols = {"engine_id", "unit_number", "rul"}
+    forbidden_cols = {
+        "engine_id",
+        "unit_number",
+        "rul",
+        "cycle",
+        "op_1",
+        "op_2",
+        "op_3",
+    }
 
     assert forbidden_cols.isdisjoint(Xt.columns)
-    assert "cycle" in Xt.columns
+    assert {"s_1", "s_3"}.issubset(Xt.columns)
+
+
+def test_raw_feature_set_exposes_only_raw_sensor_features() -> None:
+    """Raw feature set excludes identifiers, cycle, op columns, and rolling."""
+    columns = _fit_columns("raw")
+
+    assert {"engine_id", "cycle", "op_1", "op_2", "op_3"}.isdisjoint(columns)
+    assert {"s_1", "s_3"}.issubset(columns)
+    assert all("_rmean_" not in column for column in columns)
+
+
+def test_raw_plus_rolling_feature_set_exposes_raw_and_rolling_features() -> None:
+    """Raw plus rolling feature set keeps raw and rolling sensor features."""
+    columns = _fit_columns("raw_plus_rolling")
+
+    assert {"engine_id", "cycle", "op_1", "op_2", "op_3"}.isdisjoint(columns)
+    assert "s_1" in columns
+    assert "s_1_rmean_3" in columns
+
+
+def test_rolling_feature_set_exposes_only_rolling_sensor_features() -> None:
+    """Rolling feature set drops raw sensors and keeps rolling features."""
+    columns = _fit_columns("rolling")
+
+    assert {"engine_id", "cycle", "op_1", "op_2", "op_3"}.isdisjoint(columns)
+    assert "s_1" not in columns
+    assert "s_1_rmean_3" in columns
+
+
+def test_unknown_feature_set_raises() -> None:
+    """Unsupported feature-set names fail fast."""
+    with pytest.raises(ValueError, match="Unsupported feature_set"):
+        build_baseline_pipeline(feature_set="bad")  # type: ignore[arg-type]
 
 
 def test_unknown_model_name_raises() -> None:
