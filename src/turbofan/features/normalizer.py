@@ -18,16 +18,22 @@ class OperationalNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[mi
     Args:
         op_cols: Operational setting column names.
             Default ``["op_1", "op_2", "op_3"]``.
+        std_floor: Minimum meaningful standard deviation. Per-condition
+            and global standard deviations at or below this value are treated
+            as ``1.0`` to avoid numerical blow-ups on nearly constant columns.
     """
 
     def __init__(
-        self, op_cols: list[str] | None = None
+        self,
+        op_cols: list[str] | None = None,
+        std_floor: float = 1e-3,
     ) -> None:
         self.op_cols = (
             op_cols
             if op_cols is not None
             else ["op_1", "op_2", "op_3"]
         )
+        self.std_floor = std_floor
 
     def fit(
         self, X: pd.DataFrame, y: object = None
@@ -50,15 +56,18 @@ class OperationalNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[mi
         ]
         grouped = X.groupby(self.op_cols)[self.numeric_cols_]
         self.group_means_: pd.DataFrame = grouped.mean()
-        self.group_stds_: pd.DataFrame = (
-            grouped.std().fillna(1.0).replace(0.0, 1.0)
+        group_stds = grouped.std().fillna(1.0)
+        self.group_stds_: pd.DataFrame = group_stds.mask(
+            group_stds.abs() <= self.std_floor,
+            1.0,
         )
         self.global_mean_: pd.Series[float] = (
             X[self.numeric_cols_].mean()
         )
-        global_std = X[self.numeric_cols_].std()
-        self.global_std_: pd.Series[float] = (
-            global_std.fillna(1.0).replace(0.0, 1.0)
+        global_std = X[self.numeric_cols_].std().fillna(1.0)
+        self.global_std_: pd.Series[float] = global_std.mask(
+            global_std.abs() <= self.std_floor,
+            1.0,
         )
         return self
 
@@ -97,7 +106,7 @@ class OperationalNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[mi
             for col in self.numeric_cols_:
                 if col in result.columns:
                     result.loc[cast(Any, idx), col] = (
-                        (X.loc[idx, col] - means[col])
+                        (result.loc[idx, col] - means[col])
                         / stds[col]
                     )
         return result

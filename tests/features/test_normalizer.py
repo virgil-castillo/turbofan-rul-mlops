@@ -116,6 +116,36 @@ def test_zero_std_no_nan() -> None:
     assert not np.isinf(result["s_1"]).any()
 
 
+def test_near_zero_std_does_not_amplify_validation_values() -> None:
+    """Near-constant training groups use a safe std during transform."""
+    train = pd.DataFrame(
+        {
+            "engine_id": [1, 1, 2, 2],
+            "cycle": [1, 2, 1, 2],
+            "op_1": [0.0] * 4,
+            "op_2": [0.0] * 4,
+            "op_3": [0.0] * 4,
+            "s_1": [100.0, 100.0 + 1e-12, 100.0, 100.0 + 2e-12],
+        }
+    )
+    validation = pd.DataFrame(
+        {
+            "engine_id": [3],
+            "cycle": [1],
+            "op_1": [0.0],
+            "op_2": [0.0],
+            "op_3": [0.0],
+            "s_1": [125.0],
+        }
+    )
+    norm = OperationalNormalizer()
+    norm.fit(train)
+
+    result = norm.transform(validation)
+
+    assert abs(result.loc[0, "s_1"]) < 100.0
+
+
 def test_integer_sensor_columns_normalize_without_dtype_warning() -> None:
     """Integer sensor columns are cast before float z-scores are assigned."""
     df = pd.DataFrame(
