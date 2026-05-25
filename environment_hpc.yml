@@ -1,0 +1,50 @@
+name: mlops
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    # Core dependencies
+    - numpy
+    - pandas
+    - scipy
+    
+    # Machine learning
+    - scikit-learn
+    - xgboost
+    - optuna
+    
+    # Torch installed separately
+
+    # Visualization
+    - matplotlib
+    - plotly
+    
+    # Web framework & APIs
+    - fastapi
+    - uvicorn
+    - pydantic>=2.0
+    
+    # MLOps & experiment tracking
+    - mlflow>=2.0
+    
+    # Configuration & utilities
+    - pyyaml
+    - python-dotenv
+    - pydantic-settings
+    - requests
+    - tqdm
+    
+    # Development & testing
+    - pytest
+    - pytest-cov
+    - ruff
+    - mypy
+    - black
+    - isort
+    
+    # Type stubs for mypy
+    - types-pyyaml
+    - types-requests
+    - types-setuptools
