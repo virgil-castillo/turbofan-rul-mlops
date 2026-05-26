@@ -18,10 +18,10 @@ WINDOW_SIZES="${WINDOW_SIZES:-15 20 30 45}"
 HIDDEN_SIZES="${HIDDEN_SIZES:-32 64 128}"
 LEARNING_RATES="${LEARNING_RATES:-1e-3 5e-4 1e-4}"
 DEVICE="${DEVICE:-cuda}"
-OUTPUT="${OUTPUT:-artifacts/gru_sweep_${SLURM_JOB_ID:-local}.csv}"
+OUTPUT="${OUTPUT:-results/gru_sweep_${SLURM_JOB_ID:-local}.csv}"
 
 cd "$PROJECT_DIR"
-mkdir -p artifacts outputs/logs
+mkdir -p results outputs/logs
 
 if [[ -f "$CONDA_HOME/etc/profile.d/conda.sh" ]]; then
     # Linux/macOS conda layout.

@@ -15,10 +15,10 @@ CONFIG="${CONFIG:-configs/default.yaml}"
 FEATURE_SETS="${FEATURE_SETS:-raw raw_plus_rolling rolling}"
 WINDOWS="${WINDOWS:-5 10 20}"
 N_JOBS="${N_JOBS:-${SLURM_CPUS_PER_TASK:-1}}"
-OUTPUT="${OUTPUT:-artifacts/baseline_feature_comparison_${SLURM_JOB_ID:-local}.csv}"
+OUTPUT="${OUTPUT:-results/baseline_feature_comparison_${SLURM_JOB_ID:-local}.csv}"
 
 cd "$PROJECT_DIR"
-mkdir -p artifacts outputs/logs
+mkdir -p results outputs/logs
 
 if [[ -f "$CONDA_HOME/etc/profile.d/conda.sh" ]]; then
     # Linux/macOS conda layout.
