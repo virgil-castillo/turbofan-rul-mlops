@@ -248,6 +248,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         config: SequenceConfig,
         device: torch.device,
         random_seed: int,
+        max_rul: int,
     ) -> TrainingResult:
         del train_loader
         del validation_final_loader
@@ -255,6 +256,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         del config
         del device
         del random_seed
+        del max_rul
         captured_state.update(
             {
                 name: value.detach().clone()

@@ -111,6 +111,7 @@ def _evaluate_windows(
     windows: WindowedSequences,
     device: torch.device,
     batch_size: int,
+    max_rul: int,
 ) -> tuple[dict[str, float], pd.DataFrame]:
     """Evaluate labeled sequence windows.
 
@@ -119,12 +120,15 @@ def _evaluate_windows(
         windows: Labeled sequence windows.
         device: Torch device used for inference.
         batch_size: Prediction batch size.
+        max_rul: Maximum RUL cap for prediction rescaling.
 
     Returns:
         Metrics and prediction artifact rows.
     """
     loader = build_sequence_loader(windows, batch_size=batch_size, shuffle=False)
-    y_pred = np.clip(predict_windows(model, loader, device), 0.0, None)
+    y_pred = np.clip(
+        predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
+    )
     y_true = windows.y.astype(np.float64)
     metrics = regression_metrics(y_true, y_pred)
     return metrics, _prediction_frame(windows, y_true, y_pred)
@@ -199,7 +203,9 @@ def _evaluate_official_test(
         batch_size=cfg.sequence.batch_size,
         shuffle=False,
     )
-    y_pred = np.clip(predict_windows(model, loader, device), 0.0, None)
+    y_pred = np.clip(
+        predict_windows(model, loader, device, max_rul=cfg.data.max_rul), 0.0, None
+    )
     y_true = _align_official_labels_to_eligible_engines(
         test_windows.metadata,
         rul_labels,
@@ -313,6 +319,7 @@ def main() -> None:
         config=cfg.sequence,
         device=device,
         random_seed=cfg.data.random_seed,
+        max_rul=cfg.data.max_rul,
     )
     training_duration_seconds = perf_counter() - training_start
 
@@ -321,12 +328,14 @@ def main() -> None:
         validation_final_windows,
         device,
         cfg.sequence.batch_size,
+        max_rul=cfg.data.max_rul,
     )
     window_metrics, window_predictions = _evaluate_windows(
         result.model,
         validation_windows,
         device,
         cfg.sequence.batch_size,
+        max_rul=cfg.data.max_rul,
     )
 
     run_dir = create_run_dir(cfg.sequence.artifact_dir, "sequence_gru")
