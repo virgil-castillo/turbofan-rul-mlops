@@ -8,8 +8,11 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import numpy as np
 import pandas as pd
 import pytest
+
+from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 
 
 def _load_module(project_root: Path) -> ModuleType:
@@ -29,7 +32,23 @@ def _load_module(project_root: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load script module from {script_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    src_path = str(project_root / "src")
+    cached_turbofan_modules = {
+        name: loaded_module
+        for name, loaded_module in sys.modules.items()
+        if name == "turbofan" or name.startswith("turbofan.")
+    }
+    for name in cached_turbofan_modules:
+        del sys.modules[name]
+    sys.path.insert(0, src_path)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(src_path)
+        for name in list(sys.modules):
+            if name == "turbofan" or name.startswith("turbofan."):
+                del sys.modules[name]
+        sys.modules.update(cached_turbofan_modules)
     return module
 
 
@@ -96,11 +115,15 @@ def _write_config(tmp_path: Path) -> Path:
     return cfg_path
 
 
-def test_gru_sweep_returns_expected_rows(tmp_path: Path) -> None:
+def test_gru_sweep_returns_expected_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     """GRU sweep evaluates the Cartesian product of requested specs."""
     project_root = Path(__file__).parent.parent.parent
     module = _load_module(project_root)
     cfg_path = _write_config(tmp_path)
+    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     results = module.run_gru_sweep(
         config_path=cfg_path,
@@ -147,6 +170,322 @@ def test_gru_sweep_validates_inputs(tmp_path: Path) -> None:
         module.run_gru_sweep(cfg_path, [3], [2], [0.0], device="cpu")
 
 
+def test_gru_sweep_reports_validation_window_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GRU sweep reports metrics from sliding validation windows."""
+    project_root = Path(__file__).parent.parent.parent
+    module = _load_module(project_root)
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path / "raw",
+            processed_dir=tmp_path / "processed",
+            interim_dir=tmp_path / "interim",
+        ),
+        sequence=SequenceConfig(
+            architecture="gru",
+            window_size=3,
+            batch_size=4,
+            hidden_size=4,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+        ),
+    )
+
+    class FakeWindows:
+        """Minimal window container with metric targets."""
+
+        def __init__(self, y: list[float]) -> None:
+            self.y = np.asarray(y, dtype=np.float64)
+
+    train_windows = FakeWindows([0.0])
+    validation_final_windows = FakeWindows([1.0, 1.0])
+    validation_windows = FakeWindows([10.0, 20.0])
+
+    class FakeNormalizer:
+        """Minimal normalizer returning distinguishable frames."""
+
+        def __init__(self, feature_cols: list[str]) -> None:
+            self.feature_cols = feature_cols
+
+        def fit_transform(self, frame: object) -> str:
+            """Return a training-frame sentinel.
+
+            Args:
+                frame: Training frame placeholder.
+
+            Returns:
+                Training-frame sentinel.
+            """
+            del frame
+            return "train_normalized"
+
+        def transform(self, frame: object) -> str:
+            """Return a validation-frame sentinel.
+
+            Args:
+                frame: Validation frame placeholder.
+
+            Returns:
+                Validation-frame sentinel.
+            """
+            del frame
+            return "validation_normalized"
+
+    def fake_build_sliding_windows(frame: object, **kwargs: object) -> FakeWindows:
+        del kwargs
+        if frame == "train_normalized":
+            return train_windows
+        return validation_windows
+
+    def fake_predict_windows(
+        model: object,
+        loader: FakeWindows,
+        device: object,
+    ) -> np.ndarray:
+        del model
+        del device
+        if loader is validation_windows:
+            return np.asarray([10.0, 20.0], dtype=np.float64)
+        return np.asarray([0.0, 0.0], dtype=np.float64)
+
+    monkeypatch.setattr(module, "load_config", lambda path: cfg)
+    monkeypatch.setattr(module, "resolve_device", lambda device: "cpu")
+    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1"])
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(
+        module,
+        "split_by_engine",
+        lambda frame, test_size, random_seed: ("train", "validation"),
+    )
+    monkeypatch.setattr(module, "SequenceNormalizer", FakeNormalizer)
+    monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
+    monkeypatch.setattr(
+        module,
+        "build_final_windows",
+        lambda *args, **kwargs: validation_final_windows,
+    )
+    monkeypatch.setattr(
+        module,
+        "build_sequence_loader",
+        lambda windows, batch_size, shuffle: windows,
+    )
+    monkeypatch.setattr(module, "seed_everything", lambda random_seed: None)
+    monkeypatch.setattr(module, "GRURULRegressor", lambda **kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "train_gru_model",
+        lambda **kwargs: type("Result", (), {"model": object(), "best_epoch": 1})(),
+    )
+    monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
+    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
+
+    results = module.run_gru_sweep(
+        config_path=tmp_path / "config.yaml",
+        window_sizes=[3],
+        hidden_sizes=[4],
+        learning_rates=[1e-3],
+        device="cpu",
+    )
+
+    row = results.iloc[0]
+    assert row["rmse"] == 0.0
+    assert row["mae"] == 0.0
+    assert row["phm08_score"] == 0.0
+
+
+def test_gru_sweep_appends_training_log_entry_per_completed_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GRU sweep logs one entry per completed config using sliding metrics."""
+    project_root = Path(__file__).parent.parent.parent
+    module = _load_module(project_root)
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path / "raw",
+            processed_dir=tmp_path / "processed",
+            interim_dir=tmp_path / "interim",
+            fd_subset="FD003",
+            random_seed=321,
+        ),
+        sequence=SequenceConfig(
+            architecture="gru",
+            window_size=3,
+            batch_size=4,
+            hidden_size=4,
+            num_layers=2,
+            dropout=0.2,
+            learning_rate=0.001,
+            epochs=5,
+            patience=3,
+        ),
+    )
+
+    class FakeWindows:
+        """Minimal window container with metric targets."""
+
+        def __init__(self, y: list[float]) -> None:
+            self.y = np.asarray(y, dtype=np.float64)
+
+    validation_windows = FakeWindows([10.0, 20.0])
+    build_calls: list[dict[str, object]] = []
+    appended_entries: list[dict[str, object]] = []
+    timer_values = iter([1.0, 1.5, 4.0, 6.25])
+
+    class FakeNormalizer:
+        """Minimal normalizer returning distinguishable frames."""
+
+        def __init__(self, feature_cols: list[str]) -> None:
+            self.feature_cols = feature_cols
+
+        def fit_transform(self, frame: object) -> str:
+            """Return a training-frame sentinel.
+
+            Args:
+                frame: Training frame placeholder.
+
+            Returns:
+                Training-frame sentinel.
+            """
+            del frame
+            return "train_normalized"
+
+        def transform(self, frame: object) -> str:
+            """Return a validation-frame sentinel.
+
+            Args:
+                frame: Validation frame placeholder.
+
+            Returns:
+                Validation-frame sentinel.
+            """
+            del frame
+            return "validation_normalized"
+
+    def fake_build_sliding_windows(frame: object, **kwargs: object) -> FakeWindows:
+        del kwargs
+        if frame == "validation_normalized":
+            return validation_windows
+        return FakeWindows([0.0])
+
+    def fake_predict_windows(
+        model: object,
+        loader: FakeWindows,
+        device: object,
+    ) -> np.ndarray:
+        del model
+        del device
+        if loader is validation_windows:
+            return np.asarray([10.0, 20.0], dtype=np.float64)
+        return np.asarray([0.0], dtype=np.float64)
+
+    def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
+        build_calls.append(kwargs)
+        return {"entry": kwargs}
+
+    monkeypatch.setattr(module, "load_config", lambda path: cfg)
+    monkeypatch.setattr(module, "resolve_device", lambda device: "cpu")
+    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1"])
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(
+        module,
+        "split_by_engine",
+        lambda frame, test_size, random_seed: ("train", "validation"),
+    )
+    monkeypatch.setattr(module, "SequenceNormalizer", FakeNormalizer)
+    monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
+    monkeypatch.setattr(
+        module,
+        "build_final_windows",
+        lambda *args, **kwargs: FakeWindows([1.0]),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_sequence_loader",
+        lambda windows, batch_size, shuffle: windows,
+    )
+    monkeypatch.setattr(module, "seed_everything", lambda random_seed: None)
+    monkeypatch.setattr(module, "GRURULRegressor", lambda **kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "train_gru_model",
+        lambda **kwargs: type("Result", (), {"model": object(), "best_epoch": 9})(),
+    )
+    monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
+    monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
+    monkeypatch.setattr(
+        module,
+        "append_training_log",
+        lambda entry: appended_entries.append(entry),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        module,
+        "perf_counter",
+        lambda: next(timer_values),
+        raising=False,
+    )
+
+    module.run_gru_sweep(
+        config_path=tmp_path / "config.yaml",
+        window_sizes=[3, 4],
+        hidden_sizes=[6],
+        learning_rates=[0.002],
+        device="cpu",
+    )
+
+    assert build_calls == [
+        {
+            "model_type": "gru",
+            "dataset": "FD003",
+            "random_seed": 321,
+            "hyperparameters": {
+                "window_size": 3,
+                "hidden_size": 6,
+                "learning_rate": 0.002,
+                "num_layers": 2,
+                "dropout": 0.2,
+                "batch_size": 4,
+                "epochs": 5,
+                "patience": 3,
+            },
+            "metrics": {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            "training_duration_seconds": 0.5,
+            "device": "cpu",
+            "run_dir": None,
+            "best_epoch": 9,
+        },
+        {
+            "model_type": "gru",
+            "dataset": "FD003",
+            "random_seed": 321,
+            "hyperparameters": {
+                "window_size": 4,
+                "hidden_size": 6,
+                "learning_rate": 0.002,
+                "num_layers": 2,
+                "dropout": 0.2,
+                "batch_size": 4,
+                "epochs": 5,
+                "patience": 3,
+            },
+            "metrics": {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            "training_duration_seconds": 2.25,
+            "device": "cpu",
+            "run_dir": None,
+            "best_epoch": 9,
+        },
+    ]
+    assert appended_entries == [{"entry": call} for call in build_calls]
+
+
 def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
     """CLI writes a sorted GRU sweep CSV when output is supplied."""
     project_root = Path(__file__).parent.parent.parent
@@ -158,7 +497,7 @@ def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/sweep_sequence_gru.py",
+            str(project_root / "scripts" / "sweep_sequence_gru.py"),
             "--config",
             str(cfg_path),
             "--window-sizes",
@@ -172,7 +511,7 @@ def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
             "--output",
             str(output_path),
         ],
-        cwd=project_root,
+        cwd=tmp_path,
         check=True,
         capture_output=True,
         text=True,

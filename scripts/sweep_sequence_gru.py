@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from itertools import product
 from pathlib import Path
+from time import perf_counter
 from typing import Literal, cast
 
 import numpy as np
@@ -21,6 +22,7 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
+from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
 from turbofan.sequences.windowing import build_final_windows, build_sliding_windows
@@ -132,6 +134,21 @@ def _append_incremental_row(
     )
 
 
+def _device_name(device: object) -> str:
+    """Return a stable display name for a resolved training device.
+
+    Args:
+        device: Resolved device object.
+
+    Returns:
+        Device type string when available, otherwise ``str(device)``.
+    """
+    device_type = getattr(device, "type", None)
+    if isinstance(device_type, str):
+        return device_type
+    return str(device)
+
+
 def run_gru_sweep(
     config_path: Path,
     window_sizes: list[int],
@@ -228,6 +245,7 @@ def run_gru_sweep(
             num_layers=spec_cfg.num_layers,
             dropout=spec_cfg.dropout,
         )
+        training_start = perf_counter()
         result = train_gru_model(
             model=model,
             train_loader=train_loader,
@@ -237,14 +255,15 @@ def run_gru_sweep(
             device=torch_device,
             random_seed=cfg.data.random_seed,
         )
+        training_duration_seconds = perf_counter() - training_start
 
         predictions = np.clip(
-            predict_windows(result.model, validation_final_loader, torch_device),
+            predict_windows(result.model, validation_windows_loader, torch_device),
             0.0,
             None,
         )
         metrics = regression_metrics(
-            validation_final_windows.y.astype(np.float64),
+            validation_windows.y.astype(np.float64),
             predictions,
         )
         row: dict[str, float | int] = {
@@ -263,6 +282,27 @@ def run_gru_sweep(
                 output_path,
                 append=len(rows) > 1,
             )
+        log_entry = build_log_entry(
+            model_type="gru",
+            dataset=cfg.data.fd_subset,
+            random_seed=cfg.data.random_seed,
+            hyperparameters={
+                "window_size": window_size,
+                "hidden_size": hidden_size,
+                "learning_rate": learning_rate,
+                "num_layers": spec_cfg.num_layers,
+                "dropout": spec_cfg.dropout,
+                "batch_size": spec_cfg.batch_size,
+                "epochs": spec_cfg.epochs,
+                "patience": spec_cfg.patience,
+            },
+            metrics=metrics,
+            training_duration_seconds=training_duration_seconds,
+            device=_device_name(torch_device),
+            run_dir=None,
+            best_epoch=result.best_epoch,
+        )
+        append_training_log(log_entry)
         print(
             f"run {run_idx}/{total_runs}: "
             f"window_size={window_size} hidden_size={hidden_size} "

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import numpy.typing as npt
@@ -22,6 +23,7 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
+from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
 from turbofan.sequences.windowing import (
@@ -302,6 +304,7 @@ def main() -> None:
         num_layers=cfg.sequence.num_layers,
         dropout=cfg.sequence.dropout,
     )
+    training_start = perf_counter()
     result = train_gru_model(
         model=model,
         train_loader=train_loader,
@@ -311,6 +314,7 @@ def main() -> None:
         device=device,
         random_seed=cfg.data.random_seed,
     )
+    training_duration_seconds = perf_counter() - training_start
 
     final_metrics, final_predictions = _evaluate_windows(
         result.model,
@@ -365,7 +369,32 @@ def main() -> None:
         run_dir / "validation_window_predictions.csv",
     )
 
+    log_entry = build_log_entry(
+        model_type="gru",
+        dataset=cfg.data.fd_subset,
+        random_seed=cfg.data.random_seed,
+        hyperparameters={
+            "window_size": cfg.sequence.window_size,
+            "hidden_size": cfg.sequence.hidden_size,
+            "learning_rate": cfg.sequence.learning_rate,
+            "num_layers": cfg.sequence.num_layers,
+            "dropout": cfg.sequence.dropout,
+            "batch_size": cfg.sequence.batch_size,
+            "epochs": cfg.sequence.epochs,
+            "patience": cfg.sequence.patience,
+        },
+        metrics=window_metrics,
+        training_duration_seconds=training_duration_seconds,
+        device=device.type,
+        run_dir=str(run_dir),
+        best_epoch=result.best_epoch,
+    )
+    append_training_log(log_entry)
+
     print(f"run_dir: {run_dir}")
+    print(f"validation_windows rmse: {window_metrics['rmse']:.6f}")
+    print(f"validation_windows mae: {window_metrics['mae']:.6f}")
+    print(f"validation_windows phm08_score: {window_metrics['phm08_score']:.6f}")
     print(f"validation_final_window rmse: {final_metrics['rmse']:.6f}")
     print(f"validation_final_window mae: {final_metrics['mae']:.6f}")
     print(

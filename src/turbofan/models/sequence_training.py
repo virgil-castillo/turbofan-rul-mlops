@@ -27,8 +27,8 @@ class TrainingResult:
     Args:
         model: Trained model restored to the best validation epoch.
         history: Per-epoch training loss and validation metrics.
-        best_epoch: One-indexed epoch with the best final-window validation RMSE.
-        best_metric: Best final-window validation RMSE.
+        best_epoch: One-indexed epoch with the best validation-window RMSE.
+        best_metric: Best validation-window RMSE.
     """
 
     model: GRURULRegressor
@@ -93,7 +93,7 @@ def train_gru_model(
         train_loss = _train_one_epoch(model, train_loader, criterion, optimizer, device)
         final_metrics = _evaluate_loader(model, validation_final_loader, device)
         window_metrics = _evaluate_loader(model, validation_windows_loader, device)
-        current_metric = final_metrics["rmse"]
+        current_metric = window_metrics["rmse"]
 
         history.append(
             {
