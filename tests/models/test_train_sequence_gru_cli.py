@@ -162,8 +162,13 @@ def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root / "src")
     return subprocess.run(
-        [sys.executable, "scripts/train_sequence_gru.py", "--config", str(cfg_path)],
-        cwd=project_root,
+        [
+            sys.executable,
+            str(project_root / "scripts" / "train_sequence_gru.py"),
+            "--config",
+            str(cfg_path),
+        ],
+        cwd=cfg_path.parent,
         check=True,
         capture_output=True,
         text=True,
@@ -186,7 +191,23 @@ def _load_train_sequence_gru_module() -> ModuleType:
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    src_path = str(project_root / "src")
+    cached_turbofan_modules = {
+        name: loaded_module
+        for name, loaded_module in sys.modules.items()
+        if name == "turbofan" or name.startswith("turbofan.")
+    }
+    for name in cached_turbofan_modules:
+        del sys.modules[name]
+    sys.path.insert(0, src_path)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(src_path)
+        for name in list(sys.modules):
+            if name == "turbofan" or name.startswith("turbofan."):
+                del sys.modules[name]
+        sys.modules.update(cached_turbofan_modules)
     return module
 
 
@@ -300,6 +321,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module, "save_json", lambda payload, path: None)
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
+    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     torch.manual_seed(999)
     module.main()
@@ -314,6 +336,155 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     assert captured_state
     for name, value in expected.items():
         assert torch.equal(captured_state[name], value)
+
+
+def test_train_sequence_gru_cli_appends_training_log_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CLI appends a GRU training log entry after artifacts are saved."""
+    module = _load_train_sequence_gru_module()
+    run_dir = tmp_path / "run"
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path / "raw",
+            processed_dir=tmp_path / "processed",
+            interim_dir=tmp_path / "interim",
+            fd_subset="FD002",
+            random_seed=123,
+        ),
+        sequence=SequenceConfig(
+            architecture="gru",
+            window_size=5,
+            batch_size=8,
+            hidden_size=6,
+            num_layers=2,
+            dropout=0.1,
+            learning_rate=0.002,
+            epochs=3,
+            patience=2,
+            artifact_dir=tmp_path / "artifacts",
+        ),
+    )
+    final_metrics = {"rmse": 9.0, "mae": 8.0, "phm08_score": 7.0}
+    window_metrics = {"rmse": 1.0, "mae": 2.0, "phm08_score": 3.0}
+    build_calls: list[dict[str, object]] = []
+    appended_entries: list[dict[str, object]] = []
+    timer_values = iter([10.0, 12.5])
+
+    def fake_train_gru_model(**kwargs: object) -> TrainingResult:
+        del kwargs
+        return TrainingResult(
+            model=GRURULRegressor(
+                input_size=2,
+                hidden_size=6,
+                num_layers=2,
+                dropout=0.1,
+            ),
+            history=pd.DataFrame([{"epoch": 1}]),
+            best_epoch=7,
+            best_metric=0.0,
+        )
+
+    def fake_evaluate_windows(
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[dict[str, float], pd.DataFrame]:
+        del args
+        del kwargs
+        if not hasattr(fake_evaluate_windows, "called"):
+            fake_evaluate_windows.called = True
+            return final_metrics, pd.DataFrame()
+        return window_metrics, pd.DataFrame()
+
+    def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
+        build_calls.append(kwargs)
+        return {"entry": kwargs}
+
+    def fake_create_run_dir(artifact_dir: Path, name: str) -> Path:
+        del artifact_dir
+        del name
+        run_dir.mkdir()
+        return run_dir
+
+    monkeypatch.setattr(
+        module,
+        "_parse_args",
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+    )
+    monkeypatch.setattr(module, "load_config", lambda path: cfg)
+    monkeypatch.setattr(module, "resolve_device", lambda requested: torch.device("cpu"))
+    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(
+        module,
+        "split_by_engine",
+        lambda frame, test_size, random_seed: (frame, frame),
+    )
+    monkeypatch.setattr(module, "SequenceNormalizer", _FakeNormalizer)
+    monkeypatch.setattr(
+        module,
+        "build_sliding_windows",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_final_windows",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_sequence_loader",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(module, "train_gru_model", fake_train_gru_model)
+    monkeypatch.setattr(module, "_evaluate_windows", fake_evaluate_windows)
+    monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "create_run_dir", fake_create_run_dir)
+    monkeypatch.setattr(module, "save_json", lambda payload, path: None)
+    monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
+    monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
+    monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
+    monkeypatch.setattr(
+        module,
+        "append_training_log",
+        lambda entry: appended_entries.append(entry),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        module,
+        "perf_counter",
+        lambda: next(timer_values),
+        raising=False,
+    )
+
+    module.main()
+
+    assert build_calls == [
+        {
+            "model_type": "gru",
+            "dataset": "FD002",
+            "random_seed": 123,
+            "hyperparameters": {
+                "window_size": 5,
+                "hidden_size": 6,
+                "learning_rate": 0.002,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "batch_size": 8,
+                "epochs": 3,
+                "patience": 2,
+            },
+            "metrics": window_metrics,
+            "training_duration_seconds": 2.5,
+            "device": "cpu",
+            "run_dir": str(run_dir),
+            "best_epoch": 7,
+        }
+    ]
+    assert appended_entries == [{"entry": build_calls[0]}]
 
 
 def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
@@ -332,7 +503,10 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
 
     result = _run_cli(cfg_path)
 
-    assert "validation_final_window rmse" in result.stdout
+    assert "validation_windows rmse" in result.stdout
+    assert result.stdout.index("validation_windows rmse") < result.stdout.index(
+        "validation_final_window rmse"
+    )
     run_dirs = list((artifact_dir / "sequence_gru").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
@@ -411,7 +585,10 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
 
     result = _run_cli(cfg_path)
 
-    assert "validation_final_window rmse" in result.stdout
+    assert "validation_windows rmse" in result.stdout
+    assert result.stdout.index("validation_windows rmse") < result.stdout.index(
+        "validation_final_window rmse"
+    )
     assert "official test evaluation skipped" in result.stdout
     run_dir = next((artifact_dir / "sequence_gru").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
