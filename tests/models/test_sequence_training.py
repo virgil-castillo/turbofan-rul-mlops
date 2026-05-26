@@ -6,6 +6,7 @@ from collections.abc import Iterator
 import numpy as np
 import pytest
 import torch
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
@@ -13,6 +14,7 @@ from turbofan.models.gru import GRURULRegressor
 from turbofan.models.sequence_training import (
     TrainingResult,
     _evaluate_loader,
+    _train_one_epoch,
     predict_windows,
     resolve_device,
     train_gru_model,
@@ -119,6 +121,27 @@ class _NegativeRegressor(torch.nn.Module):
         return torch.full((features.shape[0],), -5.0, dtype=torch.float32)
 
 
+class _ConstantRegressor(torch.nn.Module):
+    """Fixed-output regressor for target normalization tests."""
+
+    def __init__(self, value: float) -> None:
+        super().__init__()
+        self._value = value
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Return a constant prediction for every window.
+
+        Args:
+            features: Sequence feature batch.
+
+        Returns:
+            One constant prediction per window.
+        """
+        return torch.full(
+            (features.shape[0],), self._value, dtype=torch.float32
+        )
+
+
 def test_resolve_device_cpu_returns_cpu_device() -> None:
     """CPU device resolution returns a torch CPU device."""
     device = resolve_device("cpu")
@@ -140,7 +163,7 @@ def test_predict_windows_returns_float64_prediction_per_window() -> None:
     """Window prediction returns one float64 numpy value per input window."""
     model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
 
-    predictions = predict_windows(model, _loader(), torch.device("cpu"))
+    predictions = predict_windows(model, _loader(), torch.device("cpu"), max_rul=1)
 
     assert predictions.dtype == np.float64
     assert predictions.shape == (4,)
@@ -158,7 +181,7 @@ def test_evaluate_loader_keeps_predictions_and_targets_paired() -> None:
     )
     model = _LastFeatureRegressor()
 
-    metrics = _evaluate_loader(model, loader, torch.device("cpu"))
+    metrics = _evaluate_loader(model, loader, torch.device("cpu"), max_rul=1)
 
     assert metrics["rmse"] == 0.0
 
@@ -170,7 +193,7 @@ def test_evaluate_loader_clips_negative_predictions_before_metrics() -> None:
     loader = DataLoader(TensorDataset(features, targets), batch_size=2)
     model = _NegativeRegressor()
 
-    metrics = _evaluate_loader(model, loader, torch.device("cpu"))
+    metrics = _evaluate_loader(model, loader, torch.device("cpu"), max_rul=1)
 
     assert metrics["rmse"] == pytest.approx(np.sqrt(10.0))
     assert metrics["mae"] == pytest.approx(3.0)
@@ -195,6 +218,7 @@ def test_train_gru_model_returns_result_with_expected_history() -> None:
         config=config,
         device=torch.device("cpu"),
         random_seed=7,
+        max_rul=1,
     )
 
     assert isinstance(result, TrainingResult)
@@ -245,11 +269,13 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         config=config,
         device=torch.device("cpu"),
         random_seed=7,
+        max_rul=1,
     )
     restored_predictions = predict_windows(
         model,
         validation_windows_loader,
         torch.device("cpu"),
+        max_rul=1,
     )
 
     assert len(result.history) == 3
@@ -264,3 +290,62 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         result.best_metric,
         abs=1e-7,
     )
+
+
+def test_train_one_epoch_normalized_targets_produce_smaller_loss() -> None:
+    """Normalizing targets by max_rul produces a smaller epoch loss."""
+    torch.manual_seed(42)
+    model_identity = GRURULRegressor(
+        input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
+    torch.manual_seed(42)
+    model_normalized = GRURULRegressor(
+        input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
+    criterion = nn.MSELoss()
+    optimizer_identity = torch.optim.Adam(model_identity.parameters(), lr=0.001)
+    optimizer_normalized = torch.optim.Adam(model_normalized.parameters(), lr=0.001)
+    device = torch.device("cpu")
+
+    loss_identity = _train_one_epoch(
+        model_identity, _loader(), criterion, optimizer_identity, device, max_rul=1
+    )
+    loss_normalized = _train_one_epoch(
+        model_normalized,
+        _loader(),
+        criterion,
+        optimizer_normalized,
+        device,
+        max_rul=125,
+    )
+
+    assert loss_normalized < loss_identity
+
+
+def test_evaluate_loader_rescales_predictions_by_max_rul() -> None:
+    """Evaluate loader multiplies raw predictions by max_rul before clipping."""
+    targets = torch.tensor([10.0, 10.0], dtype=torch.float32)
+    features = torch.zeros((2, 1, 1), dtype=torch.float32)
+    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    model = _ConstantRegressor(0.1)
+    device = torch.device("cpu")
+
+    # With max_rul=100: predictions = 0.1 * 100 = 10.0, matches targets → rmse=0
+    metrics_scaled = _evaluate_loader(model, loader, device, max_rul=100)
+    # With max_rul=1: predictions = 0.1 * 1 = 0.1, targets=10.0 → rmse=9.9
+    metrics_identity = _evaluate_loader(model, loader, device, max_rul=1)
+
+    assert metrics_scaled["rmse"] == pytest.approx(0.0, abs=1e-5)
+    assert metrics_identity["rmse"] == pytest.approx(9.9, abs=1e-5)
+
+
+def test_predict_windows_rescales_by_max_rul() -> None:
+    """predict_windows multiplies raw model output by max_rul before returning."""
+    model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
+    device = torch.device("cpu")
+    loader = _loader()
+
+    preds_identity = predict_windows(model, loader, device, max_rul=1)
+    preds_scaled = predict_windows(model, loader, device, max_rul=10)
+
+    np.testing.assert_allclose(preds_scaled, preds_identity * 10, rtol=1e-5)

@@ -64,6 +64,7 @@ def train_gru_model(
     config: SequenceConfig,
     device: torch.device,
     random_seed: int,
+    max_rul: int,
 ) -> TrainingResult:
     """Train a GRU RUL regressor with validation metrics and early stopping.
 
@@ -75,6 +76,8 @@ def train_gru_model(
         config: Sequence model training configuration.
         device: Torch device used for training and evaluation.
         random_seed: Seed for Python, NumPy, and torch random generators.
+        max_rul: Maximum RUL used to normalise targets during training and
+            rescale predictions during evaluation.
 
     Returns:
         Training result containing the best restored model and metric history.
@@ -90,9 +93,15 @@ def train_gru_model(
     epochs_without_improvement = 0
 
     for epoch in range(1, config.epochs + 1):
-        train_loss = _train_one_epoch(model, train_loader, criterion, optimizer, device)
-        final_metrics = _evaluate_loader(model, validation_final_loader, device)
-        window_metrics = _evaluate_loader(model, validation_windows_loader, device)
+        train_loss = _train_one_epoch(
+            model, train_loader, criterion, optimizer, device, max_rul
+        )
+        final_metrics = _evaluate_loader(
+            model, validation_final_loader, device, max_rul
+        )
+        window_metrics = _evaluate_loader(
+            model, validation_windows_loader, device, max_rul
+        )
         current_metric = window_metrics["rmse"]
 
         history.append(
@@ -131,6 +140,7 @@ def predict_windows(
     model: GRURULRegressor,
     loader: SequenceLoader,
     device: torch.device,
+    max_rul: int,
 ) -> npt.NDArray[np.float64]:
     """Predict RUL values for sequence windows.
 
@@ -138,12 +148,15 @@ def predict_windows(
         model: Trained GRU model.
         loader: Loader containing sequence feature batches.
         device: Torch device used for inference.
+        max_rul: Maximum RUL used to rescale normalised model outputs back to
+            the original RUL scale.
 
     Returns:
-        One-dimensional float64 array with one prediction per input window.
+        One-dimensional float64 array with one prediction per input window,
+        rescaled by ``max_rul``.
     """
     predictions, _ = _predict_windows_and_targets(model, loader, device)
-    return predictions
+    return predictions * max_rul
 
 
 def _predict_windows_and_targets(
@@ -199,13 +212,14 @@ def _train_one_epoch(
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    max_rul: int,
 ) -> float:
     model.train()
     total_loss = 0.0
     total_count = 0
     for features, targets in loader:
         features = features.to(device)
-        targets = targets.to(device)
+        targets = targets.to(device) / max_rul
         optimizer.zero_grad()
         predictions = model(features)
         loss = criterion(predictions, targets)
@@ -220,10 +234,12 @@ def _train_one_epoch(
 
 
 def _evaluate_loader(
-    model: GRURULRegressor,
+    model: nn.Module,
     loader: SequenceLoader,
     device: torch.device,
+    max_rul: int,
 ) -> dict[str, float]:
     predictions, targets = _predict_windows_and_targets(model, loader, device)
+    predictions = predictions * max_rul
     predictions = np.clip(predictions, 0.0, None)
     return regression_metrics(targets, predictions)
