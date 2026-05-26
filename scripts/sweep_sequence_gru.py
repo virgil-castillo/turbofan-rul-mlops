@@ -254,11 +254,17 @@ def run_gru_sweep(
             config=spec_cfg,
             device=torch_device,
             random_seed=cfg.data.random_seed,
+            max_rul=cfg.data.max_rul,
         )
         training_duration_seconds = perf_counter() - training_start
 
         predictions = np.clip(
-            predict_windows(result.model, validation_windows_loader, torch_device),
+            predict_windows(
+                result.model,
+                validation_windows_loader,
+                torch_device,
+                max_rul=cfg.data.max_rul,
+            ),
             0.0,
             None,
         )

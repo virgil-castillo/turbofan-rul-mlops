@@ -245,6 +245,7 @@ def test_gru_sweep_reports_validation_window_metrics(
         model: object,
         loader: FakeWindows,
         device: object,
+        max_rul: int = 1,
     ) -> np.ndarray:
         del model
         del device
@@ -378,6 +379,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         model: object,
         loader: FakeWindows,
         device: object,
+        max_rul: int = 1,
     ) -> np.ndarray:
         del model
         del device
