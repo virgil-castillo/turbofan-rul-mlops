@@ -241,6 +241,101 @@ def test_predict_cli_exits_nonzero_for_missing_input(tmp_path: Path) -> None:
     assert "Input path does not exist" in result.stderr
 
 
+def _write_rul_labels(data_dir: Path, subset: str, labels: list[int]) -> Path:
+    """Write a synthetic RUL labels file.
+
+    Args:
+        data_dir: Directory for the labels file.
+        subset: C-MAPSS subset name (e.g. "FD001").
+        labels: RUL values, one per engine.
+
+    Returns:
+        Path to the written labels file.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / f"RUL_{subset}.txt"
+    path.write_text("\n".join(str(label) for label in labels) + "\n")
+    return path
+
+
+def test_predict_cli_evaluates_against_rul_labels_when_available(
+    tmp_path: Path,
+) -> None:
+    """CLI computes and prints metrics when RUL labels file is found."""
+    artifact_path = _write_ridge_artifact(tmp_path)
+    data_dir = tmp_path / "data"
+    _write_rul_labels(data_dir, "FD001", [40, 45])
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "predictions.csv"
+    metadata_path = tmp_path / "metadata.json"
+    with input_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=list(_record().keys()))
+        writer.writeheader()
+        writer.writerow(_record(engine_id=1, cycle=1))
+        writer.writerow(_record(engine_id=2, cycle=1))
+
+    result = _run_predict(
+        tmp_path,
+        "--artifact",
+        str(artifact_path),
+        "--input",
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--metadata-output",
+        str(metadata_path),
+        "--data-dir",
+        str(data_dir),
+        "--subset",
+        "FD001",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RMSE" in result.stdout
+    assert "MAE" in result.stdout
+    assert "PHM08" in result.stdout
+    metadata = json.loads(metadata_path.read_text())
+    assert "evaluation" in metadata
+    assert "rmse" in metadata["evaluation"]
+    assert "mae" in metadata["evaluation"]
+    assert "phm08_score" in metadata["evaluation"]
+
+
+def test_predict_cli_skips_evaluation_when_rul_labels_missing(
+    tmp_path: Path,
+) -> None:
+    """CLI skips evaluation silently when no RUL labels file exists."""
+    artifact_path = _write_ridge_artifact(tmp_path)
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "predictions.csv"
+    metadata_path = tmp_path / "metadata.json"
+    with input_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=list(_record().keys()))
+        writer.writeheader()
+        writer.writerow(_record(engine_id=1, cycle=1))
+
+    result = _run_predict(
+        tmp_path,
+        "--artifact",
+        str(artifact_path),
+        "--input",
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--metadata-output",
+        str(metadata_path),
+        "--data-dir",
+        str(tmp_path / "no_data"),
+        "--subset",
+        "FD001",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RMSE" not in result.stdout
+    metadata = json.loads(metadata_path.read_text())
+    assert "evaluation" not in metadata
+
+
 def test_predict_cli_exits_nonzero_for_invalid_artifact(tmp_path: Path) -> None:
     """CLI reports artifact loading errors on stderr and exits non-zero."""
     input_path = tmp_path / "input.csv"

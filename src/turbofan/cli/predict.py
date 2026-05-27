@@ -8,11 +8,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from turbofan.inference.predictors import load_predictor
 from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.inference.service import prediction_result_to_dict
+from turbofan.models.metrics import regression_metrics
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -26,12 +28,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    evaluation: dict[str, float] | None = None
     try:
         records = _read_records(args.input)
         predictor = load_predictor(args.artifact)
         result = predictor.predict(records, allow_partial=args.allow_partial)
         payload = prediction_result_to_dict(result)
         _write_predictions(args.output, payload)
+        predictions_list = payload["predictions"]
+        if not isinstance(predictions_list, list):
+            raise ValueError("Serialized predictions must be a list.")
+        evaluation = _try_evaluate(predictions_list, args.data_dir, args.subset)
+        if evaluation is not None:
+            meta = payload["metadata"]
+            if isinstance(meta, dict):
+                meta["evaluation"] = evaluation
         _write_metadata(args.metadata_output, payload)
     except Exception as exc:
         print(str(exc), file=sys.stderr)
@@ -43,7 +54,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Prediction count: {metadata.prediction_rows} predictions")
     print(f"Predictions output: {args.output}")
     print(f"Metadata output: {args.metadata_output}")
+    if evaluation is not None:
+        print(f"RMSE: {evaluation['rmse']:.4f}")
+        print(f"MAE: {evaluation['mae']:.4f}")
+        print(f"PHM08 Score: {evaluation['phm08_score']:.4f}")
     return 0
+
+
+def _try_evaluate(
+    predictions: list[dict[str, object]],
+    data_dir: Path | None,
+    subset: str | None,
+) -> dict[str, float] | None:
+    """Evaluate predictions against official RUL labels if available.
+
+    Args:
+        predictions: Serialized prediction rows.
+        data_dir: Directory containing RUL label files.
+        subset: C-MAPSS subset identifier.
+
+    Returns:
+        Metric dictionary or None when labels are unavailable.
+    """
+    if data_dir is None or subset is None:
+        return None
+    labels_path = data_dir / f"RUL_{subset}.txt"
+    if not labels_path.exists():
+        return None
+    labels = pd.read_csv(labels_path, header=None).iloc[:, 0].to_numpy(
+        dtype=np.float64,
+    )
+    if len(labels) != len(predictions):
+        return None
+    y_pred = np.array(
+        [float(str(row["prediction"])) for row in predictions],
+        dtype=np.float64,
+    )
+    return regression_metrics(labels, y_pred)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -53,6 +100,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metadata-output", required=True, type=Path)
     parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--subset", type=str, default=None)
     return parser
 
 
