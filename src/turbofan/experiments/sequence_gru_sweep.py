@@ -35,6 +35,7 @@ RESULT_COLUMNS = [
     "rmse",
     "mae",
     "phm08_score",
+    "training_duration_seconds",
 ]
 
 
@@ -81,8 +82,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=None,
-        help="Optional CSV path for sweep results.",
+        default=Path("results/gru_sweep.csv"),
+        help="CSV path for sweep results.",
     )
     return parser.parse_args()
 
@@ -269,6 +270,7 @@ def run_gru_sweep(
             "rmse": metrics["rmse"],
             "mae": metrics["mae"],
             "phm08_score": metrics["phm08_score"],
+            "training_duration_seconds": training_duration_seconds,
         }
         rows.append(row)
         if output_path is not None:

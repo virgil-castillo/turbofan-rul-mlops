@@ -132,6 +132,7 @@ def test_gru_sweep_returns_expected_rows(
         "rmse",
         "mae",
         "phm08_score",
+        "training_duration_seconds",
     ]
     assert results["phm08_score"].is_monotonic_increasing
 
@@ -406,7 +407,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
     )
 
 
-    module.run_gru_sweep(
+    results = module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
         window_sizes=[3, 4],
         hidden_sizes=[6],
@@ -457,6 +458,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         },
     ]
     assert appended_entries == [{"entry": call} for call in build_calls]
+    assert list(results["training_duration_seconds"]) == [0.5, 2.25]
 
 
 def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
@@ -496,4 +498,46 @@ def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
     assert "run 1/1" in result.stdout
     results = pd.read_csv(output_path)
     assert len(results) == 1
+    assert "training_duration_seconds" in results.columns
+    assert results.loc[0, "training_duration_seconds"] > 0.0
+    assert results["phm08_score"].is_monotonic_increasing
+
+
+def test_sweep_sequence_gru_cli_writes_default_csv(tmp_path: Path) -> None:
+    """CLI writes a default GRU sweep CSV when output is omitted."""
+    project_root = Path(__file__).parent.parent.parent
+    cfg_path = _write_config(tmp_path)
+    output_path = tmp_path / "results" / "gru_sweep.csv"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "turbofan.experiments.sequence_gru_sweep",
+            "--config",
+            str(cfg_path),
+            "--window-sizes",
+            "3",
+            "--hidden-sizes",
+            "2",
+            "--learning-rates",
+            "1e-3",
+            "--device",
+            "cpu",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert "window_size" in result.stdout
+    assert "run 1/1" in result.stdout
+    results = pd.read_csv(output_path)
+    assert len(results) == 1
+    assert "training_duration_seconds" in results.columns
+    assert results.loc[0, "training_duration_seconds"] > 0.0
     assert results["phm08_score"].is_monotonic_increasing
