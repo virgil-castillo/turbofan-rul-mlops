@@ -18,7 +18,7 @@ EXPECTED_FILES: list[str] = [
     for i in range(1, 5)
 ]
 
-RAW_DIR: Path = Path(__file__).resolve().parent.parent / "data" / "raw"
+RAW_DIR: Path = Path("data/raw")
 KAGGLE_DATASET: str = "behrad3d/nasa-cmaps"
 MANUAL_URL: str = "https://www.kaggle.com/datasets/behrad3d/nasa-cmaps"
 
@@ -112,13 +112,13 @@ def main() -> None:
 
     if args.check:
         print(f"Checking data files in {RAW_DIR} ...\n")
-        all_present = check()
+        all_present = check(RAW_DIR)
         sys.exit(0 if all_present else 1)
 
     if args.kaggle:
-        download_kaggle()
+        download_kaggle(RAW_DIR)
         print("Verifying downloaded files ...\n")
-        check()
+        check(RAW_DIR)
 
 
 if __name__ == "__main__":
