@@ -1,103 +1,115 @@
-# Turbofan RUL Prediction — MLOps
+# Turbofan Remaining Useful Life Prediction
 
-End-to-end remaining useful life (RUL) prediction system for turbofan engines using the NASA C-MAPSS dataset. Covers data loading, exploratory analysis, feature engineering, baseline modeling, sequence modeling, and inference deployment.
+This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. The current implementation targets FD001; support for FD002–FD004 is planned.
 
-## What this does
+## What this repo contains
 
-Predicts how many operating cycles a turbofan engine has left before failure, given multivariate sensor readings and operational settings. The system supports all four C-MAPSS subsets (FD001-FD004), each with different numbers of fault modes and operating conditions.
+- Configuration-driven training experiments with Pydantic-validated YAML configs
+- Ridge regression baseline modeling
+- GRU-based sequence modeling for temporal degradation patterns
+- Evaluation with RMSE, MAE, and PHM08 score
+- Hyperparameter sweep experiments (Ridge alpha, GRU architecture, feature selection)
+- Exploratory data analysis utilities and notebook
+- Saved model artifacts and experiment outputs
+- Tests for core project components
+- Experimental batch prediction, FastAPI serving, and Docker serving interfaces
 
-## Current capabilities
+## Current Scope
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| Data loading | Done | Raw C-MAPSS loader with piecewise-linear RUL labels (capped at 125) |
-| EDA | Done | Reusable analysis utilities (quality, sensor stats, degradation) + structured notebook |
-| Feature engineering | Done | sklearn pipeline: drops constant sensors, computes rolling stats (windows 5/10/20), normalizes by operating condition |
-| Baseline model | Done | Ridge regression trained on engineered features, engine-level validation split, PHM08 scoring |
-| Sequence models | Planned | LSTM/transformer models operating on time-series windows |
-| Inference & deployment | Planned | Serving API and batch prediction |
+| Dataset | Status |
+|---|---|
+| FD001 | Implemented |
+| FD002 | Planned |
+| FD003 | Planned |
+| FD004 | Planned |
 
-## Project structure
+## Quickstart
 
-```text
-turbofan-rul-mlops/
-|-- configs/                         # Project YAML configs
-|-- data/                            # Local C-MAPSS data roots
-|-- docs/                            # Reports and implementation plans
-|-- jobs/
-|   `-- slurm/                       # HPC launchers
-|-- notebooks/                       # EDA notebooks
-|-- src/turbofan/
-|   |-- cli/                         # Packaged command-line entry points
-|   |-- config/                      # Pydantic config schema
-|   |-- data/                        # Raw data I/O and labels
-|   |-- eda/                         # Exploratory analysis helpers
-|   |-- experiments/                 # Sweeps and comparison commands
-|   |-- features/                    # Feature engineering transformers
-|   |-- inference/                   # Prediction schemas, loaders, service
-|   |-- models/                      # Training, metrics, artifacts
-|   |-- sequences/                   # Sequence windows, loaders, normalization
-|   `-- utils/                       # Shared utilities
-|-- tests/                           # Synthetic-data tests
-|-- artifacts/                       # Model outputs (git-ignored)
-|-- results/                         # Experiment result CSVs
-`-- pyproject.toml                   # Package metadata, commands, tool config
-```
-
-Primary commands are exposed as package entry points such as `turbofan-download-data`, `turbofan-train-baseline`, and `turbofan-sweep-gru`.
-
-## Setup
+Install the project dependencies:
 
 ```bash
-# Create conda environment
-conda create -n mlops python=3.12
-conda activate mlops
-
-# Install package in editable mode with dev tools
 pip install -e ".[dev]"
-
-# Install nbstripout git filter (strips notebook outputs on commit)
-nbstripout --install
 ```
 
-## Download data
+Or use the conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate mlops
+pip install -e ".[dev]"
+```
+
+Download and prepare the C-MAPSS dataset:
 
 ```bash
 # Requires Kaggle API credentials (~/.kaggle/kaggle.json)
 turbofan-download-data --kaggle
 
-# Verify files are present
+# Verify all expected files are present
 turbofan-download-data --check
 ```
 
-This downloads the NASA C-MAPSS dataset (FD001-FD004) into `data/raw/`.
+This downloads all four C-MAPSS subsets (FD001–FD004) into `data/raw/`. The current training workflow targets FD001.
 
-## Train baseline model
+Train the Ridge baseline:
 
 ```bash
 turbofan-train-baseline --config configs/default.yaml
 ```
 
-Outputs a fitted Ridge model, metrics JSON, and prediction CSVs to `artifacts/models/baseline/<timestamp>/`. Evaluates on a held-out engine split and, if test data is present, on the official C-MAPSS test set.
-
-## Run tests
+Train the GRU sequence model:
 
 ```bash
-pytest                          # all 127 tests
-pytest tests/models/ -v         # just model tests
-pytest -k "test_rolling" -v     # single test by pattern
+turbofan-train-sequence-gru --config configs/default.yaml
 ```
 
-## Lint and type-check
+Model training creates a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`. Each run directory is self-contained and includes the model checkpoint, config snapshot, manifest, metrics, training history, and prediction CSVs.
 
-```bash
-ruff check src/ tests/          # lint (E, F, W, I, UP, ANN rules)
-mypy src/turbofan               # strict type checking
+Cross-run experiment summaries and the global append-only training log are written to `results/`.
+
+## Project Structure
+
+```text
+configs/                              # Experiment configuration files
+data/                                 # Raw, interim, and processed dataset files
+docs/                                 # Analysis reports and documentation
+notebooks/                            # Exploratory analysis notebooks
+results/                              # Cross-run experiment summaries and global training logs
+artifacts/                            # Per-run model artifacts, metrics, configs, manifests, histories, and predictions (git-ignored)
+src/turbofan/
+  cli/                                # Command-line entrypoints
+  config/                             # Pydantic configuration schema
+  data/                               # Dataset loading, parsing, and label logic
+  eda/                                # Exploratory data analysis utilities
+  features/                           # Feature engineering pipeline
+  models/                             # Model definitions, training, and evaluation
+  sequences/                          # Sequence windowing and DataLoader builders
+  inference/                          # Prediction, model-loading, and serving
+  experiments/                        # Hyperparameter sweeps and comparisons
+  utils/                              # Shared utilities
+jobs/slurm/                           # SLURM job scripts for HPC experiments
+tests/                                # Unit and smoke tests
 ```
+
+## CLI Commands
+
+All commands are installed as entry points via `pyproject.toml`:
+
+| Command | Purpose |
+|---|---|
+| `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files exist |
+| `turbofan-train-baseline` | Train Ridge regression baseline |
+| `turbofan-train-sequence-gru` | Train GRU sequence model |
+| `turbofan-sweep-baseline-alpha` | Sweep Ridge regularization strength |
+| `turbofan-compare-baseline-features` | Compare feature sets (raw, rolling, engineered) |
+| `turbofan-sweep-gru` | Sweep GRU hyperparameters |
+| `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
+| `turbofan-predict` | Experimental batch prediction from a saved artifact |
+| `turbofan-serve-api` | Experimental FastAPI inference server |
 
 ## Configuration
 
-All settings live in `configs/default.yaml`:
+All settings live in `configs/default.yaml` and are validated by a Pydantic schema:
 
 ```yaml
 project_name: turbofan-rul-mlops
@@ -111,6 +123,149 @@ data:
 
 model:
   name: ridge
-  alpha: 1.0                # Ridge regularization strength
+  alpha: 100.0
+  feature_set: rolling
+  artifact_dir: artifacts/models
+
+sequence:
+  architecture: gru
+  window_size: 30
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.0
+  learning_rate: 0.001
+  epochs: 50
+  patience: 8
   artifact_dir: artifacts/models
 ```
+
+## Dataset
+
+The project uses NASA's C-MAPSS turbofan degradation dataset. Each subset contains multivariate time-series data where engines are observed over multiple operating cycles. The goal is to estimate how many cycles remain before failure from operating settings and sensor measurements.
+
+| Subset | Fault modes | Operating conditions |
+|---|---|---|
+| FD001 | 1 | 1 |
+| FD002 | 1 | 6 |
+| FD003 | 2 | 1 |
+| FD004 | 2 | 6 |
+
+RUL labels are capped at 125 cycles using a piecewise-linear scheme, reflecting the assumption that degradation is not detectable in early engine life.
+
+## Modeling Approach
+
+The project includes both baseline and neural sequence modeling approaches.
+
+| Model | Description |
+|---|---|
+| Ridge Regression | Linear baseline trained on engineered tabular features (rolling statistics, normalized by operating condition) |
+| GRU | Recurrent sequence model trained on sliding windows of sensor readings |
+
+The feature engineering pipeline drops constant sensors, computes rolling statistics over configurable windows, and normalizes features by operating condition. The GRU model operates on fixed-length sliding windows with its own normalization path.
+
+## Evaluation
+
+Models are evaluated using:
+
+| Metric | Purpose |
+|---|---|
+| RMSE | Penalizes larger prediction errors |
+| MAE | Measures average absolute prediction error |
+| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones |
+
+GRU training reports RMSE, MAE, and PHM08 on an engine-level validation split. When the official FD001 test files are present, training also evaluates against `test_FD001.txt` using labels from `RUL_FD001.txt`.
+
+Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/sequence_gru/<timestamp>/`. Cross-run summaries are saved under `results/`.
+
+## Experimental Inference and Serving
+
+Batch prediction, FastAPI serving, and Docker serving are implemented but have not yet been validated end-to-end against finalized model artifacts.
+
+Run batch prediction with a saved model artifact:
+
+```bash
+turbofan-predict \
+  --artifact artifacts/models/baseline/<timestamp>/model_manifest.json \
+  --input data.csv \
+  --output predictions.csv
+```
+
+Start the FastAPI server locally:
+
+```bash
+turbofan-serve-api --host 127.0.0.1 --port 8000
+```
+
+The server exposes two endpoints:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Returns loaded model metadata and status |
+| `/predict` | POST | Accepts engine sensor records and returns RUL predictions |
+
+The model artifact is configured via the `TURBOFAN_MODEL_ARTIFACT` environment variable or passed at app creation time.
+
+### Docker
+
+A Dockerfile is included for containerized deployment of the inference server:
+
+```bash
+docker build -t turbofan-serve .
+
+docker run -p 8000:8000 \
+  -v /path/to/artifact:/models \
+  turbofan-serve
+```
+
+The container expects a model manifest at `/models/model_manifest.json`.
+
+## Reproducibility
+
+The project is designed to make experiments reproducible through:
+
+- Scripted data download
+- Configuration-driven training
+- Deterministic random seeds
+- Saved model artifacts with manifests
+- Saved evaluation outputs
+- Documented command-line workflows
+
+Exact numerical results may vary slightly across hardware and dependency versions, especially for neural-network training.
+
+## Tests
+
+Run the test suite with:
+
+```bash
+pytest
+```
+
+Tests use synthetic data fixtures and cover data loading, feature engineering, model training, sequence windowing, inference schemas, CLI commands, and experiment sweeps. Test coverage will continue to expand as support for additional C-MAPSS subsets is added.
+
+## Lint and Type-Check
+
+```bash
+ruff check src/ tests/          # lint (E, F, W, I, UP, ANN rules)
+mypy src/turbofan               # strict type checking
+```
+
+## Roadmap
+
+- [x] FD001 data download and preparation
+- [x] FD001 baseline modeling (Ridge)
+- [x] GRU sequence model
+- [x] Hyperparameter sweep experiments
+- [x] RMSE, MAE, and PHM08 evaluation
+- [ ] Validate batch prediction CLI end-to-end
+- [ ] Validate FastAPI inference server
+- [ ] Validate Dockerized serving
+- [ ] FD002 support
+- [ ] FD003 support
+- [ ] FD004 support
+- [ ] Cross-dataset benchmark table
+- [ ] Stabilized inference interface
+
+
+## License
+
+MIT
