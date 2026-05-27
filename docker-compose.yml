@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${MODEL_RUN_DIR:-./artifacts/models/sequence_gru/20260527-114428}:/models:ro
+    environment:
+      TURBOFAN_MODEL_ARTIFACT: /models/model_manifest.json
