@@ -36,7 +36,8 @@ Detailed plan for what's been built and what's next. The README has a summary ch
 - Batch prediction CLI with CSV/JSON input, strict and partial modes
 - FastAPI server (`/health`, `/predict`) loading one artifact at startup
 - Model manifest standard (`model_manifest.json`) abstracting Ridge vs GRU
-- Dockerfile for containerized inference server
+- Dockerfile and docker-compose.yml for containerized inference server
+- `scripts/query_api.py` for end-to-end API smoke testing against official test labels
 - Ridge inference returns one last-cycle prediction per engine
 - GRU inference rescales normalized model output by `max_rul`
 - `turbofan-predict` can evaluate against official RUL labels when `--data-dir`
@@ -51,11 +52,12 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 - [x] `turbofan-predict` CLI evaluates predictions against official test labels when available and aligned
 - [x] Sweep experiments no longer evaluate on the official test set
 
-## Next — Docker Serving Validation
+## Completed — Docker Serving Validation (2026-05-27)
 
 - [x] Run `turbofan-predict` against real baseline and GRU artifacts
 - [x] Run `turbofan-serve-api` with a real artifact, hit `/predict` with test data
-- [ ] Build and run the Docker container with a mounted artifact
+- [x] Build and run the Docker container with a mounted artifact
+- [x] Smoke-test containerized API with `scripts/query_api.py` — RMSE matches training run
 
 ## Next — Multi-Dataset Support (FD002–FD004)
 

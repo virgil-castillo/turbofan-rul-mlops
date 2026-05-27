@@ -12,7 +12,7 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 - Exploratory data analysis utilities and notebook
 - Saved model artifacts and experiment outputs
 - Tests for core project components
-- Experimental batch prediction, FastAPI serving, and Docker serving interfaces
+- Batch prediction, FastAPI serving, and Docker serving interfaces
 
 ## Current Scope
 
@@ -104,8 +104,8 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-compare-baseline-features` | Compare feature sets (raw, rolling, engineered) |
 | `turbofan-sweep-gru` | Sweep GRU hyperparameters |
 | `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
-| `turbofan-predict` | Experimental batch prediction and optional official-label evaluation from a saved artifact |
-| `turbofan-serve-api` | Experimental FastAPI inference server |
+| `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
+| `turbofan-serve-api` | FastAPI inference server |
 
 ## Configuration
 
@@ -179,7 +179,7 @@ Per-run metrics and prediction CSVs are saved in the run directory under `artifa
 
 ## Inference and Serving
 
-Batch prediction and FastAPI serving have been validated end-to-end against trained model artifacts. Docker serving is implemented but not yet tested.
+Batch prediction, FastAPI serving, and Docker serving have been validated end-to-end against trained model artifacts.
 
 Run batch prediction with a saved model artifact:
 
@@ -212,15 +212,34 @@ The model artifact is configured via the `TURBOFAN_MODEL_ARTIFACT` environment v
 
 ### Docker
 
-A Dockerfile is included for containerized deployment of the inference server:
+A `docker-compose.yml` is included for containerized deployment. It mounts the model run directory into the container at `/models/`, where the server expects `model_manifest.json`.
+
+Build and start the server:
 
 ```bash
-docker build -t turbofan-serve .
-
-docker run -p 8000:8000 \
-  -v /path/to/artifact:/models \
-  turbofan-serve
+docker compose up --build
 ```
+
+By default this mounts the most recently trained GRU run. To point at a different run:
+
+```bash
+MODEL_RUN_DIR=./artifacts/models/sequence_gru/<timestamp> docker compose up
+```
+
+Verify the container is healthy and the model loaded:
+
+```bash
+curl http://localhost:8000/health
+```
+
+To send test data and compare predictions against true RUL labels:
+
+```bash
+python scripts/query_api.py                        # FD001 (default)
+python scripts/query_api.py --subset FD002         # other subsets
+```
+
+This reads `data/raw/test_FD001.txt`, POSTs all engine records to `/predict`, and prints a per-engine prediction table with RMSE and MAE. The reported RMSE should match `official_test rmse` from the training run.
 
 The container expects a model manifest at `/models/model_manifest.json`.
 
@@ -265,7 +284,7 @@ mypy src/turbofan               # strict type checking
 - [x] Validate FastAPI serving end-to-end
 - [x] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
 - [x] Remove official test-set evaluation from GRU sweeps
-- [ ] Validate Docker serving end-to-end
+- [x] Validate Docker serving end-to-end
 - [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)
