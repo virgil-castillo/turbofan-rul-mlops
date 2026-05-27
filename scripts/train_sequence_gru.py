@@ -13,7 +13,7 @@ import torch
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import create_run_dir, save_json, save_predictions
-from turbofan.models.evaluate import add_rul_column, align_official_test_labels
+from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
 from turbofan.models.sequence_training import (
@@ -23,6 +23,7 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
+from turbofan.models.test_evaluation import align_labels_to_eligible_engines
 from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
@@ -134,38 +135,6 @@ def _evaluate_windows(
     return metrics, _prediction_frame(windows, y_true, y_pred)
 
 
-def _align_official_labels_to_eligible_engines(
-    metadata: pd.DataFrame,
-    rul_labels: pd.Series,
-) -> pd.Series:
-    """Align official labels to eligible sequence test engines.
-
-    C-MAPSS official RUL labels are ordered by engine ID, while final sequence
-    windows can skip engines shorter than ``window_size``. This selects labels
-    for the eligible engine IDs before applying the standard count check.
-
-    Args:
-        metadata: Final-window metadata containing eligible ``engine_id`` rows.
-        rul_labels: Official RUL labels in full test engine order.
-
-    Returns:
-        Float RUL Series aligned to ``metadata``.
-
-    Raises:
-        KeyError: If ``metadata`` lacks ``engine_id``.
-        ValueError: If an eligible engine ID cannot be mapped to a label row.
-    """
-    engine_ids = metadata["engine_id"].to_numpy(dtype=np.int64)
-    label_positions = engine_ids - 1
-    if np.any(label_positions < 0) or np.any(label_positions >= len(rul_labels)):
-        raise ValueError(
-            "Official RUL labels must include a row for every eligible test engine."
-        )
-
-    eligible_labels = rul_labels.iloc[label_positions].reset_index(drop=True)
-    return align_official_test_labels(metadata.reset_index(drop=True), eligible_labels)
-
-
 def _evaluate_official_test(
     cfg: ProjectConfig,
     model: GRURULRegressor,
@@ -206,7 +175,7 @@ def _evaluate_official_test(
     y_pred = np.clip(
         predict_windows(model, loader, device, max_rul=cfg.data.max_rul), 0.0, None
     )
-    y_true = _align_official_labels_to_eligible_engines(
+    y_true = align_labels_to_eligible_engines(
         test_windows.metadata,
         rul_labels,
     )
