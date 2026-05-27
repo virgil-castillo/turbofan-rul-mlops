@@ -126,7 +126,7 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
         "schema_version": 1,
         "model_type": "ridge",
         "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "row",
+        "prediction_scope": "engine",
         "model_path": "model.joblib",
         "config_path": "config.json",
         "metrics_path": "metrics.json",
