@@ -23,9 +23,6 @@ from turbofan.models.sequence_training import (
 EXPECTED_HISTORY_COLUMNS = [
     "epoch",
     "train_loss",
-    "validation_final_window_rmse",
-    "validation_final_window_mae",
-    "validation_final_window_phm08_score",
     "validation_windows_rmse",
     "validation_windows_mae",
     "validation_windows_phm08_score",
@@ -213,7 +210,6 @@ def test_train_gru_model_returns_result_with_expected_history() -> None:
     result = train_gru_model(
         model=model,
         train_loader=_loader(shuffle=True),
-        validation_final_loader=_loader(),
         validation_windows_loader=_loader(),
         config=config,
         device=torch.device("cpu"),
@@ -238,13 +234,6 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         ),
         batch_size=2,
     )
-    validation_loader = DataLoader(
-        TensorDataset(
-            torch.zeros((2, 1, 1), dtype=torch.float32),
-            torch.zeros(2, dtype=torch.float32),
-        ),
-        batch_size=2,
-    )
     validation_windows_loader = DataLoader(
         TensorDataset(
             torch.zeros((2, 1, 1), dtype=torch.float32),
@@ -264,7 +253,6 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
     result = train_gru_model(
         model=model,
         train_loader=train_loader,
-        validation_final_loader=validation_loader,
         validation_windows_loader=validation_windows_loader,
         config=config,
         device=torch.device("cpu"),
@@ -282,9 +270,6 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
     assert result.best_epoch == 2
     assert result.best_metric == pytest.approx(
         result.history["validation_windows_rmse"].iloc[1]
-    )
-    assert result.history["validation_final_window_rmse"].iloc[0] < (
-        result.history["validation_final_window_rmse"].iloc[1]
     )
     assert np.sqrt(np.mean((restored_predictions - 0.2) ** 2)) == pytest.approx(
         result.best_metric,

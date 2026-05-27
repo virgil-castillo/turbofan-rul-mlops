@@ -59,7 +59,6 @@ def resolve_device(requested: Literal["cpu", "cuda"] = "cpu") -> torch.device:
 def train_gru_model(
     model: GRURULRegressor,
     train_loader: SequenceLoader,
-    validation_final_loader: SequenceLoader,
     validation_windows_loader: SequenceLoader,
     config: SequenceConfig,
     device: torch.device,
@@ -71,7 +70,6 @@ def train_gru_model(
     Args:
         model: Unfitted GRU model.
         train_loader: Mini-batch loader for training windows.
-        validation_final_loader: Evaluation loader for final validation windows.
         validation_windows_loader: Evaluation loader for all validation windows.
         config: Sequence model training configuration.
         device: Torch device used for training and evaluation.
@@ -96,9 +94,6 @@ def train_gru_model(
         train_loss = _train_one_epoch(
             model, train_loader, criterion, optimizer, device, max_rul
         )
-        final_metrics = _evaluate_loader(
-            model, validation_final_loader, device, max_rul
-        )
         window_metrics = _evaluate_loader(
             model, validation_windows_loader, device, max_rul
         )
@@ -108,9 +103,6 @@ def train_gru_model(
             {
                 "epoch": epoch,
                 "train_loss": train_loss,
-                "validation_final_window_rmse": final_metrics["rmse"],
-                "validation_final_window_mae": final_metrics["mae"],
-                "validation_final_window_phm08_score": final_metrics["phm08_score"],
                 "validation_windows_rmse": window_metrics["rmse"],
                 "validation_windows_mae": window_metrics["mae"],
                 "validation_windows_phm08_score": window_metrics["phm08_score"],
