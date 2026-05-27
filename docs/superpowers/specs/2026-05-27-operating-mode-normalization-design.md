@@ -30,12 +30,14 @@ sweeps, and GRU inference.
   mode buckets, not exact operating-setting tuples.
 - Keep public inference input unchanged: raw canonical C-MAPSS records only.
 - Fit all normalization state on training rows only.
-- Preserve existing import surfaces where practical so current code and tests
-  do not need broad rewrites.
+- Replace old baseline and sequence normalizer paths with the shared
+  preprocessing normalizer; do not keep public compatibility wrappers for
+  stale abstractions.
 - Make GRU artifacts self-contained by saving enough normalizer metadata to
   reconstruct preprocessing at inference time.
-- Keep legacy GRU checkpoint loading working for artifacts that only contain
-  `normalizer_means` and `normalizer_stds`.
+- Reject legacy GRU checkpoints that only contain flat `normalizer_means` and
+  `normalizer_stds`; new models must be retrained with the operating-mode
+  normalizer payload.
 
 ## Non-Goals
 
@@ -45,6 +47,13 @@ sweeps, and GRU inference.
 - Do not tune model hyperparameters as part of this change.
 - Do not introduce a user-facing config option for mode count in v1; derive it
   from `fd_subset`.
+- Do not preserve `turbofan.features.normalizer.OperationalNormalizer` as a
+  wrapper or subclass.
+- Do not preserve exact operating-setting tuple grouping.
+- Do not keep `SequenceNormalizer` as a public or active fallback
+  normalization abstraction.
+- Do not support loading legacy flat-stat-only GRU checkpoints after this
+  migration.
 
 ## Proposed API
 
@@ -58,7 +67,7 @@ src/turbofan/preprocessing/normalization.py
 Expose:
 
 ```python
-FD_SUBSET_MODE_COUNTS = {
+CMAPSS_SUBSET_MODE_COUNTS = {
     "FD001": 1,
     "FD002": 6,
     "FD003": 1,
@@ -66,8 +75,14 @@ FD_SUBSET_MODE_COUNTS = {
 }
 
 def mode_count_for_subset(fd_subset: str) -> int:
-    """Return the operating-mode count for a C-MAPSS subset."""
+    """Return the EDA-confirmed mode count for a supported C-MAPSS subset."""
 ```
+
+`CMAPSS_SUBSET_MODE_COUNTS` is fixed preprocessing policy for supported
+C-MAPSS subsets. The counts come from the C-MAPSS subset definition and are
+confirmed by EDA over the operating-setting columns. They are not dynamically
+inferred during every training run. Training still fits mode centers and
+normalization statistics from training rows only.
 
 Add `OperatingModeNormalizer` in `normalization.py`. It should be
 sklearn-compatible enough for pipeline use and also usable directly by the
@@ -110,14 +125,6 @@ def from_payload(cls, payload: Mapping[str, object]) -> Self:
     """Reconstruct a fitted normalizer from a serialized payload."""
 ```
 
-Keep compatibility modules:
-
-- `turbofan.features.normalizer.OperationalNormalizer` should become a thin
-  subclass or wrapper around `OperatingModeNormalizer`.
-- `turbofan.sequences.normalize.SequenceNormalizer` can remain as the global
-  z-score normalizer for legacy tests and fallback checkpoint loading, but new
-  GRU training should use `OperatingModeNormalizer`.
-
 ## Normalization Semantics
 
 Mode assignment:
@@ -135,7 +142,8 @@ Statistics:
 - Fit per-mode mean and standard deviation for sensor and sensor-derived
   columns.
 - Fit global mean and standard deviation for all normalized feature columns.
-- Use `ddof=0` to match the existing sequence normalizer.
+- Use `ddof=0` to preserve the current population-standard-deviation
+  convention.
 - Replace missing, zero, or near-zero standard deviations with `1.0` when
   `abs(std) <= std_floor`.
 - If a mode has missing stats for a transformed row, fall back to global stats.
@@ -160,13 +168,21 @@ n_modes: int = 1
 random_state: int = 42
 ```
 
-Pass these into `OperationalNormalizer`. In `train_baseline.py`, derive:
+Import and use
+`turbofan.preprocessing.normalization.OperatingModeNormalizer` directly. Do
+not route baseline training through
+`turbofan.features.normalizer.OperationalNormalizer`. Remove stale imports and
+calls to `OperationalNormalizer`; the old baseline normalizer path is
+replaced, not wrapped.
+
+In `train_baseline.py`, derive:
 
 ```python
 n_modes = mode_count_for_subset(cfg.data.fd_subset)
 ```
 
-and pass `random_state=cfg.data.random_seed`.
+and pass `n_modes` and `random_state=cfg.data.random_seed` into
+`OperatingModeNormalizer`.
 
 The baseline estimator should still not receive operating setting columns as
 model features. The op columns are used for mode assignment inside
@@ -175,13 +191,8 @@ identifier-dropping steps.
 
 ### GRU Training
 
-In `train_sequence_gru.py`, replace:
-
-```python
-normalizer = SequenceNormalizer(feature_cols=feature_cols)
-```
-
-with:
+In `train_sequence_gru.py`, replace the existing global sequence-normalizer
+construction with:
 
 ```python
 normalizer = OperatingModeNormalizer(
@@ -198,18 +209,17 @@ Use the same train/validation/test flow:
 - `transform(test_raw)`
 - then build windows from normalized frames.
 
-Persist both the new payload and legacy flat stats for one release:
+Persist the new payload:
 
 ```python
 "normalizer_type": "operating_mode",
 "normalizer_payload": normalizer.to_payload(),
-"normalizer_means": normalizer.global_means_for(feature_cols),
-"normalizer_stds": normalizer.global_stds_for(feature_cols),
 ```
 
-The exact helper name for flat stats can differ, but the checkpoint must keep
-`normalizer_means` and `normalizer_stds` until the inference fallback tests are
-updated around the new payload.
+Do not write `normalizer_means` and `normalizer_stds` as the normalization
+contract for new checkpoints. Those fields describe the old flat-stat
+checkpoint format and are not sufficient to reconstruct operating-mode-aware
+preprocessing.
 
 ### GRU Sweeps
 
@@ -222,14 +232,20 @@ Use `OperatingModeNormalizer` with subset-derived mode count and config random
 seed. Feature sweeps that add rolling columns should pass the complete
 `feature_cols` list after rolling feature construction.
 
+Remove active source-code usage of `SequenceNormalizer` from baseline
+training, GRU training, GRU sweeps, and GRU inference. Remove stale tests that
+validate `SequenceNormalizer` behavior no active path uses.
+
 ### Inference
 
 Update `turbofan.inference.predictors._normalizer_from_payload`:
 
-- If checkpoint has `normalizer_type == "operating_mode"` and
-  `normalizer_payload`, reconstruct with `OperatingModeNormalizer.from_payload`.
-- Otherwise keep the existing `SequenceNormalizer` fallback from
-  `normalizer_means` and `normalizer_stds`.
+- Require `normalizer_type == "operating_mode"` and `normalizer_payload`.
+- Reconstruct with `OperatingModeNormalizer.from_payload`.
+- If a checkpoint only has legacy flat stats such as `normalizer_means` and
+  `normalizer_stds`, raise a clear `ValueError` instructing the user to
+  retrain the model with an operating-mode normalizer payload.
+- Do not reconstruct or expose `SequenceNormalizer` as the fallback.
 
 `GRUPredictor.predict` should call `self._normalizer.transform(frame)` exactly
 as it does today. No public inference schema changes are required.
@@ -266,11 +282,17 @@ serialize and test.
 
 ## Error Handling
 
+- `mode_count_for_subset` raises `ValueError` with a clear message for
+  unsupported C-MAPSS subset names.
 - Constructor raises `ValueError` if `n_modes <= 0` or `std_floor < 0`.
 - `fit` raises `KeyError` for missing op columns or explicit feature columns.
 - `fit` raises `ValueError` when `n_modes > number_of_training_rows`.
 - `from_payload` raises `ValueError` for unsupported schema version, missing
   required keys, non-numeric stats, or inconsistent feature/stat keys.
+- GRU checkpoint loading raises `ValueError` when `normalizer_type` is missing,
+  is not `"operating_mode"`, or `normalizer_payload` is missing. Legacy
+  flat-stat-only checkpoints must fail with a message that says to retrain the
+  model.
 - `transform` raises `RuntimeError` if called before `fit`.
 
 ## Test Plan
@@ -278,38 +300,52 @@ serialize and test.
 Add or update focused tests:
 
 - `tests/preprocessing/test_normalization.py`
-  - `mode_count_for_subset` returns `1, 6, 1, 6`.
-  - Single-mode normalization does not create exact tuple groups.
-  - Multi-mode synthetic data normalizes sensors separately by learned mode.
-  - Op columns included as features are globally normalized.
+  - Supported C-MAPSS subsets resolve to positive integer mode counts.
+  - Unsupported subset names raise a clear error.
+  - FD001 and FD003 are treated as single-condition subsets.
+  - FD002 and FD004 are treated as multi-condition subsets.
+  - Single-mode normalization assigns all rows to mode `0` and does not fit
+    KMeans or group by exact operating-setting tuples.
+  - Multi-mode synthetic data fits learned operating-mode centers from
+    training operating-setting rows and normalizes sensor features separately
+    by learned mode.
+  - Op columns included as features are normalized globally.
   - Metadata and `rul` are preserved.
-  - Near-zero standard deviations are floored.
+  - Near-zero standard deviations are replaced according to `std_floor`.
   - `to_payload` and `from_payload` round-trip and produce identical
     transforms.
 
 - `tests/features/test_normalizer.py`
-  - Existing `OperationalNormalizer` behavior still passes through the
-    compatibility wrapper.
-  - Update exact-tuple assumptions to mode-bucket assumptions where needed.
+  - Remove tests for `OperationalNormalizer`.
+  - Remove or update imports that refer to
+    `turbofan.features.normalizer.OperationalNormalizer`.
 
 - `tests/sequences/test_normalize.py`
-  - Keep existing tests for legacy `SequenceNormalizer`.
-  - Add a sequence-facing test that the GRU path can use
+  - Remove stale `SequenceNormalizer` tests.
+  - Add or keep only tests proving sequence-facing code can use
     `OperatingModeNormalizer` with explicit `feature_cols`.
 
 - `tests/models/test_train_baseline_cli.py`
-  - Assert `build_baseline_pipeline` receives subset-derived `n_modes` and
-    `random_state`.
+  - Assert baseline training constructs `OperatingModeNormalizer` directly.
+  - Assert it receives the subset-derived mode count and config random seed.
 
 - `tests/models/test_train_sequence_gru_cli.py`
-  - Assert the saved checkpoint contains `normalizer_type` and
-    `normalizer_payload`.
-  - Assert `FD002` training uses six modes.
+  - Assert saved checkpoints contain `normalizer_type == "operating_mode"`
+    and `normalizer_payload`.
+  - Assert GRU training constructs `OperatingModeNormalizer` using
+    subset-derived mode policy and config random seed.
+  - Do not assert a literal FD002 value unless the test is explicitly named as
+    a C-MAPSS policy test.
+
+- GRU sweep tests, where present
+  - Assert sweeps construct `OperatingModeNormalizer` using subset-derived mode
+    policy and config random seed.
 
 - `tests/inference/test_predictors.py`
   - New payload reconstructs an `OperatingModeNormalizer`.
-  - Legacy payload without `normalizer_payload` still reconstructs the old
-    `SequenceNormalizer` fallback.
+  - Legacy flat-stat-only checkpoints are rejected with a clear retraining
+    error.
+  - Remove assertions that legacy payloads reconstruct `SequenceNormalizer`.
 
 Run:
 
@@ -323,13 +359,15 @@ pytest
 
 ## Acceptance Criteria
 
-- Baseline and GRU training both use subset-derived operating-mode
-  normalization.
-- FD001 remains single-mode and does not group by exact op tuples.
-- FD002/FD004 use six learned mode buckets.
+- Single-condition C-MAPSS subsets use the single-mode normalization path.
+- Multi-condition C-MAPSS subsets use EDA-confirmed subset mode counts and
+  learn mode centers from training operating-setting rows.
+- Baseline training, GRU training, GRU sweeps, and GRU inference all use
+  `OperatingModeNormalizer`.
 - GRU inference reproduces training preprocessing from the saved artifact.
-- Existing public CLIs and API request schemas remain unchanged.
-- Legacy GRU artifacts with only flat normalizer stats still load.
+- Public CLIs and inference request schemas remain unchanged.
+- Legacy flat-stat-only GRU checkpoints are rejected with a clear retraining
+  error instead of loading through `SequenceNormalizer`.
 - Ruff, mypy strict, and pytest pass.
 
 ## Implementation Notes
