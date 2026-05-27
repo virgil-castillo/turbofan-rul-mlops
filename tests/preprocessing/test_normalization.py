@@ -214,8 +214,14 @@ def test_multi_mode_normalizes_sensors_per_mode() -> None:
         assert abs(result.loc[mask, "s_1"].mean()) < 1e-6
 
 
-def test_multi_mode_uses_global_fallback_for_unseen_mode() -> None:
-    """Row with op_1 between training modes gets a real (non-NaN) output."""
+def test_multi_mode_row_between_clusters_is_non_nan() -> None:
+    """Any row produces a non-NaN, non-Inf result regardless of op position.
+
+    A row whose op_1 lies between the two training cluster centres is assigned
+    to the nearest centroid (nearest-centroid assignment always produces a
+    seen mode), so the output is finite.  This confirms the transform pipeline
+    handles arbitrary op positions without producing degenerate values.
+    """
     df = _make_df_multi_mode()
     norm = OperatingModeNormalizer(feature_cols=["s_1"], n_modes=2)
     norm.fit(df)

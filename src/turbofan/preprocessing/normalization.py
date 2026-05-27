@@ -137,8 +137,9 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
             Defaults to ``["op_1", "op_2", "op_3"]``.
         n_modes: Number of operating modes / KMeans clusters.  Must be
             positive.
-        std_floor: Minimum absolute standard deviation.  Values at or below
-            this floor are replaced with 1.0 to avoid division-by-near-zero.
+        std_floor: Threshold for the minimum absolute standard deviation.
+            Values at or below this threshold are replaced with ``1.0``
+            (not with ``std_floor`` itself) to avoid division-by-near-zero.
         random_state: Random seed forwarded to ``sklearn.cluster.KMeans``.
 
     Raises:
@@ -389,10 +390,16 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
             A fully-fitted :class:`OperatingModeNormalizer` ready to call
             :meth:`transform` on.
 
+        Note:
+            The ``std_floor`` stored in the payload is a *threshold*: any
+            standard deviation at or below it was replaced with ``1.0``
+            (not with ``std_floor``) during fitting.
+
         Raises:
             ValueError: For unsupported ``schema_version``, missing required
                 keys, invalid hyper-parameter types or values, non-numeric
-                stat values, or mismatched feature/stat keys.
+                stat values, corrupt ``mode_centers``, or mismatched
+                feature/stat keys.
         """
         for key in _REQUIRED_PAYLOAD_KEYS:
             _require_key(payload, key)
@@ -419,6 +426,21 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
             raise ValueError(f"std_floor must be non-negative, got {std_floor_f}")
 
         random_state = payload["random_state"]
+
+        raw_centers = payload["mode_centers"]
+        if raw_centers is not None:
+            if not isinstance(raw_centers, (list, tuple)):
+                raise ValueError(
+                    "payload 'mode_centers' must be None or a list of lists."
+                )
+            for i, center in enumerate(raw_centers):
+                if not isinstance(center, (list, tuple)) or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool)
+                    for v in center
+                ):
+                    raise ValueError(
+                        f"payload 'mode_centers'[{i}] must be a list of numbers."
+                    )
 
         obj: OperatingModeNormalizer = cls.__new__(cls)
         # Bypass __init__ validation; set params manually
