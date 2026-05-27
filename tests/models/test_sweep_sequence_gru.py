@@ -85,6 +85,8 @@ def _write_config(tmp_path: Path) -> Path:
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
+    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=4, n_cycles=6)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n30\n40\n")
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         "\n".join(
@@ -152,8 +154,34 @@ def test_gru_sweep_returns_expected_rows(
         "rmse",
         "mae",
         "phm08_score",
+        "test_rmse",
+        "test_mae",
+        "test_phm08_score",
     ]
     assert results["phm08_score"].is_monotonic_increasing
+
+
+def test_gru_sweep_includes_test_metric_columns(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GRU sweep result includes test_rmse, test_mae, test_phm08_score columns."""
+    project_root = Path(__file__).parent.parent.parent
+    module = _load_module(project_root)
+    cfg_path = _write_config(tmp_path)
+    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
+
+    results = module.run_gru_sweep(
+        config_path=cfg_path,
+        window_sizes=[3],
+        hidden_sizes=[2],
+        learning_rates=[1e-3],
+        device="cpu",
+    )
+
+    assert "test_rmse" in results.columns
+    assert "test_mae" in results.columns
+    assert "test_phm08_score" in results.columns
 
 
 def test_gru_sweep_validates_inputs(tmp_path: Path) -> None:
@@ -284,6 +312,7 @@ def test_gru_sweep_reports_validation_window_metrics(
     )
     monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
     monkeypatch.setattr(module, "append_training_log", lambda entry: None)
+    monkeypatch.setattr(module, "evaluate_official_test", lambda **kwargs: None)
 
     results = module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
@@ -434,6 +463,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         lambda: next(timer_values),
         raising=False,
     )
+    monkeypatch.setattr(module, "evaluate_official_test", lambda **kwargs: None)
 
     module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
@@ -463,6 +493,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
             "device": "cpu",
             "run_dir": None,
             "best_epoch": 9,
+            "extra": {},
         },
         {
             "model_type": "gru",
@@ -483,6 +514,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
             "device": "cpu",
             "run_dir": None,
             "best_epoch": 9,
+            "extra": {},
         },
     ]
     assert appended_entries == [{"entry": call} for call in build_calls]
