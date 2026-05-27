@@ -104,7 +104,7 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-compare-baseline-features` | Compare feature sets (raw, rolling, engineered) |
 | `turbofan-sweep-gru` | Sweep GRU hyperparameters |
 | `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
-| `turbofan-predict` | Experimental batch prediction from a saved artifact |
+| `turbofan-predict` | Experimental batch prediction and optional official-label evaluation from a saved artifact |
 | `turbofan-serve-api` | Experimental FastAPI inference server |
 
 ## Configuration
@@ -187,8 +187,13 @@ Run batch prediction with a saved model artifact:
 turbofan-predict \
   --artifact artifacts/models/baseline/<timestamp>/model_manifest.json \
   --input data.csv \
-  --output predictions.csv
+  --output predictions.csv \
+  --metadata-output metadata.json
 ```
+
+When `--data-dir data/raw --subset FD001` are provided and the matching
+`RUL_FD001.txt` labels align with the prediction count, the CLI also reports
+RMSE, MAE, and PHM08 score and writes them to the metadata JSON.
 
 Start the FastAPI server locally:
 
@@ -258,8 +263,9 @@ mypy src/turbofan               # strict type checking
 - [x] RMSE, MAE, and PHM08 evaluation
 - [x] Validate batch prediction end-to-end
 - [x] Validate FastAPI serving end-to-end
+- [x] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
+- [x] Remove official test-set evaluation from GRU sweeps
 - [ ] Validate Docker serving end-to-end
-- [ ] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
 - [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)

@@ -28,6 +28,8 @@ Detailed plan for what's been built and what's next. The README has a summary ch
 - GRU hyperparameter sweep (window size, hidden size, learning rate)
 - Feature selection sweep (GRU with different sensor subsets)
 - Official C-MAPSS test set evaluation when test files are present
+- GRU sweeps evaluate validation windows only; official test-set evaluation was
+  removed from sweep selection to avoid leakage-prone model ranking
 
 ### Inference and Serving (2026-05-25)
 
@@ -35,17 +37,21 @@ Detailed plan for what's been built and what's next. The README has a summary ch
 - FastAPI server (`/health`, `/predict`) loading one artifact at startup
 - Model manifest standard (`model_manifest.json`) abstracting Ridge vs GRU
 - Dockerfile for containerized inference server
+- Ridge inference returns one last-cycle prediction per engine
+- GRU inference rescales normalized model output by `max_rul`
+- `turbofan-predict` can evaluate against official RUL labels when `--data-dir`
+  and `--subset` are provided
 
-## Next — Fix Known Inference Bugs
+## Recently Fixed — Inference Bugs (2026-05-27)
 
-Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27). The following bugs were found:
+Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27). The following bugs were fixed:
 
-- [ ] GRU inference predictor does not rescale predictions by `max_rul` — outputs are 0–1 instead of actual RUL cycles
-- [ ] Ridge batch prediction returns one prediction per input row instead of one per engine (last cycle only)
-- [ ] `turbofan-predict` CLI does not evaluate predictions against official test labels when available
-- [ ] Sweep experiments evaluate on official test set — should be removed to avoid data leakage risk
+- [x] GRU inference predictor rescales predictions by `max_rul`
+- [x] Ridge batch prediction returns one prediction per engine at the last cycle
+- [x] `turbofan-predict` CLI evaluates predictions against official test labels when available and aligned
+- [x] Sweep experiments no longer evaluate on the official test set
 
-Remaining validation:
+## Next — Docker Serving Validation
 
 - [x] Run `turbofan-predict` against real baseline and GRU artifacts
 - [x] Run `turbofan-serve-api` with a real artifact, hit `/predict` with test data
@@ -91,7 +97,7 @@ Deliberately deferred until the modeling contract stabilizes:
 
 ## Design Decisions Worth Preserving
 
-**Prediction semantics should be one per engine.** Both Ridge and GRU should return one RUL prediction per engine (at the last observed cycle). The GRU predictor already does this via final-window inference. The Ridge predictor currently returns one prediction per input row — this is a known bug to fix.
+**Prediction semantics should be one per engine.** Ridge scores all valid input rows and returns the last-cycle prediction per engine. GRU returns one final-window prediction per eligible engine.
 
 **Inference schema contract.** Public input is always canonical raw C-MAPSS format (engine_id, cycle, op_1–3, s_1–21). Model-specific preprocessing is owned by the artifact. No pre-normalized or pre-featurized input is accepted.
 
