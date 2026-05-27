@@ -36,14 +36,20 @@ Detailed plan for what's been built and what's next. The README has a summary ch
 - Model manifest standard (`model_manifest.json`) abstracting Ridge vs GRU
 - Dockerfile for containerized inference server
 
-## Next — Stabilize Inference
+## Next — Fix Known Inference Bugs
 
-The batch prediction, FastAPI server, and Docker serving are implemented but not yet validated end-to-end against finalized model artifacts. This is the immediate next step before adding new models or datasets.
+Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27). The following bugs were found:
 
-- [ ] Run `turbofan-predict` against real baseline and GRU artifacts, verify outputs
-- [ ] Run `turbofan-serve-api` with a real artifact, hit `/predict` with test data
+- [ ] GRU inference predictor does not rescale predictions by `max_rul` — outputs are 0–1 instead of actual RUL cycles
+- [ ] Ridge batch prediction returns one prediction per input row instead of one per engine (last cycle only)
+- [ ] `turbofan-predict` CLI does not evaluate predictions against official test labels when available
+- [ ] Sweep experiments evaluate on official test set — should be removed to avoid data leakage risk
+
+Remaining validation:
+
+- [x] Run `turbofan-predict` against real baseline and GRU artifacts
+- [x] Run `turbofan-serve-api` with a real artifact, hit `/predict` with test data
 - [ ] Build and run the Docker container with a mounted artifact
-- [ ] Fix any issues found, update tests if needed
 
 ## Next — Multi-Dataset Support (FD002–FD004)
 
@@ -85,7 +91,7 @@ Deliberately deferred until the modeling contract stabilizes:
 
 ## Design Decisions Worth Preserving
 
-**Prediction semantics differ by model type.** Ridge predicts per-row (one prediction per input row). GRU predicts per-engine at the final window (one prediction per engine). Both clip predictions to non-negative values.
+**Prediction semantics should be one per engine.** Both Ridge and GRU should return one RUL prediction per engine (at the last observed cycle). The GRU predictor already does this via final-window inference. The Ridge predictor currently returns one prediction per input row — this is a known bug to fix.
 
 **Inference schema contract.** Public input is always canonical raw C-MAPSS format (engine_id, cycle, op_1–3, s_1–21). Model-specific preprocessing is owned by the artifact. No pre-normalized or pre-featurized input is accepted.
 

@@ -177,9 +177,9 @@ GRU training reports RMSE, MAE, and PHM08 on an engine-level validation split. W
 
 Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/sequence_gru/<timestamp>/`. Cross-run summaries are saved under `results/`.
 
-## Experimental Inference and Serving
+## Inference and Serving
 
-Batch prediction, FastAPI serving, and Docker serving are implemented but have not yet been validated end-to-end against finalized model artifacts.
+Batch prediction and FastAPI serving have been validated end-to-end against trained model artifacts. Docker serving is implemented but not yet tested.
 
 Run batch prediction with a saved model artifact:
 
@@ -256,7 +256,10 @@ mypy src/turbofan               # strict type checking
 - [x] GRU sequence model
 - [x] Hyperparameter sweep experiments
 - [x] RMSE, MAE, and PHM08 evaluation
-- [ ] Validate batch prediction, serving, and Docker end-to-end
+- [x] Validate batch prediction end-to-end
+- [x] Validate FastAPI serving end-to-end
+- [ ] Validate Docker serving end-to-end
+- [ ] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
 - [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)
