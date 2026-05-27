@@ -219,7 +219,6 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         *,
         model: GRURULRegressor,
         train_loader: object,
-        validation_final_loader: object,
         validation_windows_loader: object,
         config: SequenceConfig,
         device: torch.device,
@@ -227,7 +226,6 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         max_rul: int,
     ) -> TrainingResult:
         del train_loader
-        del validation_final_loader
         del validation_windows_loader
         del config
         del device
@@ -273,11 +271,6 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
-        lambda *args, **kwargs: object(),
-    )
-    monkeypatch.setattr(
-        module,
-        "build_final_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
@@ -345,7 +338,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
             artifact_dir=tmp_path / "artifacts",
         ),
     )
-    final_metrics = {"rmse": 9.0, "mae": 8.0, "phm08_score": 7.0}
     window_metrics = {"rmse": 1.0, "mae": 2.0, "phm08_score": 3.0}
     build_calls: list[dict[str, object]] = []
     appended_entries: list[dict[str, object]] = []
@@ -371,9 +363,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     ) -> tuple[dict[str, float], pd.DataFrame]:
         del args
         del kwargs
-        if not hasattr(fake_evaluate_windows, "called"):
-            fake_evaluate_windows.called = True
-            return final_metrics, pd.DataFrame()
         return window_metrics, pd.DataFrame()
 
     def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
@@ -405,11 +394,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
-        lambda *args, **kwargs: object(),
-    )
-    monkeypatch.setattr(
-        module,
-        "build_final_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
@@ -482,9 +466,6 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     result = _run_cli(cfg_path)
 
     assert "validation_windows rmse" in result.stdout
-    assert result.stdout.index("validation_windows rmse") < result.stdout.index(
-        "validation_final_window rmse"
-    )
     run_dirs = list((artifact_dir / "sequence_gru").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
@@ -493,7 +474,6 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     assert (run_dir / "config.json").exists()
     assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "training_history.csv").exists()
-    assert (run_dir / "validation_final_window_predictions.csv").exists()
     assert (run_dir / "validation_window_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
 
@@ -510,11 +490,9 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {
-        "validation_final_window",
         "validation_windows",
         "official_test",
     }
-    _assert_metric_keys(metrics, "validation_final_window")
     _assert_metric_keys(metrics, "validation_windows")
     _assert_metric_keys(metrics, "official_test")
 
@@ -544,7 +522,6 @@ def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
     assert rows[0]["rul"] == "22.0"
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
-    _assert_metric_keys(metrics, "validation_final_window")
     _assert_metric_keys(metrics, "validation_windows")
     _assert_metric_keys(metrics, "official_test")
 
@@ -564,13 +541,9 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     result = _run_cli(cfg_path)
 
     assert "validation_windows rmse" in result.stdout
-    assert result.stdout.index("validation_windows rmse") < result.stdout.index(
-        "validation_final_window rmse"
-    )
     assert "official test evaluation skipped" in result.stdout
     run_dir = next((artifact_dir / "sequence_gru").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())
-    assert set(metrics) == {"validation_final_window", "validation_windows"}
-    _assert_metric_keys(metrics, "validation_final_window")
+    assert set(metrics) == {"validation_windows"}
     _assert_metric_keys(metrics, "validation_windows")

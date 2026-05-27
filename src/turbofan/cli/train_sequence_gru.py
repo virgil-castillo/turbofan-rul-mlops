@@ -246,11 +246,6 @@ def main() -> None:
         feature_cols=feature_cols,
         window_size=cfg.sequence.window_size,
     )
-    validation_final_windows = build_final_windows(
-        val_normalized,
-        feature_cols=feature_cols,
-        window_size=cfg.sequence.window_size,
-    )
     validation_windows = build_sliding_windows(
         val_normalized,
         feature_cols=feature_cols,
@@ -261,11 +256,6 @@ def main() -> None:
         train_windows,
         batch_size=cfg.sequence.batch_size,
         shuffle=True,
-    )
-    validation_final_loader = build_sequence_loader(
-        validation_final_windows,
-        batch_size=cfg.sequence.batch_size,
-        shuffle=False,
     )
     validation_windows_loader = build_sequence_loader(
         validation_windows,
@@ -284,7 +274,6 @@ def main() -> None:
     result = train_gru_model(
         model=model,
         train_loader=train_loader,
-        validation_final_loader=validation_final_loader,
         validation_windows_loader=validation_windows_loader,
         config=cfg.sequence,
         device=device,
@@ -293,13 +282,6 @@ def main() -> None:
     )
     training_duration_seconds = perf_counter() - training_start
 
-    final_metrics, final_predictions = _evaluate_windows(
-        result.model,
-        validation_final_windows,
-        device,
-        cfg.sequence.batch_size,
-        max_rul=cfg.data.max_rul,
-    )
     window_metrics, window_predictions = _evaluate_windows(
         result.model,
         validation_windows,
@@ -310,7 +292,6 @@ def main() -> None:
 
     run_dir = create_run_dir(cfg.sequence.artifact_dir, "sequence_gru")
     metrics_payload: dict[str, object] = {
-        "validation_final_window": final_metrics,
         "validation_windows": window_metrics,
     }
 
@@ -339,10 +320,6 @@ def main() -> None:
     save_json(_config_to_dict(cfg), run_dir / "config.json")
     save_json(_manifest_payload(run_dir), run_dir / "model_manifest.json")
     result.history.to_csv(run_dir / "training_history.csv", index=False)
-    save_predictions(
-        final_predictions,
-        run_dir / "validation_final_window_predictions.csv",
-    )
     save_predictions(
         window_predictions,
         run_dir / "validation_window_predictions.csv",
@@ -374,12 +351,6 @@ def main() -> None:
     print(f"validation_windows rmse: {window_metrics['rmse']:.6f}")
     print(f"validation_windows mae: {window_metrics['mae']:.6f}")
     print(f"validation_windows phm08_score: {window_metrics['phm08_score']:.6f}")
-    print(f"validation_final_window rmse: {final_metrics['rmse']:.6f}")
-    print(f"validation_final_window mae: {final_metrics['mae']:.6f}")
-    print(
-        "validation_final_window phm08_score: "
-        f"{final_metrics['phm08_score']:.6f}"
-    )
     if official is not None:
         print(f"official_test rmse: {official_metrics['rmse']:.6f}")
         print(f"official_test mae: {official_metrics['mae']:.6f}")
