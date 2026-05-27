@@ -25,8 +25,12 @@ from turbofan.models.sequence_training import (
 from turbofan.models.split import split_by_engine
 from turbofan.models.test_evaluation import align_labels_to_eligible_engines
 from turbofan.models.training_log import append_training_log, build_log_entry
+from turbofan.preprocessing.normalization import (
+    OperatingModeNormalizer,
+    mode_count_for_subset,
+)
 from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
+from turbofan.sequences.normalize import default_feature_cols
 from turbofan.sequences.windowing import (
     WindowedSequences,
     build_final_windows,
@@ -138,7 +142,7 @@ def _evaluate_windows(
 def _evaluate_official_test(
     cfg: ProjectConfig,
     model: GRURULRegressor,
-    normalizer: SequenceNormalizer,
+    normalizer: OperatingModeNormalizer,
     feature_cols: list[str],
     device: torch.device,
 ) -> tuple[dict[str, float], pd.DataFrame] | None:
@@ -188,7 +192,7 @@ def _model_payload(
     model: GRURULRegressor,
     cfg: ProjectConfig,
     feature_cols: list[str],
-    normalizer: SequenceNormalizer,
+    normalizer: OperatingModeNormalizer,
 ) -> dict[str, object]:
     """Build the serialized model checkpoint payload.
 
@@ -196,7 +200,7 @@ def _model_payload(
         model: Trained GRU model.
         cfg: Project config.
         feature_cols: Feature columns used by the model.
-        normalizer: Fitted sequence feature normalizer.
+        normalizer: Fitted operating-mode normalizer.
 
     Returns:
         Torch-serializable model payload.
@@ -205,14 +209,8 @@ def _model_payload(
         "model_state_dict": model.state_dict(),
         "feature_cols": feature_cols,
         "sequence_config": cfg.sequence.model_dump(mode="json"),
-        "normalizer_means": {
-            str(key): float(value)
-            for key, value in normalizer.means_.to_dict().items()
-        },
-        "normalizer_stds": {
-            str(key): float(value)
-            for key, value in normalizer.stds_.to_dict().items()
-        },
+        "normalizer_type": "operating_mode",
+        "normalizer_payload": normalizer.to_payload(),
         "fd_subset": cfg.data.fd_subset,
         "random_seed": cfg.data.random_seed,
         "max_rul": cfg.data.max_rul,
@@ -237,7 +235,11 @@ def main() -> None:
         random_seed=cfg.data.random_seed,
     )
 
-    normalizer = SequenceNormalizer(feature_cols=feature_cols)
+    normalizer = OperatingModeNormalizer(
+        feature_cols=feature_cols,
+        n_modes=mode_count_for_subset(cfg.data.fd_subset),
+        random_state=cfg.data.random_seed,
+    )
     train_normalized = normalizer.fit_transform(train_df)
     val_normalized = normalizer.transform(val_df)
 

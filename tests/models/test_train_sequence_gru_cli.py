@@ -20,12 +20,10 @@ from turbofan.models.sequence_training import TrainingResult
 
 
 class _FakeNormalizer:
-    """Minimal sequence normalizer test double."""
+    """Minimal operating-mode normalizer test double."""
 
-    def __init__(self, feature_cols: list[str]) -> None:
-        self.feature_cols = feature_cols
-        self.means_ = pd.Series({feature: 0.0 for feature in feature_cols})
-        self.stds_ = pd.Series({feature: 1.0 for feature in feature_cols})
+    def __init__(self, feature_cols: list[str] | None = None, **kwargs: object) -> None:
+        self.feature_cols = feature_cols or []
 
     def fit_transform(self, frame: object) -> object:
         """Return the input training frame unchanged.
@@ -48,6 +46,28 @@ class _FakeNormalizer:
             Unchanged frame placeholder.
         """
         return frame
+
+    def to_payload(self) -> dict[str, object]:
+        """Return a minimal normalizer payload.
+
+        Returns:
+            Minimal operating-mode normalizer payload.
+        """
+        return {
+            "schema_version": 1,
+            "normalizer_type": "operating_mode",
+            "feature_cols": list(self.feature_cols),
+            "op_cols": ["op_1", "op_2", "op_3"],
+            "sensor_feature_cols": list(self.feature_cols),
+            "n_modes": 1,
+            "std_floor": 1e-3,
+            "random_state": 42,
+            "mode_centers": None,
+            "global_means": {col: 0.0 for col in self.feature_cols},
+            "global_stds": {col: 1.0 for col in self.feature_cols},
+            "mode_means": {"0": {col: 0.0 for col in self.feature_cols}},
+            "mode_stds": {"0": {col: 1.0 for col in self.feature_cols}},
+        }
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -267,7 +287,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
-    monkeypatch.setattr(module, "SequenceNormalizer", _FakeNormalizer)
+    monkeypatch.setattr(module, "OperatingModeNormalizer", _FakeNormalizer)
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
@@ -390,7 +410,7 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
-    monkeypatch.setattr(module, "SequenceNormalizer", _FakeNormalizer)
+    monkeypatch.setattr(module, "OperatingModeNormalizer", _FakeNormalizer)
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
@@ -547,3 +567,125 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation_windows"}
     _assert_metric_keys(metrics, "validation_windows")
+
+
+def test_train_sequence_gru_cli_checkpoint_uses_normalizer_payload(
+    tmp_path: Path,
+) -> None:
+    """Saved checkpoint contains normalizer_type and normalizer_payload."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
+
+    _run_cli(cfg_path)
+
+    run_dir = next((artifact_dir / "sequence_gru").iterdir())
+    import torch as _torch
+    payload = _torch.load(run_dir / "model.pt", map_location="cpu")
+    assert payload["normalizer_type"] == "operating_mode"
+    assert "normalizer_payload" in payload
+    assert payload["normalizer_payload"]["schema_version"] == 1
+    assert "normalizer_means" not in payload
+    assert "normalizer_stds" not in payload
+
+
+def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GRU training constructs OperatingModeNormalizer with subset mode count."""
+    module = _load_train_sequence_gru_module()
+    captured: list[dict[str, object]] = []
+
+    class _CapturingNormalizer(_FakeNormalizer):
+        def __init__(self, **kwargs: object) -> None:
+            feature_cols = kwargs.get("feature_cols")
+            super().__init__(
+                feature_cols=list(feature_cols) if feature_cols is not None else []
+            )
+            captured.append(dict(kwargs))
+
+    cfg = ProjectConfig(
+        project_name="test",
+        data=DataConfig(
+            raw_dir=tmp_path / "raw",
+            processed_dir=tmp_path / "processed",
+            interim_dir=tmp_path / "interim",
+            fd_subset="FD001",
+            random_seed=77,
+        ),
+        sequence=SequenceConfig(
+            architecture="gru",
+            window_size=3,
+            batch_size=4,
+            hidden_size=4,
+            num_layers=1,
+            dropout=0.0,
+            epochs=1,
+            artifact_dir=tmp_path / "artifacts",
+        ),
+    )
+
+    def fake_train(**kwargs: object) -> TrainingResult:
+        return TrainingResult(
+            model=GRURULRegressor(
+                input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+            ),
+            history=pd.DataFrame([{"epoch": 1}]),
+            best_epoch=1,
+            best_metric=0.0,
+        )
+
+    monkeypatch.setattr(
+        module,
+        "_parse_args",
+        lambda: argparse.Namespace(config=tmp_path / "c.yaml"),
+    )
+    monkeypatch.setattr(module, "load_config", lambda p: cfg)
+    monkeypatch.setattr(
+        module, "resolve_device", lambda r: torch.device("cpu")
+    )
+    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
+    monkeypatch.setattr(module, "load_raw_train", lambda c: object())
+    monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(
+        module,
+        "split_by_engine",
+        lambda f, test_size, random_seed: (f, f),
+    )
+    monkeypatch.setattr(module, "OperatingModeNormalizer", _CapturingNormalizer)
+    monkeypatch.setattr(
+        module, "build_sliding_windows", lambda *a, **k: object()
+    )
+    monkeypatch.setattr(
+        module, "build_sequence_loader", lambda *a, **k: object()
+    )
+    monkeypatch.setattr(module, "train_gru_model", fake_train)
+    monkeypatch.setattr(
+        module,
+        "_evaluate_windows",
+        lambda *a, **k: (
+            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            pd.DataFrame(),
+        ),
+    )
+    monkeypatch.setattr(
+        module, "_evaluate_official_test", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        module, "create_run_dir", lambda a, n: tmp_path
+    )
+    monkeypatch.setattr(module, "save_json", lambda p, pa: None)
+    monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
+    monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
+    monkeypatch.setattr(module, "append_training_log", lambda e: None)
+
+    module.main()
+
+    assert captured, "OperatingModeNormalizer was never constructed"
+    assert captured[0]["n_modes"] == 1  # FD001 → 1 mode
+    assert captured[0]["random_state"] == 77
