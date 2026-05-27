@@ -379,6 +379,10 @@ def main() -> None:
         "validation_final_window phm08_score: "
         f"{final_metrics['phm08_score']:.6f}"
     )
+    if official is not None:
+        print(f"official_test rmse: {official_metrics['rmse']:.6f}")
+        print(f"official_test mae: {official_metrics['mae']:.6f}")
+        print(f"official_test phm08_score: {official_metrics['phm08_score']:.6f}")
 
 
 if __name__ == "__main__":
