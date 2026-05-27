@@ -70,7 +70,7 @@ def _manifest_payload(run_dir: Path, model_type: str) -> dict[str, object]:
         "schema_version": 1,
         "model_type": model_type,
         "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "row",
+        "prediction_scope": "engine",
         "model_path": "model.joblib",
         "config_path": "config.json",
         "metrics_path": "metrics.json",
