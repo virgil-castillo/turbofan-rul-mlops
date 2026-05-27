@@ -57,13 +57,15 @@ class Predictor(Protocol):
 
 
 class RidgePredictor:
-    """Predict row-level RUL values using a fitted sklearn-compatible pipeline.
+    """Predict per-engine RUL using a fitted sklearn-compatible pipeline.
+
+    Scores all input rows and returns the last-cycle prediction per engine.
 
     Args:
         metadata: Model metadata pointing at a joblib artifact.
 
     Raises:
-        ValueError: If the metadata is not for a Ridge row predictor.
+        ValueError: If the metadata is not for a Ridge engine predictor.
     """
 
     def __init__(self, metadata: ModelMetadata) -> None:
@@ -73,10 +75,10 @@ class RidgePredictor:
             metadata: Model metadata pointing at a joblib artifact.
 
         Raises:
-            ValueError: If the metadata is not for a Ridge row predictor.
+            ValueError: If the metadata is not for a Ridge engine predictor.
         """
-        if metadata.model_type != "ridge" or metadata.prediction_scope != "row":
-            raise ValueError("RidgePredictor requires ridge row metadata.")
+        if metadata.model_type != "ridge" or metadata.prediction_scope != "engine":
+            raise ValueError("RidgePredictor requires ridge engine metadata.")
         self._metadata = metadata
         self._pipeline = joblib.load(metadata.model_path)
 
@@ -95,14 +97,14 @@ class RidgePredictor:
         *,
         allow_partial: bool = False,
     ) -> PredictionResult:
-        """Predict one non-negative RUL value per valid input row.
+        """Predict one non-negative RUL value per engine (last-cycle prediction).
 
         Args:
             records: Raw canonical inference records.
             allow_partial: Whether row-level validation errors may be skipped.
 
         Returns:
-            Row-level prediction response.
+            Per-engine prediction response with one prediction per engine.
 
         Raises:
             ValueError: If the pipeline returns a mismatched number of predictions.
@@ -114,10 +116,14 @@ class RidgePredictor:
         predictions = _clip_predictions(raw_predictions)
         if len(predictions) != len(frame):
             raise ValueError("Ridge pipeline returned an unexpected prediction count.")
+        frame = frame.copy()
+        frame["_prediction"] = predictions
+        last_cycle_idx = frame.groupby("engine_id")["cycle"].idxmax()
+        last_rows = frame.loc[last_cycle_idx].sort_values("engine_id")
         prediction_rows = _prediction_rows(
             metadata=self._metadata,
-            rows=frame[["engine_id", "cycle"]],
-            predictions=predictions,
+            rows=last_rows[["engine_id", "cycle"]],
+            predictions=last_rows["_prediction"].to_numpy(),
         )
         return _prediction_result(
             metadata=self._metadata,

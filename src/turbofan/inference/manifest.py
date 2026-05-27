@@ -158,7 +158,7 @@ def _load_compatibility_directory(directory: Path) -> ModelMetadata:
             schema_version=1,
             model_type="ridge",
             artifact_id=directory.name,
-            prediction_scope="row",
+            prediction_scope="engine",
             model_path=joblib_path,
         )
     return ModelMetadata(
@@ -224,10 +224,12 @@ def _require_prediction_scope(payload: dict[str, object]) -> PredictionScope:
     value = _require_string(payload, "prediction_scope")
     if value == "row":
         return "row"
+    if value == "engine":
+        return "engine"
     if value == "final_window":
         return "final_window"
     raise ManifestError(
-        "Manifest field 'prediction_scope' must be one of: final_window, row."
+        "Manifest field 'prediction_scope' must be one of: engine, final_window, row."
     )
 
 
@@ -245,13 +247,13 @@ def _validate_model_scope_pair(
         ManifestError: If the pair is not supported.
     """
     if (model_type, prediction_scope) in {
-        ("ridge", "row"),
+        ("ridge", "engine"),
         ("gru", "final_window"),
     }:
         return
     raise ManifestError(
         "Manifest model_type and prediction_scope are inconsistent; expected "
-        "ridge with row or gru with final_window."
+        "ridge with engine or gru with final_window."
     )
 
 

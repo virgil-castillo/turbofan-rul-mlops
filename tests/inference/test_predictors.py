@@ -130,7 +130,7 @@ def _ridge_artifact(tmp_path: Path) -> Path:
         artifact_dir,
         model_type="ridge",
         artifact_id="ridge-test",
-        prediction_scope="row",
+        prediction_scope="engine",
         model_path="model.joblib",
     )
 
@@ -237,17 +237,20 @@ def _assert_response_metadata(
     assert result.metadata.warnings == warnings
 
 
-def test_load_predictor_returns_ridge_predictions_for_each_valid_row(
+def test_load_predictor_returns_ridge_prediction_per_engine_last_cycle(
     tmp_path: Path,
 ) -> None:
-    """Ridge predictor returns one clipped prediction per canonical input row."""
+    """Ridge predictor returns one clipped prediction per engine (last cycle)."""
     from turbofan.inference.predictors import load_predictor
 
     predictor = load_predictor(_ridge_artifact(tmp_path))
     records = pd.DataFrame(
         [
-            {**_record(engine_id=2, cycle=1), "ignored": "drop"},
             _record(engine_id=1, cycle=1),
+            _record(engine_id=1, cycle=2),
+            _record(engine_id=1, cycle=3),
+            _record(engine_id=2, cycle=1),
+            _record(engine_id=2, cycle=2),
         ]
     )
 
@@ -257,21 +260,21 @@ def test_load_predictor_returns_ridge_predictions_for_each_valid_row(
         (row.engine_id, row.cycle, row.prediction) for row in result.predictions
     ]
     assert prediction_tuples == [
-        (1, 1, 0.0),
-        (2, 1, 0.0),
+        (1, 3, 0.0),
+        (2, 2, 0.0),
     ]
     _assert_prediction_rows(
         result.predictions,
         artifact_id="ridge-test",
         model_type="ridge",
-        prediction_scope="row",
+        prediction_scope="engine",
     )
     _assert_response_metadata(
         result,
         artifact_id="ridge-test",
         model_type="ridge",
-        prediction_scope="row",
-        input_rows=2,
+        prediction_scope="engine",
+        input_rows=5,
         prediction_rows=2,
         warnings=[],
     )

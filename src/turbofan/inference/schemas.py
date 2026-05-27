@@ -12,7 +12,7 @@ import pandas as pd
 
 IdentifierColumn = Literal["engine_id", "cycle"]
 ModelType = Literal["ridge", "gru"]
-PredictionScope = Literal["row", "final_window"]
+PredictionScope = Literal["row", "engine", "final_window"]
 
 FEATURE_COLUMNS: list[str] = [
     "op_1",

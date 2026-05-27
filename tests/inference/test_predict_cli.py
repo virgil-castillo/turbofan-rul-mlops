@@ -58,7 +58,7 @@ def _write_ridge_artifact(tmp_path: Path) -> Path:
                 "schema_version": 1,
                 "model_type": "ridge",
                 "artifact_id": "ridge-cli-test",
-                "prediction_scope": "row",
+                "prediction_scope": "engine",
                 "model_path": "model.joblib",
             }
         )
@@ -131,7 +131,7 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     assert metadata == {
         "model_type": "ridge",
         "artifact_id": "ridge-cli-test",
-        "prediction_scope": "row",
+        "prediction_scope": "engine",
         "input_rows": 2,
         "prediction_rows": 2,
         "warnings": [],

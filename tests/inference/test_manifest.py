@@ -29,7 +29,7 @@ def _write_manifest(
 
 
 def test_load_model_metadata_reads_valid_ridge_manifest(tmp_path: Path) -> None:
-    """A schema-version-1 Ridge manifest is loaded as row metadata."""
+    """A schema-version-1 Ridge manifest is loaded as engine metadata."""
     model_path = tmp_path / "model.joblib"
     model_path.write_bytes(b"model")
     manifest_path = _write_manifest(
@@ -38,7 +38,7 @@ def test_load_model_metadata_reads_valid_ridge_manifest(tmp_path: Path) -> None:
             "schema_version": 1,
             "model_type": "ridge",
             "artifact_id": "ridge-001",
-            "prediction_scope": "row",
+            "prediction_scope": "engine",
             "model_path": "model.joblib",
         },
     )
@@ -47,7 +47,7 @@ def test_load_model_metadata_reads_valid_ridge_manifest(tmp_path: Path) -> None:
 
     assert metadata.model_type == "ridge"
     assert metadata.artifact_id == "ridge-001"
-    assert metadata.prediction_scope == "row"
+    assert metadata.prediction_scope == "engine"
     assert metadata.model_path == model_path
     assert metadata.config_path is None
     assert metadata.metrics_path is None
@@ -125,7 +125,7 @@ def test_load_model_metadata_resolves_relative_paths_from_manifest_directory(
             "schema_version": 1,
             "model_type": "ridge",
             "artifact_id": "ridge-002",
-            "prediction_scope": "row",
+            "prediction_scope": "engine",
             "model_path": "artifacts/model.joblib",
         },
     )
@@ -138,7 +138,7 @@ def test_load_model_metadata_resolves_relative_paths_from_manifest_directory(
 def test_load_model_metadata_supports_directory_with_only_joblib(
     tmp_path: Path,
 ) -> None:
-    """A directory containing only model.joblib loads as Ridge row metadata."""
+    """A directory containing only model.joblib loads as Ridge engine metadata."""
     model_path = tmp_path / "model.joblib"
     model_path.write_bytes(b"model")
 
@@ -146,7 +146,7 @@ def test_load_model_metadata_supports_directory_with_only_joblib(
 
     assert metadata.model_type == "ridge"
     assert metadata.artifact_id == tmp_path.name
-    assert metadata.prediction_scope == "row"
+    assert metadata.prediction_scope == "engine"
     assert metadata.model_path == model_path
 
 
