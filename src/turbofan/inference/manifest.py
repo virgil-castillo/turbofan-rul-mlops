@@ -222,14 +222,12 @@ def _require_prediction_scope(payload: dict[str, object]) -> PredictionScope:
         ManifestError: If the prediction scope is missing or unsupported.
     """
     value = _require_string(payload, "prediction_scope")
-    if value == "row":
-        return "row"
     if value == "engine":
         return "engine"
     if value == "final_window":
         return "final_window"
     raise ManifestError(
-        "Manifest field 'prediction_scope' must be one of: engine, final_window, row."
+        "Manifest field 'prediction_scope' must be one of: engine, final_window."
     )
 
 

@@ -68,8 +68,11 @@ def _try_evaluate(
 ) -> dict[str, float] | None:
     """Evaluate predictions against official RUL labels if available.
 
+    Predictions must be sorted by ascending engine_id to align with the
+    label file order (one label per engine in engine-id order).
+
     Args:
-        predictions: Serialized prediction rows.
+        predictions: Serialized prediction rows sorted by engine_id.
         data_dir: Directory containing RUL label files.
         subset: C-MAPSS subset identifier.
 

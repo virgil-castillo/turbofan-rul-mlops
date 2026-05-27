@@ -86,7 +86,7 @@ def test_load_model_metadata_reads_valid_gru_manifest(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("model_type", "prediction_scope"),
-    [("ridge", "final_window"), ("gru", "row")],
+    [("ridge", "final_window"), ("gru", "engine")],
 )
 def test_load_model_metadata_rejects_inconsistent_model_scope_pairs(
     tmp_path: Path,
