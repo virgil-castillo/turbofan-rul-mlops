@@ -23,8 +23,12 @@ from turbofan.models.sequence_training import (
 )
 from turbofan.models.split import split_by_engine
 from turbofan.models.training_log import append_training_log, build_log_entry
+from turbofan.preprocessing.normalization import (
+    OperatingModeNormalizer,
+    mode_count_for_subset,
+)
 from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
+from turbofan.sequences.normalize import default_feature_cols
 from turbofan.sequences.windowing import build_sliding_windows
 
 RESULT_COLUMNS = [
@@ -192,7 +196,11 @@ def run_gru_sweep(
         random_seed=cfg.data.random_seed,
     )
 
-    normalizer = SequenceNormalizer(feature_cols=feature_cols)
+    normalizer = OperatingModeNormalizer(
+        feature_cols=feature_cols,
+        n_modes=mode_count_for_subset(cfg.data.fd_subset),
+        random_state=cfg.data.random_seed,
+    )
     train_normalized = normalizer.fit_transform(train_df)
     val_normalized = normalizer.transform(val_df)
 

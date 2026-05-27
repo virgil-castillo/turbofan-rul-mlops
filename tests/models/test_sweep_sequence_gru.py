@@ -188,8 +188,8 @@ def test_gru_sweep_reports_validation_window_metrics(
     class FakeNormalizer:
         """Minimal normalizer returning distinguishable frames."""
 
-        def __init__(self, feature_cols: list[str]) -> None:
-            self.feature_cols = feature_cols
+        def __init__(self, **kwargs: object) -> None:
+            pass
 
         def fit_transform(self, frame: object) -> str:
             """Return a training-frame sentinel.
@@ -243,7 +243,7 @@ def test_gru_sweep_reports_validation_window_metrics(
         "split_by_engine",
         lambda frame, test_size, random_seed: ("train", "validation"),
     )
-    monkeypatch.setattr(module, "SequenceNormalizer", FakeNormalizer)
+    monkeypatch.setattr(module, "OperatingModeNormalizer", FakeNormalizer)
     monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
     monkeypatch.setattr(
         module,
@@ -318,8 +318,8 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
     class FakeNormalizer:
         """Minimal normalizer returning distinguishable frames."""
 
-        def __init__(self, feature_cols: list[str]) -> None:
-            self.feature_cols = feature_cols
+        def __init__(self, **kwargs: object) -> None:
+            pass
 
         def fit_transform(self, frame: object) -> str:
             """Return a training-frame sentinel.
@@ -377,7 +377,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         "split_by_engine",
         lambda frame, test_size, random_seed: ("train", "validation"),
     )
-    monkeypatch.setattr(module, "SequenceNormalizer", FakeNormalizer)
+    monkeypatch.setattr(module, "OperatingModeNormalizer", FakeNormalizer)
     monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
     monkeypatch.setattr(
         module,
