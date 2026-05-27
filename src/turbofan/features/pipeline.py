@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from sklearn.pipeline import Pipeline
 
-from turbofan.features.normalizer import OperationalNormalizer
 from turbofan.features.rolling import RollingFeatureExtractor
 from turbofan.features.sensor_dropper import SensorDropper
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
 
 def build_feature_pipeline(
@@ -13,6 +13,8 @@ def build_feature_pipeline(
     op_cols: list[str] | None = None,
     sensor_std_threshold: float = 0.0,
     sensor_keep: list[str] | None = None,
+    n_modes: int = 1,
+    random_state: int = 42,
 ) -> Pipeline:
     """Build an unfitted feature engineering pipeline.
 
@@ -26,6 +28,9 @@ def build_feature_pipeline(
         sensor_std_threshold: Maximum training standard deviation at
             which sensor columns are dropped.
         sensor_keep: Sensor columns to force-keep even when low-variance.
+        n_modes: Number of operating modes for the normalizer.  Derived from
+            ``fd_subset`` by the caller via ``mode_count_for_subset``.
+        random_state: KMeans random seed for the normalizer.
 
     Returns:
         Unfitted sklearn Pipeline.
@@ -45,7 +50,11 @@ def build_feature_pipeline(
             ),
             (
                 "normalizer",
-                OperationalNormalizer(op_cols=op_cols),
+                OperatingModeNormalizer(
+                    op_cols=op_cols,
+                    n_modes=n_modes,
+                    random_state=random_state,
+                ),
             ),
         ]
     )

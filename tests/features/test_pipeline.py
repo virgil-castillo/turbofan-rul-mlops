@@ -157,3 +157,13 @@ def test_joblib_serialization() -> None:
     result_original = pipe.transform(test)
     result_loaded = loaded.transform(test)
     pd.testing.assert_frame_equal(result_original, result_loaded)
+
+
+def test_pipeline_normalizer_is_operating_mode_normalizer() -> None:
+    """Pipeline normalizer step is OperatingModeNormalizer."""
+    from turbofan.preprocessing.normalization import OperatingModeNormalizer
+
+    pipe = build_feature_pipeline(n_modes=2, random_state=7)
+    assert isinstance(pipe.named_steps["normalizer"], OperatingModeNormalizer)
+    assert pipe.named_steps["normalizer"].n_modes == 2
+    assert pipe.named_steps["normalizer"].random_state == 7
