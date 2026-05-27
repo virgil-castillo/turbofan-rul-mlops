@@ -256,14 +256,14 @@ mypy src/turbofan               # strict type checking
 - [x] GRU sequence model
 - [x] Hyperparameter sweep experiments
 - [x] RMSE, MAE, and PHM08 evaluation
-- [ ] Validate batch prediction CLI end-to-end
-- [ ] Validate FastAPI inference server
-- [ ] Validate Dockerized serving
-- [ ] FD002 support
-- [ ] FD003 support
-- [ ] FD004 support
+- [ ] Validate batch prediction, serving, and Docker end-to-end
+- [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
-- [ ] Stabilized inference interface
+- [ ] Additional models (LSTM, Transformer)
+- [ ] Advanced feature engineering
+- [ ] MLOps infrastructure (experiment tracking, CI/CD)
+
+See [docs/roadmap.md](docs/roadmap.md) for detailed priorities and design decisions.
 
 
 ## License
