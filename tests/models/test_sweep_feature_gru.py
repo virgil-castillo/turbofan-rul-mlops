@@ -176,9 +176,6 @@ def test_feature_sweep_returns_expected_columns(
         "rmse",
         "mae",
         "phm08_score",
-        "test_rmse",
-        "test_mae",
-        "test_phm08_score",
     ]
 
 
@@ -226,31 +223,7 @@ def test_feature_sweep_cli_writes_csv(tmp_path: Path) -> None:
         "rmse",
         "mae",
         "phm08_score",
-        "test_rmse",
-        "test_mae",
-        "test_phm08_score",
     ]
     assert len(results) == 1
 
 
-def test_feature_sweep_includes_test_metric_columns(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Feature sweep result includes test_rmse, test_mae, test_phm08_score."""
-    project_root = Path(__file__).parent.parent.parent
-    module = _load_module(project_root)
-    cfg_path = _write_config(tmp_path)
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
-
-    results = module.run_feature_sweep(
-        config_path=cfg_path,
-        feature_sets=["raw"],
-        corr_thresholds=[0.5],
-        rolling_window=3,
-        device="cpu",
-    )
-
-    assert "test_rmse" in results.columns
-    assert "test_mae" in results.columns
-    assert "test_phm08_score" in results.columns

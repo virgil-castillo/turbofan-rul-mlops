@@ -22,11 +22,10 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
-from turbofan.models.test_evaluation import evaluate_official_test
 from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.normalize import SequenceNormalizer, default_feature_cols
-from turbofan.sequences.windowing import build_final_windows, build_sliding_windows
+from turbofan.sequences.windowing import build_sliding_windows
 
 RESULT_COLUMNS = [
     "window_size",
@@ -36,9 +35,6 @@ RESULT_COLUMNS = [
     "rmse",
     "mae",
     "phm08_score",
-    "test_rmse",
-    "test_mae",
-    "test_phm08_score",
 ]
 
 
@@ -216,11 +212,6 @@ def run_gru_sweep(
             feature_cols=feature_cols,
             window_size=window_size,
         )
-        validation_final_windows = build_final_windows(
-            val_normalized,
-            feature_cols=feature_cols,
-            window_size=window_size,
-        )
         validation_windows = build_sliding_windows(
             val_normalized,
             feature_cols=feature_cols,
@@ -230,11 +221,6 @@ def run_gru_sweep(
             train_windows,
             batch_size=spec_cfg.batch_size,
             shuffle=True,
-        )
-        validation_final_loader = build_sequence_loader(
-            validation_final_windows,
-            batch_size=spec_cfg.batch_size,
-            shuffle=False,
         )
         validation_windows_loader = build_sequence_loader(
             validation_windows,
@@ -253,7 +239,6 @@ def run_gru_sweep(
         result = train_gru_model(
             model=model,
             train_loader=train_loader,
-            validation_final_loader=validation_final_loader,
             validation_windows_loader=validation_windows_loader,
             config=spec_cfg,
             device=torch_device,
@@ -285,23 +270,6 @@ def run_gru_sweep(
             "mae": metrics["mae"],
             "phm08_score": metrics["phm08_score"],
         }
-        test_result = evaluate_official_test(
-            data_config=cfg.data,
-            model=result.model,
-            normalizer=normalizer,
-            feature_cols=feature_cols,
-            device=torch_device,
-            window_size=window_size,
-            batch_size=spec_cfg.batch_size,
-        )
-        if test_result is not None:
-            row["test_rmse"] = test_result["test_rmse"]
-            row["test_mae"] = test_result["test_mae"]
-            row["test_phm08_score"] = test_result["test_phm08_score"]
-        else:
-            row["test_rmse"] = float("nan")
-            row["test_mae"] = float("nan")
-            row["test_phm08_score"] = float("nan")
         rows.append(row)
         if output_path is not None:
             _append_incremental_row(
@@ -309,9 +277,6 @@ def run_gru_sweep(
                 output_path,
                 append=len(rows) > 1,
             )
-        extra: dict[str, object] = {}
-        if test_result is not None:
-            extra.update(test_result)
         log_entry = build_log_entry(
             model_type="gru",
             dataset=cfg.data.fd_subset,
@@ -331,20 +296,13 @@ def run_gru_sweep(
             device=_device_name(torch_device),
             run_dir=None,
             best_epoch=result.best_epoch,
-            extra=extra,
         )
         append_training_log(log_entry)
-        test_score_str = (
-            f" test_phm08={test_result['test_phm08_score']:.6f}"
-            if test_result is not None
-            else " test=N/A"
-        )
         print(
             f"run {run_idx}/{total_runs}: "
             f"window_size={window_size} hidden_size={hidden_size} "
             f"learning_rate={learning_rate:g} "
             f"phm08_score={metrics['phm08_score']:.6f}"
-            f"{test_score_str}"
         )
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)

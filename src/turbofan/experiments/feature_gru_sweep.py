@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from turbofan.config.schema import load_config
-from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
+from turbofan.data.loader import load_raw_train
 from turbofan.features.rolling import RollingFeatureExtractor
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
@@ -22,12 +22,11 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
-from turbofan.models.test_evaluation import evaluate_test_from_df
 from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.feature_selection import select_correlated_sensors
 from turbofan.sequences.normalize import SequenceNormalizer
-from turbofan.sequences.windowing import build_final_windows, build_sliding_windows
+from turbofan.sequences.windowing import build_sliding_windows
 
 VALID_FEATURE_SETS = frozenset(
     {"raw", "raw_plus_rolling", "top_corr", "top_corr_rolling"}
@@ -40,9 +39,6 @@ RESULT_COLUMNS = [
     "rmse",
     "mae",
     "phm08_score",
-    "test_rmse",
-    "test_mae",
-    "test_phm08_score",
 ]
 
 _ALL_SENSOR_COLS = [f"s_{i}" for i in range(1, 22)]
@@ -253,13 +249,6 @@ def run_feature_sweep(
     total_runs = len(grid)
     rows: list[dict[str, object]] = []
 
-    try:
-        test_raw = load_raw_test(cfg.data)
-        rul_labels = load_rul_labels(cfg.data)
-    except FileNotFoundError:
-        test_raw = None
-        rul_labels = None
-
     for run_idx, (feature_set, corr_threshold) in enumerate(grid, 1):
         use_rolling = feature_set in {"raw_plus_rolling", "top_corr_rolling"}
         use_corr = feature_set in {"top_corr", "top_corr_rolling"}
@@ -296,11 +285,6 @@ def run_feature_sweep(
             feature_cols=feature_cols,
             window_size=window_size,
         )
-        validation_final_windows = build_final_windows(
-            val_normalized,
-            feature_cols=feature_cols,
-            window_size=window_size,
-        )
         validation_windows = build_sliding_windows(
             val_normalized,
             feature_cols=feature_cols,
@@ -311,11 +295,6 @@ def run_feature_sweep(
             train_windows,
             batch_size=cfg.sequence.batch_size,
             shuffle=True,
-        )
-        validation_final_loader = build_sequence_loader(
-            validation_final_windows,
-            batch_size=cfg.sequence.batch_size,
-            shuffle=False,
         )
         validation_windows_loader = build_sequence_loader(
             validation_windows,
@@ -334,7 +313,6 @@ def run_feature_sweep(
         result = train_gru_model(
             model=model,
             train_loader=train_loader,
-            validation_final_loader=validation_final_loader,
             validation_windows_loader=validation_windows_loader,
             config=cfg.sequence,
             device=torch_device,
@@ -369,30 +347,6 @@ def run_feature_sweep(
             "phm08_score": metrics["phm08_score"],
         }
 
-        if test_raw is not None and rul_labels is not None:
-            current_test_df: pd.DataFrame = test_raw
-            if use_rolling:
-                current_test_df = extractor.transform(test_raw)
-            test_result = evaluate_test_from_df(
-                test_df=current_test_df,
-                rul_labels=rul_labels,
-                model=result.model,
-                normalizer=normalizer,
-                feature_cols=feature_cols,
-                device=torch_device,
-                window_size=window_size,
-                batch_size=cfg.sequence.batch_size,
-                max_rul=cfg.data.max_rul,
-            )
-            row["test_rmse"] = test_result["test_rmse"]
-            row["test_mae"] = test_result["test_mae"]
-            row["test_phm08_score"] = test_result["test_phm08_score"]
-        else:
-            test_result = None
-            row["test_rmse"] = float("nan")
-            row["test_mae"] = float("nan")
-            row["test_phm08_score"] = float("nan")
-
         rows.append(row)
         if output_path is not None:
             _append_incremental_row(row, output_path, append=len(rows) > 1)
@@ -403,8 +357,6 @@ def run_feature_sweep(
             "n_features": len(feature_cols),
             "rolling_window": rolling_window,
         }
-        if test_result is not None:
-            extra_dict.update(test_result)
 
         log_entry = build_log_entry(
             model_type="gru",
@@ -428,18 +380,12 @@ def run_feature_sweep(
             extra=extra_dict,
         )
         append_training_log(log_entry)
-        test_score_str = (
-            f" test_phm08={test_result['test_phm08_score']:.6f}"
-            if test_result is not None
-            else " test=N/A"
-        )
         print(
             f"run {run_idx}/{total_runs}: "
             f"feature_set={feature_set} "
             f"corr_threshold={corr_threshold} "
             f"n_features={len(feature_cols)} "
             f"phm08_score={metrics['phm08_score']:.6f}"
-            f"{test_score_str}"
         )
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)
