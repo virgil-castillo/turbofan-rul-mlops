@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 import joblib
 import numpy as np
@@ -22,7 +22,7 @@ from turbofan.inference.schemas import (
     validate_raw_records,
 )
 from turbofan.models.gru import GRURULRegressor
-from turbofan.sequences.normalize import SequenceNormalizer
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.windowing import build_final_windows
 
 
@@ -350,12 +350,17 @@ def _load_torch_payload(path: Path) -> Mapping[str, object]:
     payload = torch.load(path, map_location="cpu")
     if not isinstance(payload, Mapping):
         raise ValueError("GRU checkpoint payload must be a mapping.")
+    if "normalizer_means" in payload or "normalizer_stds" in payload:
+        raise ValueError(
+            "GRU checkpoint uses a legacy flat-stat normalizer format. "
+            "Retrain the model with an operating-mode normalizer payload."
+        )
     for key in [
         "model_state_dict",
         "sequence_config",
         "feature_cols",
-        "normalizer_means",
-        "normalizer_stds",
+        "normalizer_type",
+        "normalizer_payload",
         "max_rul",
     ]:
         if key not in payload:
@@ -396,31 +401,24 @@ def _non_negative_float(payload: Mapping[str, object], key: str) -> float:
 
 def _normalizer_from_payload(
     payload: Mapping[str, object],
-    feature_cols: Sequence[str],
-) -> SequenceNormalizer:
-    means = _float_series(_mapping(payload, "normalizer_means"), feature_cols)
-    stds = _float_series(_mapping(payload, "normalizer_stds"), feature_cols)
-    normalizer = SequenceNormalizer(feature_cols=feature_cols)
-    normalizer.means_ = means
-    normalizer.stds_ = stds.replace(0.0, 1.0)
-    return normalizer
+    feature_cols: Sequence[str],  # noqa: ARG001
+) -> OperatingModeNormalizer:
+    """Reconstruct an ``OperatingModeNormalizer`` from a GRU checkpoint payload.
 
+    Args:
+        payload: Full checkpoint payload mapping.
+        feature_cols: Feature column names (unused; kept for call-site
+            compatibility).
 
-def _float_series(
-    payload: Mapping[str, object],
-    feature_cols: Sequence[str],
-) -> pd.Series[Any]:
-    values: dict[str, float] = {}
-    missing: list[str] = []
-    for column in feature_cols:
-        value = payload.get(column)
-        if value is None:
-            missing.append(column)
-            continue
-        if not isinstance(value, int | float) or isinstance(value, bool):
-            raise ValueError(f"Normalizer statistic for {column!r} must be numeric.")
-        values[column] = float(value)
-    if missing:
-        joined = ", ".join(missing)
-        raise ValueError(f"Normalizer statistics missing feature columns: {joined}.")
-    return pd.Series(values, dtype="float64")
+    Returns:
+        Fitted ``OperatingModeNormalizer`` ready to call ``transform`` on.
+
+    Raises:
+        ValueError: If ``normalizer_payload`` is not a mapping.
+    """
+    norm_payload = payload["normalizer_payload"]
+    if not isinstance(norm_payload, Mapping):
+        raise ValueError(
+            "GRU checkpoint field 'normalizer_payload' must be a mapping."
+        )
+    return OperatingModeNormalizer.from_payload(dict(norm_payload))

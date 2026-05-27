@@ -17,6 +17,25 @@ from turbofan.inference.schemas import (
     SchemaValidationError,
 )
 from turbofan.models.gru import GRURULRegressor
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
+
+
+def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:
+    """Fit a minimal ``OperatingModeNormalizer`` and return its payload dict.
+
+    Args:
+        feature_cols: Feature columns to include in the normalizer.
+
+    Returns:
+        Payload dictionary produced by :meth:`OperatingModeNormalizer.to_payload`.
+    """
+    normalizer = OperatingModeNormalizer(feature_cols=list(feature_cols))
+    fit_df = pd.DataFrame({col: [0.0, 1.0] for col in feature_cols})
+    fit_df["op_1"] = [0.0, 0.0]
+    fit_df["op_2"] = [0.0, 0.0]
+    fit_df["op_3"] = [0.0, 0.0]
+    normalizer.fit(fit_df)
+    return normalizer.to_payload()
 
 
 class _NegativeRidgePipeline:
@@ -171,8 +190,8 @@ def _gru_artifact(
                 "dropout": 0.0,
             },
             "feature_cols": FEATURE_COLUMNS,
-            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
-            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "normalizer_type": "operating_mode",
+            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
             "max_rul": max_rul,
         },
         artifact_dir / "model.pt",
@@ -410,8 +429,8 @@ def test_gru_predictor_rescales_output_by_max_rul(tmp_path: Path) -> None:
                 "dropout": 0.0,
             },
             "feature_cols": FEATURE_COLUMNS,
-            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
-            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "normalizer_type": "operating_mode",
+            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
             "max_rul": max_rul,
         },
         artifact_dir / "model.pt",
@@ -459,8 +478,8 @@ def test_gru_predictor_rejects_checkpoint_without_max_rul(tmp_path: Path) -> Non
                 "dropout": 0.0,
             },
             "feature_cols": FEATURE_COLUMNS,
-            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
-            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "normalizer_type": "operating_mode",
+            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
         },
         artifact_dir / "model.pt",
     )
@@ -473,6 +492,47 @@ def test_gru_predictor_rejects_checkpoint_without_max_rul(tmp_path: Path) -> Non
     )
 
     with pytest.raises(ValueError, match="max_rul"):
+        load_predictor(artifact_dir / "model_manifest.json")
+
+
+def test_gru_predictor_rejects_legacy_flat_stat_checkpoint(tmp_path: Path) -> None:
+    """GRU predictor rejects legacy checkpoints that use flat normalizer stats."""
+    from turbofan.inference.predictors import load_predictor
+
+    artifact_dir = tmp_path / "gru_legacy"
+    artifact_dir.mkdir()
+    model = GRURULRegressor(
+        input_size=len(FEATURE_COLUMNS),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "sequence_config": {
+                "architecture": "gru",
+                "window_size": 3,
+                "hidden_size": 4,
+                "num_layers": 1,
+                "dropout": 0.0,
+            },
+            "feature_cols": FEATURE_COLUMNS,
+            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
+            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "max_rul": 125,
+        },
+        artifact_dir / "model.pt",
+    )
+    _write_manifest(
+        artifact_dir,
+        model_type="gru",
+        artifact_id="gru-legacy",
+        prediction_scope="final_window",
+        model_path="model.pt",
+    )
+
+    with pytest.raises(ValueError, match="[Rr]etrain"):
         load_predictor(artifact_dir / "model_manifest.json")
 
 
