@@ -146,6 +146,14 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert rolling.windows == [5]
     assert selector.feature_set == "raw_plus_rolling"
 
+    from turbofan.preprocessing.normalization import OperatingModeNormalizer
+
+    normalizer = estimator.named_steps["features"].named_steps["normalizer"]
+    assert isinstance(normalizer, OperatingModeNormalizer)
+    # The config uses fd_subset=FD001 → mode_count_for_subset("FD001") == 1
+    assert normalizer.n_modes == 1
+    assert normalizer.random_state == 42
+
 
 def test_train_baseline_cli_skips_missing_official_test(
     tmp_path: Path,

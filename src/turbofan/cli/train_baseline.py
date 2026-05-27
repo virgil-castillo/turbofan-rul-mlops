@@ -26,6 +26,7 @@ from turbofan.models.evaluate import (
 )
 from turbofan.models.metrics import regression_metrics
 from turbofan.models.split import split_by_engine
+from turbofan.preprocessing.normalization import mode_count_for_subset
 
 
 def _parse_args() -> argparse.Namespace:
@@ -202,6 +203,8 @@ def main() -> None:
         feature_set=cfg.model.feature_set,
         sensor_std_threshold=cfg.features.sensor_std_threshold,
         sensor_keep=cfg.features.sensor_keep,
+        n_modes=mode_count_for_subset(cfg.data.fd_subset),
+        random_state=cfg.data.random_seed,
     )
     estimator.fit(X_train, y_train)
 

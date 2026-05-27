@@ -165,6 +165,8 @@ def build_baseline_pipeline(
     sensor_std_threshold: float = 0.0,
     sensor_keep: list[str] | None = None,
     feature_set: BaselineFeatureSet = "rolling",
+    n_modes: int = 1,
+    random_state: int = 42,
 ) -> Pipeline:
     """Build an unfitted feature-plus-regressor sklearn Pipeline.
 
@@ -178,6 +180,10 @@ def build_baseline_pipeline(
             which sensor columns are dropped.
         sensor_keep: Sensor columns to force-keep even when low-variance.
         feature_set: Sensor-derived feature family to expose to the estimator.
+        n_modes: Operating-mode count for ``OperatingModeNormalizer``.
+            Derived from ``fd_subset`` by the caller via
+            ``mode_count_for_subset``.
+        random_state: KMeans random seed for the normalizer.
 
     Returns:
         Unfitted sklearn Pipeline with feature engineering, identifier
@@ -202,6 +208,8 @@ def build_baseline_pipeline(
                     op_cols=op_cols,
                     sensor_std_threshold=sensor_std_threshold,
                     sensor_keep=sensor_keep,
+                    n_modes=n_modes,
+                    random_state=random_state,
                 ),
             ),
             (
