@@ -129,7 +129,7 @@ model:
 
 sequence:
   architecture: gru
-  window_size: 30
+  window_size: 45
   hidden_size: 64
   num_layers: 1
   dropout: 0.0

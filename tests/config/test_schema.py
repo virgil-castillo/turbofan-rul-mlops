@@ -362,7 +362,7 @@ def test_sequence_config_defaults_when_section_omitted(tmp_path: Path) -> None:
     )
     cfg = load_config(cfg_file)
     assert cfg.sequence.architecture == "gru"
-    assert cfg.sequence.window_size == 30
+    assert cfg.sequence.window_size == 45
     assert cfg.sequence.batch_size == 64
     assert cfg.sequence.hidden_size == 64
     assert cfg.sequence.num_layers == 1

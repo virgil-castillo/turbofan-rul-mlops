@@ -81,7 +81,7 @@ class SequenceConfig(BaseModel):
     """
 
     architecture: Literal["gru"] = "gru"
-    window_size: int = Field(default=30, gt=0)
+    window_size: int = Field(default=45, gt=0)
     batch_size: int = Field(default=64, gt=0)
     hidden_size: int = Field(default=64, gt=0)
     num_layers: int = Field(default=1, gt=0)
