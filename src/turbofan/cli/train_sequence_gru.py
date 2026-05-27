@@ -215,6 +215,7 @@ def _model_payload(
         },
         "fd_subset": cfg.data.fd_subset,
         "random_seed": cfg.data.random_seed,
+        "max_rul": cfg.data.max_rul,
     }
 
 

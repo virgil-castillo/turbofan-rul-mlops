@@ -171,6 +171,7 @@ class GRUPredictor:
         self._model.to("cpu")
         self._model.eval()
         self._normalizer = _normalizer_from_payload(payload, self._feature_cols)
+        self._max_rul = _positive_int(payload, "max_rul")
 
     @property
     def metadata(self) -> ModelMetadata:
@@ -219,7 +220,10 @@ class GRUPredictor:
         with torch.no_grad():
             tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
             raw_predictions = self._model(tensor).detach().cpu().numpy()
-        predictions = _clip_predictions(raw_predictions)
+        rescaled = (
+            np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * self._max_rul
+        )
+        predictions = _clip_predictions(rescaled)
         prediction_rows = _prediction_rows(
             metadata=self._metadata,
             rows=windows.metadata,
@@ -352,6 +356,7 @@ def _load_torch_payload(path: Path) -> Mapping[str, object]:
         "feature_cols",
         "normalizer_means",
         "normalizer_stds",
+        "max_rul",
     ]:
         if key not in payload:
             raise ValueError(f"GRU checkpoint payload missing {key!r}.")

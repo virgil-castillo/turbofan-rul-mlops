@@ -135,12 +135,15 @@ def _ridge_artifact(tmp_path: Path) -> Path:
     )
 
 
-def _gru_artifact(tmp_path: Path, *, window_size: int = 3) -> Path:
+def _gru_artifact(
+    tmp_path: Path, *, window_size: int = 3, max_rul: int = 125
+) -> Path:
     """Create a synthetic GRU artifact.
 
     Args:
         tmp_path: Temporary test directory.
         window_size: Serialized sequence window size.
+        max_rul: Maximum RUL cap stored in the checkpoint.
 
     Returns:
         Path to the manifest.
@@ -170,6 +173,7 @@ def _gru_artifact(tmp_path: Path, *, window_size: int = 3) -> Path:
             "feature_cols": FEATURE_COLUMNS,
             "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
             "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "max_rul": max_rul,
         },
         artifact_dir / "model.pt",
     )
@@ -370,6 +374,106 @@ def test_gru_predictor_partial_mode_fails_when_no_predictions_remain(
 
     with pytest.raises(SchemaValidationError, match="No eligible sequence windows"):
         predictor.predict(records, allow_partial=True)
+
+
+def test_gru_predictor_rescales_output_by_max_rul(tmp_path: Path) -> None:
+    """GRU predictor multiplies raw model output by max_rul before clipping."""
+    from turbofan.inference.predictors import load_predictor
+
+    # Build an artifact with a model that produces a known positive raw output.
+    # All weights are zero and the regressor bias is set to +0.12, so the model
+    # always outputs 0.12 regardless of input. After rescaling by max_rul=125
+    # the prediction is 0.12 * 125 = 15.0, which is well above the clipping
+    # floor of 0.0 and therefore distinguishable from an unrescaled result.
+    max_rul = 125
+    artifact_dir = tmp_path / "gru_rescale"
+    artifact_dir.mkdir()
+    window_size = 3
+    model = GRURULRegressor(
+        input_size=len(FEATURE_COLUMNS),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    for parameter in model.parameters():
+        parameter.data.zero_()
+    model.regressor.bias.data.fill_(0.12)
+
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "sequence_config": {
+                "architecture": "gru",
+                "window_size": window_size,
+                "hidden_size": 4,
+                "num_layers": 1,
+                "dropout": 0.0,
+            },
+            "feature_cols": FEATURE_COLUMNS,
+            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
+            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+            "max_rul": max_rul,
+        },
+        artifact_dir / "model.pt",
+    )
+    manifest = _write_manifest(
+        artifact_dir,
+        model_type="gru",
+        artifact_id="gru-rescale-test",
+        prediction_scope="final_window",
+        model_path="model.pt",
+    )
+
+    predictor = load_predictor(manifest)
+    records = pd.DataFrame(_records_for_engine(1, window_size, feature_value=0.0))
+
+    result = predictor.predict(records)
+
+    assert len(result.predictions) == 1
+    prediction = result.predictions[0].prediction
+    # raw output = 0.12; rescaled = 0.12 * 125 = 15.0
+    assert prediction > 10.0, f"Expected rescaled prediction > 10, got {prediction}"
+    assert prediction < 20.0, f"Expected rescaled prediction < 20, got {prediction}"
+
+
+def test_gru_predictor_rejects_checkpoint_without_max_rul(tmp_path: Path) -> None:
+    """GRU predictor fails to load when checkpoint is missing max_rul."""
+    from turbofan.inference.predictors import load_predictor
+
+    artifact_dir = tmp_path / "gru_no_maxrul"
+    artifact_dir.mkdir()
+    model = GRURULRegressor(
+        input_size=len(FEATURE_COLUMNS),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "sequence_config": {
+                "architecture": "gru",
+                "window_size": 3,
+                "hidden_size": 4,
+                "num_layers": 1,
+                "dropout": 0.0,
+            },
+            "feature_cols": FEATURE_COLUMNS,
+            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
+            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
+        },
+        artifact_dir / "model.pt",
+    )
+    _write_manifest(
+        artifact_dir,
+        model_type="gru",
+        artifact_id="gru-no-maxrul",
+        prediction_scope="final_window",
+        model_path="model.pt",
+    )
+
+    with pytest.raises(ValueError, match="max_rul"):
+        load_predictor(artifact_dir / "model_manifest.json")
 
 
 def test_ridge_predictor_partial_mode_returns_validation_warnings(
