@@ -1,4 +1,4 @@
-"""Tests for scripts/predict.py."""
+"""Tests for turbofan.cli.predict."""
 from __future__ import annotations
 
 import csv
@@ -70,7 +70,7 @@ def _run_predict(
     tmp_path: Path,
     *args: str,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the predict script with the worktree src on PYTHONPATH.
+    """Run the predict command module with the worktree src on PYTHONPATH.
 
     Args:
         tmp_path: Temporary test directory.
@@ -85,7 +85,7 @@ def _run_predict(
         "PYTHONPATH": str(repo_root / "src"),
     }
     return subprocess.run(
-        [sys.executable, str(repo_root / "scripts" / "predict.py"), *args],
+        [sys.executable, "-m", "turbofan.cli.predict", *args],
         cwd=repo_root,
         env=env,
         text=True,

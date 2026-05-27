@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH -J rul_feat_cmp
+#SBATCH -J rul_gru_sweep
+#SBATCH --partition=gpu_short
 #SBATCH -N 1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=52
+#SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
-#SBATCH --output=outputs/logs/baseline_feature_comparison.%j.out
+#SBATCH --output=outputs/logs/gru_sweep.%j.out
 
 set -euo pipefail
 
@@ -12,10 +14,11 @@ PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 CONDA_HOME="${CONDA_HOME:-$HOME/miniconda3}"
 CONDA_ENV="${CONDA_ENV:-mlops}"
 CONFIG="${CONFIG:-configs/default.yaml}"
-FEATURE_SETS="${FEATURE_SETS:-raw raw_plus_rolling rolling}"
-WINDOWS="${WINDOWS:-5 10 20}"
-N_JOBS="${N_JOBS:-${SLURM_CPUS_PER_TASK:-1}}"
-OUTPUT="${OUTPUT:-results/baseline_feature_comparison_${SLURM_JOB_ID:-local}.csv}"
+WINDOW_SIZES="${WINDOW_SIZES:-15 20 30 45}"
+HIDDEN_SIZES="${HIDDEN_SIZES:-32 64 128}"
+LEARNING_RATES="${LEARNING_RATES:-1e-3 5e-4 1e-4}"
+DEVICE="${DEVICE:-cuda}"
+OUTPUT="${OUTPUT:-results/gru_sweep_${SLURM_JOB_ID:-local}.csv}"
 
 cd "$PROJECT_DIR"
 mkdir -p results outputs/logs
@@ -33,19 +36,22 @@ fi
 
 conda activate "$CONDA_ENV"
 
-read -r -a FEATURE_SET_ARGS <<< "$FEATURE_SETS"
-read -r -a WINDOW_ARGS <<< "$WINDOWS"
+read -r -a WINDOW_ARGS <<< "$WINDOW_SIZES"
+read -r -a HIDDEN_SIZE_ARGS <<< "$HIDDEN_SIZES"
+read -r -a LEARNING_RATE_ARGS <<< "$LEARNING_RATES"
 
 echo "project_dir=$PROJECT_DIR"
 echo "config=$CONFIG"
-echo "feature_sets=${FEATURE_SET_ARGS[*]}"
-echo "windows=${WINDOW_ARGS[*]}"
-echo "n_jobs=$N_JOBS"
+echo "window_sizes=${WINDOW_ARGS[*]}"
+echo "hidden_sizes=${HIDDEN_SIZE_ARGS[*]}"
+echo "learning_rates=${LEARNING_RATE_ARGS[*]}"
+echo "device=$DEVICE"
 echo "output=$OUTPUT"
 
-python scripts/compare_baseline_features.py \
+turbofan-sweep-gru \
     --config "$CONFIG" \
-    --feature-sets "${FEATURE_SET_ARGS[@]}" \
-    --windows "${WINDOW_ARGS[@]}" \
-    --n-jobs "$N_JOBS" \
+    --window-sizes "${WINDOW_ARGS[@]}" \
+    --hidden-sizes "${HIDDEN_SIZE_ARGS[@]}" \
+    --learning-rates "${LEARNING_RATE_ARGS[@]}" \
+    --device "$DEVICE" \
     --output "$OUTPUT"

@@ -82,7 +82,7 @@ Changes made:
 - Added prediction clipping to `[0, cfg.data.max_rul]`
 - Logged raw prediction min/max before clipping
 - Made PHM08 scoring overflow-safe by clipping exponent inputs
-- Added `scripts/sweep_baseline_alpha.py` for alpha comparison
+- Added `turbofan-sweep-baseline-alpha` for alpha comparison
 
 ## After Fix
 
@@ -117,7 +117,7 @@ Coverage now includes:
 Commands run:
 
 ```bash
-ruff check src/ tests/ scripts/
+ruff check src/ tests/
 mypy src/turbofan
 pytest -p no:cacheprovider --basetemp=.pytest-basetemp-codex
 ```

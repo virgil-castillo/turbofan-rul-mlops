@@ -19,42 +19,32 @@ Predicts how many operating cycles a turbofan engine has left before failure, gi
 
 ## Project structure
 
-```
+```text
 turbofan-rul-mlops/
-├── configs/
-│   └── default.yaml                 # Project config (data paths, model params)
-├── data/
-│   └── raw/                         # C-MAPSS .txt files (git-ignored, download via script)
-├── notebooks/
-│   └── 01_eda_fd001.ipynb           # EDA notebook (outputs stripped via nbstripout)
-├── scripts/
-│   ├── download_data.py             # Download dataset from Kaggle
-│   └── train_baseline.py            # Train and evaluate baseline model
-├── src/turbofan/
-│   ├── config/schema.py             # Pydantic config with validation
-│   ├── data/
-│   │   ├── loader.py                # Raw data I/O
-│   │   └── labels.py                # RUL label computation
-│   ├── eda/
-│   │   ├── quality.py               # Missing values, constant sensors, dtypes
-│   │   ├── sensors.py               # Sensor stats, correlation, noise estimation
-│   │   └── degradation.py           # RUL curves, trends, sensor selection
-│   ├── features/
-│   │   ├── sensor_dropper.py        # Drop zero-variance sensors (sklearn transformer)
-│   │   ├── rolling.py               # Multi-window rolling stats (sklearn transformer)
-│   │   ├── normalizer.py            # Per-condition z-score (sklearn transformer)
-│   │   └── pipeline.py              # Pipeline factory
-│   ├── models/
-│   │   ├── split.py                 # Engine-level train/validation split
-│   │   ├── metrics.py               # RMSE, MAE, PHM08 score
-│   │   ├── baseline.py              # Ridge baseline pipeline factory
-│   │   ├── evaluate.py              # Validation and official test evaluation
-│   │   └── artifacts.py             # Local experiment artifact persistence
-│   └── utils/logging.py             # Stdlib logging setup
-├── tests/                           # 127 tests, all synthetic data (no download needed)
-├── artifacts/                       # Model outputs (git-ignored)
-└── pyproject.toml                   # Package metadata, tool config
+|-- configs/                         # Project YAML configs
+|-- data/                            # Local C-MAPSS data roots
+|-- docs/                            # Reports and implementation plans
+|-- jobs/
+|   `-- slurm/                       # HPC launchers
+|-- notebooks/                       # EDA notebooks
+|-- src/turbofan/
+|   |-- cli/                         # Packaged command-line entry points
+|   |-- config/                      # Pydantic config schema
+|   |-- data/                        # Raw data I/O and labels
+|   |-- eda/                         # Exploratory analysis helpers
+|   |-- experiments/                 # Sweeps and comparison commands
+|   |-- features/                    # Feature engineering transformers
+|   |-- inference/                   # Prediction schemas, loaders, service
+|   |-- models/                      # Training, metrics, artifacts
+|   |-- sequences/                   # Sequence windows, loaders, normalization
+|   `-- utils/                       # Shared utilities
+|-- tests/                           # Synthetic-data tests
+|-- artifacts/                       # Model outputs (git-ignored)
+|-- results/                         # Experiment result CSVs
+`-- pyproject.toml                   # Package metadata, commands, tool config
 ```
+
+Primary commands are exposed as package entry points such as `turbofan-download-data`, `turbofan-train-baseline`, and `turbofan-sweep-gru`.
 
 ## Setup
 
@@ -74,10 +64,10 @@ nbstripout --install
 
 ```bash
 # Requires Kaggle API credentials (~/.kaggle/kaggle.json)
-python scripts/download_data.py --kaggle
+turbofan-download-data --kaggle
 
 # Verify files are present
-python scripts/download_data.py --check
+turbofan-download-data --check
 ```
 
 This downloads the NASA C-MAPSS dataset (FD001-FD004) into `data/raw/`.
@@ -85,7 +75,7 @@ This downloads the NASA C-MAPSS dataset (FD001-FD004) into `data/raw/`.
 ## Train baseline model
 
 ```bash
-python scripts/train_baseline.py --config configs/default.yaml
+turbofan-train-baseline --config configs/default.yaml
 ```
 
 Outputs a fitted Ridge model, metrics JSON, and prediction CSVs to `artifacts/models/baseline/<timestamp>/`. Evaluates on a held-out engine split and, if test data is present, on the official C-MAPSS test set.

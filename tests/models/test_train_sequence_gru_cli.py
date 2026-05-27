@@ -1,8 +1,7 @@
-"""Smoke tests for scripts/train_sequence_gru.py."""
+"""Smoke tests for turbofan.cli.train_sequence_gru."""
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import subprocess
@@ -164,7 +163,8 @@ def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
-            str(project_root / "scripts" / "train_sequence_gru.py"),
+            "-m",
+            "turbofan.cli.train_sequence_gru",
             "--config",
             str(cfg_path),
         ],
@@ -177,38 +177,14 @@ def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _load_train_sequence_gru_module() -> ModuleType:
-    """Load the GRU training CLI module from the scripts directory.
+    """Load the GRU training CLI module.
 
     Returns:
         Imported CLI module.
     """
-    project_root = Path(__file__).parent.parent.parent
-    module_path = project_root / "scripts" / "train_sequence_gru.py"
-    spec = importlib.util.spec_from_file_location(
-        "train_sequence_gru_test_module",
-        module_path,
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    src_path = str(project_root / "src")
-    cached_turbofan_modules = {
-        name: loaded_module
-        for name, loaded_module in sys.modules.items()
-        if name == "turbofan" or name.startswith("turbofan.")
-    }
-    for name in cached_turbofan_modules:
-        del sys.modules[name]
-    sys.path.insert(0, src_path)
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.remove(src_path)
-        for name in list(sys.modules):
-            if name == "turbofan" or name.startswith("turbofan."):
-                del sys.modules[name]
-        sys.modules.update(cached_turbofan_modules)
-    return module
+    from turbofan.cli import train_sequence_gru
+
+    return train_sequence_gru
 
 
 def test_train_sequence_gru_cli_seeds_model_initialization(

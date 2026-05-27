@@ -1,4 +1,4 @@
-"""Smoke tests for scripts/train_baseline.py."""
+"""Smoke tests for turbofan.cli.train_baseline."""
 from __future__ import annotations
 
 import json
@@ -17,17 +17,11 @@ import pytest
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
 
 
-def _load_train_baseline_module(project_root: Path) -> ModuleType:
-    """Load the train_baseline script as a module for helper testing."""
-    import importlib.util
+def _load_train_baseline_module() -> ModuleType:
+    """Load the train_baseline command module for helper testing."""
+    from turbofan.cli import train_baseline
 
-    script_path = project_root / "scripts" / "train_baseline.py"
-    spec = importlib.util.spec_from_file_location("train_baseline", script_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load script module from {script_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return train_baseline
 
 
 class RecordingEstimator:
@@ -102,7 +96,13 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root / "src")
     result = subprocess.run(
-        [sys.executable, "scripts/train_baseline.py", "--config", str(cfg_path)],
+        [
+            sys.executable,
+            "-m",
+            "turbofan.cli.train_baseline",
+            "--config",
+            str(cfg_path),
+        ],
         cwd=project_root,
         check=True,
         capture_output=True,
@@ -181,7 +181,13 @@ def test_train_baseline_cli_skips_missing_official_test(
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root / "src")
     result = subprocess.run(
-        [sys.executable, "scripts/train_baseline.py", "--config", str(cfg_path)],
+        [
+            sys.executable,
+            "-m",
+            "turbofan.cli.train_baseline",
+            "--config",
+            str(cfg_path),
+        ],
         cwd=project_root,
         check=True,
         capture_output=True,
@@ -201,8 +207,7 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Official evaluation preserves full trajectory context for rolling features."""
-    project_root = Path(__file__).parent.parent.parent
-    module = _load_train_baseline_module(project_root)
+    module = _load_train_baseline_module()
     test_raw = pd.DataFrame(
         {
             "engine_id": [1, 1, 1, 2, 2],
@@ -240,8 +245,7 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
 
 def test_clip_rul_predictions_bounds_values_to_rul_cap(tmp_path: Path) -> None:
     """Prediction post-processing clips values into the configured RUL range."""
-    project_root = Path(__file__).parent.parent.parent
-    module = _load_train_baseline_module(project_root)
+    module = _load_train_baseline_module()
 
     clipped = module._clip_rul_predictions(
         np.array([-5.0, 10.0, 200.0], dtype=np.float64),

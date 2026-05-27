@@ -1,7 +1,6 @@
-"""Tests for scripts/compare_baseline_features.py."""
+"""Tests for turbofan.experiments.baseline_feature_comparison."""
 from __future__ import annotations
 
-import importlib.util
 import os
 import subprocess
 import sys
@@ -13,7 +12,7 @@ import pytest
 
 
 def _load_module(project_root: Path) -> ModuleType:
-    """Load the comparison script as a module for helper testing.
+    """Load the baseline feature comparison module for helper testing.
 
     Args:
         project_root: Repository root path.
@@ -21,19 +20,11 @@ def _load_module(project_root: Path) -> ModuleType:
     Returns:
         Imported script module.
 
-    Raises:
-        RuntimeError: If the script cannot be imported.
     """
-    script_path = project_root / "scripts" / "compare_baseline_features.py"
-    spec = importlib.util.spec_from_file_location(
-        "compare_baseline_features",
-        script_path,
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load script module from {script_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    del project_root
+    from turbofan.experiments import baseline_feature_comparison
+
+    return baseline_feature_comparison
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -150,7 +141,8 @@ def test_compare_baseline_features_cli_writes_csv(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/compare_baseline_features.py",
+            "-m",
+            "turbofan.experiments.baseline_feature_comparison",
             "--config",
             str(cfg_path),
             "--feature-sets",

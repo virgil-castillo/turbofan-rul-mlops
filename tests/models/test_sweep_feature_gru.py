@@ -1,7 +1,6 @@
-"""Tests for scripts/sweep_feature_gru.py."""
+"""Tests for turbofan.experiments.feature_gru_sweep."""
 from __future__ import annotations
 
-import importlib.util
 import os
 import subprocess
 import sys
@@ -13,7 +12,7 @@ import pytest
 
 
 def _load_module(project_root: Path) -> ModuleType:
-    """Load the feature GRU sweep script as a module for helper testing.
+    """Load the feature GRU sweep module for helper testing.
 
     Args:
         project_root: Repository root path.
@@ -21,32 +20,11 @@ def _load_module(project_root: Path) -> ModuleType:
     Returns:
         Imported script module.
 
-    Raises:
-        RuntimeError: If the script cannot be imported.
     """
-    script_path = project_root / "scripts" / "sweep_feature_gru.py"
-    spec = importlib.util.spec_from_file_location("sweep_feature_gru", script_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load script module from {script_path}")
-    module = importlib.util.module_from_spec(spec)
-    src_path = str(project_root / "src")
-    cached_turbofan_modules = {
-        name: loaded_module
-        for name, loaded_module in sys.modules.items()
-        if name == "turbofan" or name.startswith("turbofan.")
-    }
-    for name in cached_turbofan_modules:
-        del sys.modules[name]
-    sys.path.insert(0, src_path)
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.remove(src_path)
-        for name in list(sys.modules):
-            if name == "turbofan" or name.startswith("turbofan."):
-                del sys.modules[name]
-        sys.modules.update(cached_turbofan_modules)
-    return module
+    del project_root
+    from turbofan.experiments import feature_gru_sweep
+
+    return feature_gru_sweep
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -215,7 +193,8 @@ def test_feature_sweep_cli_writes_csv(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            str(project_root / "scripts" / "sweep_feature_gru.py"),
+            "-m",
+            "turbofan.experiments.feature_gru_sweep",
             "--config",
             str(cfg_path),
             "--feature-sets",

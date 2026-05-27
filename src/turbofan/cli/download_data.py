@@ -1,8 +1,8 @@
 """Download or verify the NASA C-MAPSS turbofan dataset.
 
 Usage:
-    python scripts/download_data.py --kaggle   # download via Kaggle API
-    python scripts/download_data.py --check    # verify files are present
+    turbofan-download-data --kaggle   # download via Kaggle API
+    turbofan-download-data --check    # verify files are present
 """
 from __future__ import annotations
 

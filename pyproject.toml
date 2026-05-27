@@ -33,6 +33,17 @@ dev = [
     "scipy",
 ]
 
+[project.scripts]
+turbofan-download-data = "turbofan.cli.download_data:main"
+turbofan-train-baseline = "turbofan.cli.train_baseline:main"
+turbofan-train-sequence-gru = "turbofan.cli.train_sequence_gru:main"
+turbofan-predict = "turbofan.cli.predict:main"
+turbofan-serve-api = "turbofan.cli.serve_api:main"
+turbofan-sweep-baseline-alpha = "turbofan.experiments.baseline_alpha:main"
+turbofan-compare-baseline-features = "turbofan.experiments.baseline_feature_comparison:main"
+turbofan-sweep-gru = "turbofan.experiments.sequence_gru_sweep:main"
+turbofan-sweep-feature-gru = "turbofan.experiments.feature_gru_sweep:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

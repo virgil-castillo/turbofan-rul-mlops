@@ -373,7 +373,7 @@ def run_feature_sweep(
             current_test_df: pd.DataFrame = test_raw
             if use_rolling:
                 current_test_df = extractor.transform(test_raw)
-            test_result: dict[str, float] | None = evaluate_test_from_df(
+            test_result = evaluate_test_from_df(
                 test_df=current_test_df,
                 rul_labels=rul_labels,
                 model=result.model,

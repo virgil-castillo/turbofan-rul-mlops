@@ -89,7 +89,9 @@ def _read_csv_records(path: Path) -> list[dict[str, object]]:
 def _coerce_csv_cell(column: str, value: object) -> object:
     if column not in CANONICAL_COLUMNS:
         return value
-    if pd.isna(value):
+    if value is None:
+        return value
+    if isinstance(value, float) and math.isnan(value):
         return value
     if column in FEATURE_COLUMNS:
         return _coerce_csv_feature(value)

@@ -48,7 +48,7 @@ def test_load_raw_train_missing_file_raises(tmp_path: Path) -> None:
         processed_dir=tmp_path,
         interim_dir=tmp_path,
     )
-    with pytest.raises(FileNotFoundError, match="download_data.py"):
+    with pytest.raises(FileNotFoundError, match="turbofan-download-data"):
         load_raw_train(cfg)
 
 
@@ -59,7 +59,7 @@ def test_load_raw_test_missing_file_raises(tmp_path: Path) -> None:
         processed_dir=tmp_path,
         interim_dir=tmp_path,
     )
-    with pytest.raises(FileNotFoundError, match="download_data.py"):
+    with pytest.raises(FileNotFoundError, match="turbofan-download-data"):
         load_raw_test(cfg)
 
 
@@ -82,5 +82,5 @@ def test_load_rul_labels_missing_file_raises(tmp_path: Path) -> None:
         processed_dir=tmp_path,
         interim_dir=tmp_path,
     )
-    with pytest.raises(FileNotFoundError, match="download_data.py"):
+    with pytest.raises(FileNotFoundError, match="turbofan-download-data"):
         load_rul_labels(cfg)

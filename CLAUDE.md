@@ -21,7 +21,7 @@ conda activate mlops
 ## Commands
 
 ```bash
-ruff check src/ tests/ scripts/        # lint
+ruff check src/ tests/                 # lint
 mypy src/turbofan                       # type-check
 
 pytest                                  # all tests

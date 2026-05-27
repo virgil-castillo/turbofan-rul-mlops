@@ -16,6 +16,9 @@ env/
 
 # Testing
 .pytest_cache/
+.pytest-basetemp*/
+.tmp_pytest/
+.codex_pytest_*/
 .coverage
 htmlcov/
 

@@ -309,6 +309,9 @@ def run_gru_sweep(
                 output_path,
                 append=len(rows) > 1,
             )
+        extra: dict[str, object] = {}
+        if test_result is not None:
+            extra.update(test_result)
         log_entry = build_log_entry(
             model_type="gru",
             dataset=cfg.data.fd_subset,
@@ -328,7 +331,7 @@ def run_gru_sweep(
             device=_device_name(torch_device),
             run_dir=None,
             best_epoch=result.best_epoch,
-            extra=test_result if test_result is not None else {},
+            extra=extra,
         )
         append_training_log(log_entry)
         test_score_str = (

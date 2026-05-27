@@ -17,8 +17,8 @@ COLUMN_NAMES: list[str] = [
 ]
 
 _DOWNLOAD_HINT: str = (
-    "Run `python scripts/download_data.py --kaggle` to download the dataset, "
-    "or `python scripts/download_data.py --check` to verify files are present."
+    "Run `turbofan-download-data --kaggle` to download the dataset, "
+    "or `turbofan-download-data --check` to verify files are present."
 )
 
 
