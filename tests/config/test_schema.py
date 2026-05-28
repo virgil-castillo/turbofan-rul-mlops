@@ -444,3 +444,90 @@ def test_invalid_sequence_config_raises(
     )
     with pytest.raises(ValidationError):
         load_config(cfg_file)
+
+
+# ── _base_ config composition ─────────────────────────────────────────────────
+
+_BASE_DATA = {
+    "project_name": "base-project",
+    "data": {
+        "raw_dir": "data/raw",
+        "processed_dir": "data/processed",
+        "interim_dir": "data/interim",
+        "fd_subset": "FD001",
+        "max_rul": 125,
+    },
+    "features": {"sensor_cols_to_drop": [], "n_modes": 1},
+}
+
+
+def test_base_key_loads_base_config(tmp_path: Path) -> None:
+    """A config with _base_ inherits all fields from the referenced file."""
+    base = tmp_path / "default.yaml"
+    base.write_text(yaml.dump(_BASE_DATA))
+
+    override = tmp_path / "override.yaml"
+    override.write_text(yaml.dump({"_base_": "default.yaml"}))
+
+    cfg = load_config(override)
+    assert cfg.project_name == "base-project"
+    assert cfg.data.fd_subset == "FD001"
+
+
+def test_base_key_override_replaces_scalar(tmp_path: Path) -> None:
+    """Scalar values in the override replace those from the base."""
+    base = tmp_path / "default.yaml"
+    base.write_text(yaml.dump(_BASE_DATA))
+
+    override = tmp_path / "override.yaml"
+    override.write_text(yaml.dump({"_base_": "default.yaml", "project_name": "override-project"}))
+
+    cfg = load_config(override)
+    assert cfg.project_name == "override-project"
+
+
+def test_base_key_override_merges_nested(tmp_path: Path) -> None:
+    """Nested dicts are merged: override keys replace, unmentioned keys are kept."""
+    base = tmp_path / "default.yaml"
+    base.write_text(yaml.dump(_BASE_DATA))
+
+    override = tmp_path / "override.yaml"
+    override.write_text(
+        yaml.dump({"_base_": "default.yaml", "data": {"fd_subset": "FD002"}})
+    )
+
+    cfg = load_config(override)
+    assert cfg.data.fd_subset == "FD002"
+    assert cfg.data.max_rul == 125
+
+
+def test_base_key_override_replaces_list(tmp_path: Path) -> None:
+    """List values in the override replace the base list entirely."""
+    base = tmp_path / "default.yaml"
+    base.write_text(yaml.dump(_BASE_DATA))
+
+    override = tmp_path / "override.yaml"
+    override.write_text(
+        yaml.dump(
+            {
+                "_base_": "default.yaml",
+                "features": {"sensor_cols_to_drop": ["s_1", "s_5"], "n_modes": 6},
+            }
+        )
+    )
+
+    cfg = load_config(override)
+    assert cfg.features.sensor_cols_to_drop == ["s_1", "s_5"]
+    assert cfg.features.n_modes == 6
+
+
+def test_base_key_not_present_in_validated_config(tmp_path: Path) -> None:
+    """The _base_ key is consumed and does not leak into the validated model."""
+    base = tmp_path / "default.yaml"
+    base.write_text(yaml.dump(_BASE_DATA))
+
+    override = tmp_path / "override.yaml"
+    override.write_text(yaml.dump({"_base_": "default.yaml"}))
+
+    cfg = load_config(override)
+    assert not hasattr(cfg, "_base_")

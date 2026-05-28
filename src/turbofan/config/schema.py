@@ -129,8 +129,33 @@ class ProjectConfig(BaseModel):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base, returning a new dict.
+
+    Nested dicts are merged key-by-key; all other values are replaced.
+
+    Args:
+        base: Base dictionary.
+        override: Dictionary whose values take precedence.
+
+    Returns:
+        Merged dictionary.
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def load_config(path: Path) -> ProjectConfig:
     """Load and validate project configuration from a YAML file.
+
+    If the file contains a ``_base_`` key, the referenced file is loaded
+    first and the current file is deep-merged on top, allowing subset
+    configs to override only the fields that differ from the base.
 
     Args:
         path: Path to the YAML configuration file.
@@ -147,4 +172,10 @@ def load_config(path: Path) -> ProjectConfig:
         raw = yaml.safe_load(path.read_text())
     except yaml.YAMLError as exc:
         raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
+
+    if "_base_" in raw:
+        base_path = (path.parent / raw.pop("_base_")).resolve()
+        base = yaml.safe_load(base_path.read_text())
+        raw = _deep_merge(base, raw)
+
     return ProjectConfig.model_validate(raw)

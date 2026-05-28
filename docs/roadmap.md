@@ -76,13 +76,24 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 - [x] Rename propagated through pipeline factory, baseline builder, CLI, and experiments
 - [x] `configs/default.yaml` updated; FD002 users set `sensor_cols_to_drop: [s_16, s_1, s_5, s_18, s_19]`
 
-## Next — Multi-Dataset Support (FD002–FD004)
+## Completed — EDA Pipeline and Subset Configs (2026-05-28)
 
-The config already accepts `fd_subset: FD002` etc., but no training runs or validation have been done beyond FD001.
+- [x] Rebuilt EDA notebooks for all four subsets (`notebooks/eda_fd00{1-4}.ipynb`) with a coherent flow:
+  - Single-condition subsets (FD001/FD003): constant sensor removal → correlation filter → low-variance check → distributions → degradation trajectories
+  - Multi-condition subsets (FD002/FD004): same but operating-mode normalization runs before the correlation filter; before/after correlation and distribution plots included
+- [x] Correlation-based sensor filter replaces the std-threshold approach: sensors are dropped if `|Pearson r with RUL| < 0.1` (post-normalization for FD002/FD004)
+- [x] Low-variance check added after correlation filter to flag sensors like `s_16` (binary) that pass correlation but warrant caution in feature engineering
+- [x] `_base_` config composition added to `load_config`: subset configs reference `default.yaml` and override only `fd_subset`, `sensor_cols_to_drop`, and `n_modes`
+- [x] `configs/subsets/fd001–fd004.yaml` created with EDA-derived drop lists as the authoritative sensor drop decision per subset
+- [x] `compute_coefficient_of_variation` removed from `quality.py` (CV did not help distinguish informative low-std sensors)
+- [x] Tests added for `_base_` composition (deep merge, scalar replace, nested merge, list replace, key stripping)
 
-- [ ] Train baseline and GRU on FD002, FD003, FD004
-- [ ] Verify feature engineering handles multiple operating conditions (FD002/FD004 have 6)
-- [ ] Verify sequence windowing handles multiple fault modes (FD003/FD004 have 2)
+## Next — Multi-Dataset Training (FD002–FD004)
+
+EDA and per-subset configuration are complete. Next step is training and evaluation.
+
+- [ ] Train baseline and GRU on FD002, FD003, FD004 using `configs/subsets/`
+- [ ] Verify feature engineering handles 6 operating conditions (FD002/FD004)
 - [ ] Cross-dataset benchmark table comparing all subsets
 
 ## Future — Additional Models
@@ -123,6 +134,10 @@ Deliberately deferred until the modeling contract stabilizes:
 
 
 **Sensor dropping is config-driven, not threshold-based.** `sensor_cols_to_drop` in `FeatureConfig` holds the EDA-derived explicit drop list. `SensorDropper` applies it without recomputation — no runtime statistics. A single threshold cannot distinguish pre-normalization low-variance sensors (e.g. `s_16`) from post-normalization zero-variance sensors (e.g. `s_1`, `s_5`, `s_18`, `s_19` on FD002), and recomputing at fit time undermines reproducibility.
+
+**EDA notebooks are the source of truth for sensor drop decisions.** `configs/subsets/fd00{1-4}.yaml` codify those decisions. The notebooks explain the reasoning; the configs enforce it at training time. Changing which sensors to drop means updating both.
+
+**Config composition via `_base_`.** Subset configs reference `default.yaml` via `_base_` and override only what differs. Nested dicts are deep-merged key-by-key; lists and scalars are replaced. This keeps a single source of truth for shared settings (model hyperparameters, paths, seeds) while allowing per-subset variation in `fd_subset`, `sensor_cols_to_drop`, and `n_modes`.
 
 **Prediction semantics should be one per engine.** Ridge scores all valid input rows and returns the last-cycle prediction per engine. GRU returns one final-window prediction per eligible engine.
 

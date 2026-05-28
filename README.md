@@ -1,6 +1,6 @@
 # Turbofan Remaining Useful Life Prediction
 
-This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. The current implementation targets FD001; support for FD002–FD004 is planned.
+This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. EDA and per-subset configuration are complete for all four C-MAPSS subsets; model training currently targets FD001.
 
 ## What this repo contains
 
@@ -16,12 +16,12 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 
 ## Current Scope
 
-| Dataset | Status |
-|---|---|
-| FD001 | Implemented |
-| FD002 | Planned |
-| FD003 | Planned |
-| FD004 | Planned |
+| Dataset | EDA | Config | Training |
+|---|---|---|---|
+| FD001 | Done | Done | Done |
+| FD002 | Done | Done | Planned |
+| FD003 | Done | Done | Planned |
+| FD004 | Done | Done | Planned |
 
 ## Quickstart
 
@@ -54,13 +54,13 @@ This downloads all four C-MAPSS subsets (FD001–FD004) into `data/raw/`. The cu
 Train the Ridge baseline:
 
 ```bash
-turbofan-train-baseline --config configs/default.yaml
+turbofan-train-baseline --config configs/subsets/fd001.yaml
 ```
 
 Train the GRU sequence model:
 
 ```bash
-turbofan-train-sequence-gru --config configs/default.yaml
+turbofan-train-sequence-gru --config configs/subsets/fd001.yaml
 ```
 
 Model training creates a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`. Each run directory is self-contained and includes the model checkpoint, config snapshot, manifest, metrics, training history, and prediction CSVs.
@@ -70,7 +70,9 @@ Cross-run experiment summaries and the global append-only training log are writt
 ## Project Structure
 
 ```text
-configs/                              # Experiment configuration files
+configs/
+  default.yaml                        # Shared base configuration
+  subsets/                            # Per-subset overrides (fd001–fd004)
 data/                                 # Raw, interim, and processed dataset files
 docs/                                 # Analysis reports and documentation
 notebooks/                            # Exploratory analysis notebooks
@@ -109,39 +111,33 @@ All commands are installed as entry points via `pyproject.toml`:
 
 ## Configuration
 
-All settings live in `configs/default.yaml` and are validated by a Pydantic schema:
+`configs/default.yaml` holds all shared settings. Per-subset configs in `configs/subsets/` override only what differs using a `_base_` composition key:
 
 ```yaml
-project_name: turbofan-rul-mlops
+# configs/subsets/fd002.yaml
+_base_: ../default.yaml
 
 data:
-  raw_dir: data/raw
-  fd_subset: FD001          # FD001, FD002, FD003, or FD004
-  max_rul: 125              # RUL cap for piecewise-linear labels
-  test_size: 0.2            # Validation split fraction
-  random_seed: 42
+  fd_subset: FD002
 
 features:
-  n_modes: 1                # Operating-mode clusters for normalization (use 6 for FD002/FD004)
-  sensor_cols_to_drop: []   # EDA-derived list of sensors to remove (e.g. [s_16, s_1, s_5, s_18, s_19] for FD002)
-
-model:
-  name: ridge
-  alpha: 100.0
-  feature_set: rolling
-  artifact_dir: artifacts/models
-
-sequence:
-  architecture: gru
-  window_size: 45
-  hidden_size: 64
-  num_layers: 1
-  dropout: 0.0
-  learning_rate: 0.001
-  epochs: 50
-  patience: 8
-  artifact_dir: artifacts/models
+  sensor_cols_to_drop:    # EDA-derived drop list for FD002
+    - s_1
+    - s_5
+    - s_10
+    - s_18
+    - s_19
+  n_modes: 6              # 6 operating conditions
 ```
+
+Pass a subset config directly to any training CLI:
+
+```bash
+turbofan-train-baseline --config configs/subsets/fd002.yaml
+turbofan-train-sequence-gru --config configs/subsets/fd002.yaml
+```
+
+The `sensor_cols_to_drop` lists are derived from the EDA notebooks (`notebooks/eda_fd00{1-4}.ipynb`) and represent the authoritative drop decision for each subset.
 
 ## Dataset
 
@@ -291,7 +287,9 @@ mypy src/turbofan               # strict type checking
 - [x] Validate Docker serving end-to-end
 - [x] Operating-mode normalization (OperatingModeNormalizer, self-contained GRU artifacts)
 - [x] Config-driven sensor dropping (EDA-derived explicit drop list replaces runtime std-threshold)
-- [ ] FD002–FD004 support
+- [x] EDA notebooks for all four subsets with correlation-based sensor filter
+- [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
+- [ ] Train baseline and GRU on FD002–FD004
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
