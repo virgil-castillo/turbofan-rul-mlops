@@ -59,6 +59,16 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 - [x] Build and run the Docker container with a mounted artifact
 - [x] Smoke-test containerized API with `scripts/query_api.py` — RMSE matches training run
 
+## Completed — Operating-Mode Normalization (2026-05-28)
+
+- [x] New `turbofan.preprocessing.normalization.OperatingModeNormalizer` — sklearn-compatible, fits per-mode KMeans clusters on training operating-setting rows, normalizes sensor features per mode
+- [x] `n_modes` added to `FeatureConfig` (default `1`; set to `6` for FD002/FD004)
+- [x] Baseline pipeline: replaced `OperationalNormalizer` with `OperatingModeNormalizer`; exact operating-setting tuple grouping eliminated
+- [x] GRU training: replaced global `SequenceNormalizer` with `OperatingModeNormalizer`; normalizer state serialized into artifact as `normalizer_type: operating_mode` payload
+- [x] GRU sweeps: updated to `OperatingModeNormalizer`
+- [x] GRU inference: reconstructs normalizer from payload; legacy flat-stat checkpoints rejected with a clear retrain error
+- [x] Stale `OperationalNormalizer` and `SequenceNormalizer` tests removed
+
 ## Next — Multi-Dataset Support (FD002–FD004)
 
 The config already accepts `fd_subset: FD002` etc., but no training runs or validation have been done beyond FD001.
@@ -98,6 +108,12 @@ Deliberately deferred until the modeling contract stabilizes:
 - [ ] Model registry / formal versioning beyond timestamp directories
 
 ## Design Decisions Worth Preserving
+
+**Operating-mode normalization is config-driven, not auto-derived.** `n_modes` lives in `FeatureConfig` (default `1`). Setting it to `6` in config enables KMeans-based per-mode normalization for FD002/FD004. The original approach of auto-deriving from `fd_subset` via a lookup table was removed in favor of explicit config so the user can override the count when needed.
+
+**GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error.
+
+
 
 **Prediction semantics should be one per engine.** Ridge scores all valid input rows and returns the last-cycle prediction per engine. GRU returns one final-window prediction per eligible engine.
 

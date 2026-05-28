@@ -121,6 +121,11 @@ data:
   test_size: 0.2            # Validation split fraction
   random_seed: 42
 
+features:
+  n_modes: 1                # Operating-mode clusters for normalization (use 6 for FD002/FD004)
+  sensor_std_threshold: 0.01
+  sensor_keep: []
+
 model:
   name: ridge
   alpha: 100.0
@@ -285,6 +290,7 @@ mypy src/turbofan               # strict type checking
 - [x] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
 - [x] Remove official test-set evaluation from GRU sweeps
 - [x] Validate Docker serving end-to-end
+- [x] Operating-mode normalization (OperatingModeNormalizer, self-contained GRU artifacts)
 - [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)
