@@ -474,7 +474,9 @@ def test_base_key_override_replaces_scalar(tmp_path: Path) -> None:
     base.write_text(yaml.dump(_BASE_DATA))
 
     override = tmp_path / "override.yaml"
-    override.write_text(yaml.dump({"_base_": "default.yaml", "project_name": "override-project"}))
+    override.write_text(
+        yaml.dump({"_base_": "default.yaml", "project_name": "override-project"})
+    )
 
     cfg = load_config(override)
     assert cfg.project_name == "override-project"

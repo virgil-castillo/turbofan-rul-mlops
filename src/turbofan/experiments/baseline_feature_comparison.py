@@ -97,7 +97,7 @@ def _validate_feature_sets(
     invalid = sorted(set(feature_sets) - SUPPORTED_FEATURE_SETS)
     if invalid:
         raise ValueError(f"Unsupported feature_set: {invalid[0]}")
-    return list(feature_sets)  # type: ignore[return-value]
+    return list(feature_sets)  # type: ignore[arg-type]
 
 
 def _validate_inputs(
