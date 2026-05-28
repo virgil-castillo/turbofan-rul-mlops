@@ -3,24 +3,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from turbofan.sequences.normalize import default_feature_cols
 
-
-def test_default_feature_cols_returns_ops_and_sensors() -> None:
-    """Default feature columns include operating settings and sensors."""
-    expected = ["op_1", "op_2", "op_3"] + [
-        f"s_{idx}" for idx in range(1, 22)
-    ]
-    result = default_feature_cols()
-    assert result == expected
-    assert len(result) == 24
-
-
-def test_operating_mode_normalizer_works_with_default_sequence_feature_cols() -> None:
-    """OperatingModeNormalizer accepts the default sequence feature columns."""
+def test_operating_mode_normalizer_works_with_sequence_feature_cols() -> None:
+    """OperatingModeNormalizer normalizes operating-setting and sensor columns."""
     from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
-    feature_cols = default_feature_cols()
+    feature_cols = ["op_1", "op_2", "op_3"] + [f"s_{i}" for i in range(1, 22)]
     train = pd.DataFrame(
         {
             "engine_id": [1, 1, 2, 2],

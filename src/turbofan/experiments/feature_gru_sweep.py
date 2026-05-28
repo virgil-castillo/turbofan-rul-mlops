@@ -11,7 +11,6 @@ import pandas as pd
 
 from turbofan.config.schema import load_config
 from turbofan.data.loader import load_raw_train
-from turbofan.features.rolling import RollingFeatureExtractor
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
@@ -161,6 +160,42 @@ def _rolling_feature_cols(sensor_cols: list[str], rolling_window: int) -> list[s
     return cols
 
 
+def _add_rolling_features(
+    df: pd.DataFrame,
+    sensor_cols: list[str],
+    window: int,
+) -> pd.DataFrame:
+    """Append rolling-statistic columns to a sensor DataFrame.
+
+    Computes per-engine rolling mean, std, min, and max for each sensor
+    using ``min_periods=1`` so early cycles receive values instead of NaN.
+
+    Args:
+        df: DataFrame with ``engine_id`` and sensor columns.
+        sensor_cols: Sensor column names to compute rolling statistics for.
+        window: Rolling window size in cycles.
+
+    Returns:
+        Copy of ``df`` with additional ``{sensor}_{stat}_{window}`` columns.
+    """
+    extra: dict[str, pd.Series] = {}
+    for col in sensor_cols:
+        grp = df.groupby("engine_id")[col]
+        extra[f"{col}_rmean_{window}"] = grp.transform(
+            lambda s, _w=window: s.rolling(_w, min_periods=1).mean()
+        )
+        extra[f"{col}_rstd_{window}"] = grp.transform(
+            lambda s, _w=window: s.rolling(_w, min_periods=1).std()
+        ).fillna(0.0)
+        extra[f"{col}_rmin_{window}"] = grp.transform(
+            lambda s, _w=window: s.rolling(_w, min_periods=1).min()
+        )
+        extra[f"{col}_rmax_{window}"] = grp.transform(
+            lambda s, _w=window: s.rolling(_w, min_periods=1).max()
+        )
+    return pd.concat([df.copy(), pd.DataFrame(extra, index=df.index)], axis=1)
+
+
 def _append_incremental_row(
     row: dict[str, object],
     output_path: Path,
@@ -268,9 +303,12 @@ def run_feature_sweep(
         current_val_df = val_df
 
         if use_rolling:
-            extractor = RollingFeatureExtractor(windows=[rolling_window])
-            current_train_df = extractor.fit(train_df).transform(train_df)
-            current_val_df = extractor.transform(val_df)
+            current_train_df = _add_rolling_features(
+                train_df, sensor_cols, rolling_window
+            )
+            current_val_df = _add_rolling_features(
+                val_df, sensor_cols, rolling_window
+            )
             feature_cols = list(base_feature_cols) + _rolling_feature_cols(
                 sensor_cols, rolling_window
             )
