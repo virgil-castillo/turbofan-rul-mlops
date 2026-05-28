@@ -1,67 +1,52 @@
-"""Low-variance sensor removal transformer."""
+"""Config-driven sensor column removal transformer."""
 from __future__ import annotations
 
 from typing import Self
 
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 class SensorDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
-    """Drop sensor columns below a standard-deviation threshold.
+    """Drop an explicit list of sensor columns determined during EDA.
 
-    Discovers sensor columns by the ``s_*`` naming convention. Columns
-    with standard deviation at or below ``std_threshold`` across the
-    training set carry little information and are removed. Non-sensor
-    columns (engine_id, cycle, op_*) are always preserved.
+    The drop list is injected via config — no statistics are computed
+    from training data. Columns absent from the DataFrame are silently
+    skipped so the transformer is safe to apply on subsets.
 
     Args:
-        std_threshold: Maximum training standard deviation at which a sensor
-            column should be dropped.
-        keep: Optional list of sensor column names to force-keep
-            even if they appear constant in training data.
+        drop: Sensor column names to remove.
     """
 
-    def __init__(
-        self,
-        std_threshold: float = 0.0,
-        keep: list[str] | None = None,
-    ) -> None:
-        self.std_threshold = std_threshold
-        self.keep = keep
+    def __init__(self, drop: list[str] | None = None) -> None:
+        self.drop = drop
 
-    def fit(
-        self, X: pd.DataFrame, y: object = None
-    ) -> Self:
-        """Identify low-variance sensor columns to drop.
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+        """Record the drop list for sklearn pipeline compatibility.
 
         Args:
-            X: Training DataFrame with sensor columns.
-            y: Ignored. Present for sklearn compatibility.
+            X: Training DataFrame. Not used.
+            y: Ignored.
 
         Returns:
             Fitted transformer.
         """
-        keep_set = set(self.keep or [])
-        sensor_cols = [
-            c for c in X.columns if c.startswith("s_")
-        ]
-        self.sensor_stds_: pd.Series[float] = X[sensor_cols].std()
-        self.columns_to_drop_: list[str] = [
-            col
-            for col in sensor_cols
-            if self.sensor_stds_[col] <= self.std_threshold
-            and col not in keep_set
-        ]
+        self.columns_to_drop_: list[str] = list(self.drop or [])
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Remove low-variance sensor columns.
+        """Remove configured sensor columns.
 
         Args:
             X: DataFrame to transform.
 
         Returns:
-            DataFrame with constant sensors removed.
+            DataFrame with configured sensors removed.
+
+        Raises:
+            NotFittedError: If the transformer has not been fitted.
         """
-        return X.drop(columns=self.columns_to_drop_)
+        check_is_fitted(self)
+        present = [c for c in self.columns_to_drop_ if c in X.columns]
+        return X.drop(columns=present)

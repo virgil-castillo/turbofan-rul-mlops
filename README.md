@@ -123,8 +123,7 @@ data:
 
 features:
   n_modes: 1                # Operating-mode clusters for normalization (use 6 for FD002/FD004)
-  sensor_std_threshold: 0.01
-  sensor_keep: []
+  sensor_cols_to_drop: []   # EDA-derived list of sensors to remove (e.g. [s_16, s_1, s_5, s_18, s_19] for FD002)
 
 model:
   name: ridge
@@ -291,6 +290,7 @@ mypy src/turbofan               # strict type checking
 - [x] Remove official test-set evaluation from GRU sweeps
 - [x] Validate Docker serving end-to-end
 - [x] Operating-mode normalization (OperatingModeNormalizer, self-contained GRU artifacts)
+- [x] Config-driven sensor dropping (EDA-derived explicit drop list replaces runtime std-threshold)
 - [ ] FD002–FD004 support
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)

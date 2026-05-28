@@ -162,8 +162,7 @@ def build_baseline_pipeline(
     alpha: float = 100.0,
     windows: list[int] | None = None,
     op_cols: list[str] | None = None,
-    sensor_std_threshold: float = 0.0,
-    sensor_keep: list[str] | None = None,
+    sensor_drop: list[str] | None = None,
     feature_set: BaselineFeatureSet = "rolling",
     n_modes: int = 1,
     random_state: int = 42,
@@ -176,9 +175,8 @@ def build_baseline_pipeline(
         windows: Rolling window sizes for the feature pipeline.
             Default ``[10]`` for the PHM08-selected baseline.
         op_cols: Operational setting columns for normalization.
-        sensor_std_threshold: Maximum training standard deviation at
-            which sensor columns are dropped.
-        sensor_keep: Sensor columns to force-keep even when low-variance.
+        sensor_drop: Sensor column names to remove before feature engineering.
+            Determined from EDA; passed directly to the feature pipeline.
         feature_set: Sensor-derived feature family to expose to the estimator.
         n_modes: Operating-mode count for ``OperatingModeNormalizer``.
             Derived from ``fd_subset`` by the caller via
@@ -206,8 +204,7 @@ def build_baseline_pipeline(
                 build_feature_pipeline(
                     windows=effective_windows,
                     op_cols=op_cols,
-                    sensor_std_threshold=sensor_std_threshold,
-                    sensor_keep=sensor_keep,
+                    sensor_drop=sensor_drop,
                     n_modes=n_modes,
                     random_state=random_state,
                 ),

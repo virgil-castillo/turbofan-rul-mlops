@@ -148,8 +148,7 @@ def test_load_default_config() -> None:
     assert cfg.inference.host == "0.0.0.0"
     assert cfg.inference.port == 8000
     assert cfg.inference.allow_partial is False
-    assert cfg.features.sensor_std_threshold == 0.01
-    assert cfg.features.sensor_keep == []
+    assert cfg.features.sensor_cols_to_drop == []
     assert cfg.model.feature_set == "rolling"
     assert cfg.model.windows == [10]
 
@@ -168,12 +167,11 @@ def test_feature_config_defaults_when_section_omitted(tmp_path: Path) -> None:
         },
     )
     cfg = load_config(cfg_file)
-    assert cfg.features.sensor_std_threshold == 0.0
-    assert cfg.features.sensor_keep == []
+    assert cfg.features.sensor_cols_to_drop == []
 
 
 def test_feature_config_loads_custom_values(tmp_path: Path) -> None:
-    """Feature config accepts sensor dropper controls."""
+    """Feature config accepts an explicit sensor drop list."""
     cfg_file = _write_config(
         tmp_path,
         {
@@ -184,20 +182,18 @@ def test_feature_config_loads_custom_values(tmp_path: Path) -> None:
                 "interim_dir": "data/interim",
             },
             "features": {
-                "sensor_std_threshold": 0.02,
-                "sensor_keep": ["s_2", "s_7"],
+                "sensor_cols_to_drop": ["s_1", "s_5", "s_16"],
             },
         },
     )
     cfg = load_config(cfg_file)
-    assert cfg.features.sensor_std_threshold == 0.02
-    assert cfg.features.sensor_keep == ["s_2", "s_7"]
+    assert cfg.features.sensor_cols_to_drop == ["s_1", "s_5", "s_16"]
 
 
 def test_invalid_feature_config_raises() -> None:
-    """Negative sensor std thresholds are rejected."""
+    """Non-positive n_modes is rejected."""
     with pytest.raises(ValidationError):
-        FeatureConfig(sensor_std_threshold=-0.01)
+        FeatureConfig(n_modes=0)
 
 
 def test_inference_config_loads_custom_values(tmp_path: Path) -> None:

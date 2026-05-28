@@ -76,8 +76,7 @@ def run_alpha_sweep(config_path: Path, alphas: list[float]) -> pd.DataFrame:
         estimator = build_baseline_pipeline(
             model_name=cfg.model.name,
             alpha=alpha,
-            sensor_std_threshold=cfg.features.sensor_std_threshold,
-            sensor_keep=cfg.features.sensor_keep,
+            sensor_drop=cfg.features.sensor_cols_to_drop or None,
         )
         estimator.fit(X_train, y_train)
         raw_pred = np.asarray(estimator.predict(X_val), dtype=np.float64)
