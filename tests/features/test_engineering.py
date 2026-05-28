@@ -125,7 +125,8 @@ def test_lag_backfills_within_engine() -> None:
     result = eng.fit_transform(df)
     # Engine 1 cycle 1 has no prior cycle: backfill from cycle 2 value
     e1_lag = result.loc[df["engine_id"] == 1, "s_1_lag_1"].tolist()
-    assert e1_lag[0] == pytest.approx(e1_lag[1])  # backfilled to cycle 2's lag value
+    assert e1_lag[0] == pytest.approx(10.0)  # backfilled: no prior, uses own value
+    assert e1_lag[1] == pytest.approx(10.0)  # cycle 2 lag-1 = cycle 1 value
     # Engine 2 cycle 1 should not be affected by engine 1
     e2_lag = result.loc[df["engine_id"] == 2, "s_1_lag_1"].tolist()
     assert e2_lag[0] == pytest.approx(100.0)  # backfilled from engine 2's own data

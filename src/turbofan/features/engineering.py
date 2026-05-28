@@ -1,10 +1,11 @@
 """Config-driven feature engineering transformer."""
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 FeatureSet = Literal[
     "raw",
@@ -15,10 +16,7 @@ FeatureSet = Literal[
     "lag",
 ]
 
-_VALID_FEATURE_SETS: frozenset[str] = frozenset(
-    ["raw", "rolling_mean", "rolling_stats",
-     "raw_plus_rolling_mean", "raw_plus_rolling_stats", "lag"]
-)
+_VALID_FEATURE_SETS: frozenset[str] = frozenset(get_args(FeatureSet))
 
 
 class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
@@ -38,7 +36,7 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
 
     def __init__(
         self,
-        feature_set: str = "raw",
+        feature_set: FeatureSet = "raw",
         windows: list[int] | None = None,
         lag_steps: list[int] | None = None,
     ) -> None:
@@ -84,6 +82,7 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         Returns:
             DataFrame with exactly ``feature_cols_`` columns.
         """
+        check_is_fitted(self)
         if self.feature_set == "raw":
             return X[self.sensor_cols_].copy()
         if self.feature_set == "rolling_mean":
