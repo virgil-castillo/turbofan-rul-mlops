@@ -12,13 +12,15 @@ data:
 features:
   sensor_cols_to_drop: []
   n_modes: 1
+  feature_set: rolling_mean
+  windows:
+    - 10
+  lag_steps:
+    - 1
 
 model:
   name: ridge
   alpha: 100.0
-  feature_set: rolling
-  windows:
-    - 10
   artifact_dir: artifacts/models
 
 sequence:

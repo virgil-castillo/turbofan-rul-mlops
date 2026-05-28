@@ -80,13 +80,13 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
                 "model:",
                 "  name: ridge",
                 "  alpha: 1.0",
-                "  feature_set: raw_plus_rolling",
-                "  windows:",
-                "    - 5",
                 f"  artifact_dir: {artifact_dir.as_posix()}",
                 "features:",
                 "  sensor_cols_to_drop:",
                 "    - s_2",
+                "  feature_set: raw_plus_rolling_mean",
+                "  windows:",
+                "    - 5",
             ]
         )
     )
@@ -139,10 +139,9 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     estimator = joblib.load(run_dir / "model.joblib")
     dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]
     assert dropper.drop == ["s_2"]
-    rolling = estimator.named_steps["features"].named_steps["rolling_features"]
-    selector = estimator.named_steps["select_model_features"]
-    assert rolling.windows == [5]
-    assert selector.feature_set == "raw_plus_rolling"
+    feature_engineer = estimator.named_steps["features"].named_steps["feature_engineer"]
+    assert feature_engineer.feature_set == "raw_plus_rolling_mean"
+    assert feature_engineer.windows == [5]
 
     from turbofan.preprocessing.normalization import OperatingModeNormalizer
 

@@ -9,9 +9,11 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
+from sklearn.pipeline import Pipeline
 
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
+from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.models.artifacts import create_run_dir, save_json, save_predictions
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
@@ -25,9 +27,7 @@ from turbofan.models.sequence_training import (
 from turbofan.models.split import split_by_engine
 from turbofan.models.test_evaluation import align_labels_to_eligible_engines
 from turbofan.models.training_log import append_training_log, build_log_entry
-from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.normalize import default_feature_cols
 from turbofan.sequences.windowing import (
     WindowedSequences,
     build_final_windows,
@@ -139,7 +139,7 @@ def _evaluate_windows(
 def _evaluate_official_test(
     cfg: ProjectConfig,
     model: GRURULRegressor,
-    normalizer: OperatingModeNormalizer,
+    pipeline: Pipeline,
     feature_cols: list[str],
     device: torch.device,
 ) -> tuple[dict[str, float], pd.DataFrame] | None:
@@ -148,7 +148,7 @@ def _evaluate_official_test(
     Args:
         cfg: Project config.
         model: Trained GRU model.
-        normalizer: Fitted sequence feature normalizer.
+        pipeline: Fitted feature pipeline.
         feature_cols: Feature columns used by the model.
         device: Torch device used for inference.
 
@@ -161,7 +161,15 @@ def _evaluate_official_test(
     except FileNotFoundError:
         return None
 
-    test_df = normalizer.transform(test_raw)
+    _test_id_cols = [c for c in ("engine_id", "cycle") if c in test_raw.columns]
+    test_features = pipeline.transform(test_raw)
+    test_df = pd.concat(
+        [
+            test_raw[_test_id_cols].reset_index(drop=True),
+            test_features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
     test_windows = build_final_windows(
         test_df,
         feature_cols=feature_cols,
@@ -189,7 +197,7 @@ def _model_payload(
     model: GRURULRegressor,
     cfg: ProjectConfig,
     feature_cols: list[str],
-    normalizer: OperatingModeNormalizer,
+    pipeline: Pipeline,
 ) -> dict[str, object]:
     """Build the serialized model checkpoint payload.
 
@@ -197,11 +205,15 @@ def _model_payload(
         model: Trained GRU model.
         cfg: Project config.
         feature_cols: Feature columns used by the model.
-        normalizer: Fitted operating-mode normalizer.
+        pipeline: Fitted feature pipeline.
 
     Returns:
         Torch-serializable model payload.
     """
+    from turbofan.preprocessing.normalization import OperatingModeNormalizer
+
+    normalizer = pipeline.named_steps["normalizer"]
+    assert isinstance(normalizer, OperatingModeNormalizer)
     return {
         "model_state_dict": model.state_dict(),
         "feature_cols": feature_cols,
@@ -222,7 +234,6 @@ def main() -> None:
         raise ValueError("Sequence training CLI requires architecture='gru'.")
 
     device = resolve_device(cfg.sequence.device)
-    feature_cols = default_feature_cols()
 
     train_raw = load_raw_train(cfg.data)
     train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
@@ -232,13 +243,33 @@ def main() -> None:
         random_seed=cfg.data.random_seed,
     )
 
-    normalizer = OperatingModeNormalizer(
-        feature_cols=feature_cols,
+    pipeline = build_feature_pipeline(
+        sensor_drop=cfg.features.sensor_cols_to_drop or None,
         n_modes=cfg.features.n_modes,
         random_state=cfg.data.random_seed,
+        feature_set=cfg.features.feature_set,
+        windows=cfg.features.windows,
+        lag_steps=cfg.features.lag_steps,
     )
-    train_normalized = normalizer.fit_transform(train_df)
-    val_normalized = normalizer.transform(val_df)
+    _id_cols = ["engine_id", "cycle", "rul"]
+    train_features = pipeline.fit_transform(train_df)
+    val_features = pipeline.transform(val_df)
+    feature_cols = pipeline.named_steps["feature_engineer"].feature_cols_
+
+    train_normalized = pd.concat(
+        [
+            train_df[_id_cols].reset_index(drop=True),
+            train_features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
+    val_normalized = pd.concat(
+        [
+            val_df[_id_cols].reset_index(drop=True),
+            val_features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
 
     train_windows = build_sliding_windows(
         train_normalized,
@@ -297,7 +328,7 @@ def main() -> None:
     official = _evaluate_official_test(
         cfg,
         result.model,
-        normalizer,
+        pipeline,
         feature_cols,
         device,
     )
@@ -312,7 +343,7 @@ def main() -> None:
         print("official test evaluation skipped: test or RUL files not found")
 
     torch.save(
-        _model_payload(result.model, cfg, feature_cols, normalizer),
+        _model_payload(result.model, cfg, feature_cols, pipeline),
         run_dir / "model.pt",
     )
     save_json(metrics_payload, run_dir / "metrics.json")
