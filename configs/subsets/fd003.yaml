@@ -1,0 +1,20 @@
+_base_: ../default.yaml
+
+data:
+  fd_subset: FD003
+
+features:
+  # Constant: s_1, s_18, s_19
+  # Failed correlation filter (|r| < 0.1): s_5, s_6, s_15, s_16, s_20, s_21
+  # s_10 kept — low std but r=-0.49 with RUL (real signal)
+  sensor_cols_to_drop:
+    - s_1
+    - s_5
+    - s_6
+    - s_15
+    - s_16
+    - s_18
+    - s_19
+    - s_20
+    - s_21
+  n_modes: 1

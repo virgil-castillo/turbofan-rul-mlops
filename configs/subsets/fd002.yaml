@@ -1,0 +1,16 @@
+_base_: ../default.yaml
+
+data:
+  fd_subset: FD002
+
+features:
+  # Zero-variance after per-mode normalization: s_1, s_5, s_18, s_19
+  # Failed correlation filter post-normalization (|r| < 0.1): s_10
+  # s_16 is binary (0.02/0.03) but passes correlation — kept, treat with caution
+  sensor_cols_to_drop:
+    - s_1
+    - s_5
+    - s_10
+    - s_18
+    - s_19
+  n_modes: 6
