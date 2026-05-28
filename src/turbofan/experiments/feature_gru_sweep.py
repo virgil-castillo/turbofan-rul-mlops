@@ -23,10 +23,7 @@ from turbofan.models.sequence_training import (
 )
 from turbofan.models.split import split_by_engine
 from turbofan.models.training_log import append_training_log, build_log_entry
-from turbofan.preprocessing.normalization import (
-    OperatingModeNormalizer,
-    mode_count_for_subset,
-)
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.feature_selection import select_correlated_sensors
 from turbofan.sequences.windowing import build_sliding_windows
@@ -280,7 +277,7 @@ def run_feature_sweep(
 
         normalizer = OperatingModeNormalizer(
             feature_cols=feature_cols,
-            n_modes=mode_count_for_subset(cfg.data.fd_subset),
+            n_modes=cfg.features.n_modes,
             random_state=cfg.data.random_seed,
         )
         train_normalized = normalizer.fit_transform(current_train_df)

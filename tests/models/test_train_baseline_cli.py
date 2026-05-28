@@ -150,8 +150,7 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
 
     normalizer = estimator.named_steps["features"].named_steps["normalizer"]
     assert isinstance(normalizer, OperatingModeNormalizer)
-    # The config uses fd_subset=FD001 → mode_count_for_subset("FD001") == 1
-    assert normalizer.n_modes == 1
+    assert normalizer.n_modes == 1  # config default
     assert normalizer.random_state == 42
 
 
