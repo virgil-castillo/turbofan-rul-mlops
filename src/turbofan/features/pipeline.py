@@ -121,8 +121,8 @@ def build_feature_pipeline(
     Steps: ``sensor_dropper`` → ``normalizer`` → ``sensor_selector``
     → ``feature_engineer``.
 
-    The normalizer receives explicit ``feature_cols`` (kept sensor columns
-    only) so op cols are available for KMeans but are not z-scored.
+    The normalizer auto-detects sensor ``feature_cols`` from the data at fit
+    time so op cols are available for KMeans but are not z-scored.
     ``SensorColumnSelector`` retains ``engine_id`` so that
     ``FeatureEngineer`` can compute per-engine rolling and lag features.
     The final output contains only the engineered feature columns.
