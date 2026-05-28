@@ -15,7 +15,7 @@ from turbofan.models.test_evaluation import (
     evaluate_official_test,
     evaluate_test_from_df,
 )
-from turbofan.sequences.normalize import SequenceNormalizer
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
 
 class TestAlignLabelsToEligibleEngines:
@@ -63,8 +63,10 @@ class TestEvaluateTestFromDf:
         test_df = pd.DataFrame(rows)
         rul_labels = pd.Series([10, 20, 30], name="rul")
 
-        normalizer = SequenceNormalizer(feature_cols=feature_cols)
-        normalizer.fit_transform(test_df.copy())
+        normalizer = OperatingModeNormalizer(
+            feature_cols=feature_cols, op_cols=["op_1"]
+        )
+        normalizer.fit(test_df.copy())
 
         model = GRURULRegressor(
             input_size=len(feature_cols),
@@ -104,7 +106,9 @@ class TestEvaluateOfficialTest:
             interim_dir=tmp_path / "interim",
         )
         feature_cols = ["op_1", "s_1"]
-        normalizer = SequenceNormalizer(feature_cols=feature_cols)
+        normalizer = OperatingModeNormalizer(
+            feature_cols=feature_cols, op_cols=["op_1"]
+        )
 
         rows = []
         for eid in range(1, 3):
@@ -115,7 +119,7 @@ class TestEvaluateOfficialTest:
                     "op_1": 0.0,
                     "s_1": float(cycle),
                 })
-        normalizer.fit_transform(pd.DataFrame(rows))
+        normalizer.fit(pd.DataFrame(rows))
 
         model = GRURULRegressor(
             input_size=len(feature_cols),
@@ -167,11 +171,11 @@ class TestEvaluateOfficialTest:
             "op_1", "op_2", "op_3",
             *[f"s_{i}" for i in range(1, 22)],
         ]
-        normalizer = SequenceNormalizer(feature_cols=feature_cols)
+        normalizer = OperatingModeNormalizer(feature_cols=feature_cols)
 
         from turbofan.data.loader import load_raw_train
         train_raw = load_raw_train(data_config)
-        normalizer.fit_transform(train_raw)
+        normalizer.fit(train_raw)
 
         model = GRURULRegressor(
             input_size=len(feature_cols),
