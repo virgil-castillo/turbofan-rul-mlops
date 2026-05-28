@@ -10,13 +10,6 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.cluster import KMeans
 
-CMAPSS_SUBSET_MODE_COUNTS: dict[str, int] = {
-    "FD001": 1,
-    "FD002": 6,
-    "FD003": 1,
-    "FD004": 6,
-}
-
 _EXCLUDE_COLS: frozenset[str] = frozenset({"engine_id", "cycle", "rul"})
 _DEFAULT_OP_COLS: list[str] = ["op_1", "op_2", "op_3"]
 _REQUIRED_PAYLOAD_KEYS: tuple[str, ...] = (
@@ -34,27 +27,6 @@ _REQUIRED_PAYLOAD_KEYS: tuple[str, ...] = (
     "mode_means",
     "mode_stds",
 )
-
-
-def mode_count_for_subset(fd_subset: str) -> int:
-    """Return the EDA-confirmed operating-mode count for a C-MAPSS subset.
-
-    Args:
-        fd_subset: C-MAPSS subset name, e.g. ``"FD001"``.
-
-    Returns:
-        Number of operating modes for the subset.
-
-    Raises:
-        ValueError: If ``fd_subset`` is not a supported C-MAPSS subset.
-    """
-    if fd_subset not in CMAPSS_SUBSET_MODE_COUNTS:
-        supported = sorted(CMAPSS_SUBSET_MODE_COUNTS)
-        raise ValueError(
-            f"Unsupported C-MAPSS subset: {fd_subset!r}. "
-            f"Supported subsets: {supported}."
-        )
-    return CMAPSS_SUBSET_MODE_COUNTS[fd_subset]
 
 
 def _require_key(payload: dict[str, object], key: str) -> object:
