@@ -10,8 +10,7 @@ data:
   random_seed: 42
 
 features:
-  sensor_std_threshold: 0.01
-  sensor_keep: []
+  sensor_cols_to_drop: []
 
 model:
   name: ridge
