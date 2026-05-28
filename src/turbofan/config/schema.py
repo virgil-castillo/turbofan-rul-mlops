@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import yaml
 from pydantic import BaseModel, Field
@@ -39,10 +39,23 @@ class FeatureConfig(BaseModel):
         sensor_cols_to_drop: Sensor column names to remove before modeling.
             Determined from EDA; applied without recomputation at fit time.
         n_modes: Number of operating-mode clusters for normalization.
+        feature_set: Which engineered feature family both models receive.
+        windows: Rolling window sizes in cycles. Used by rolling feature sets.
+        lag_steps: Lag offsets in cycles. Used by the lag feature set.
     """
 
     sensor_cols_to_drop: list[str] = Field(default_factory=list)
     n_modes: int = Field(default=1, gt=0)
+    feature_set: Literal[
+        "raw",
+        "rolling_mean",
+        "rolling_stats",
+        "raw_plus_rolling_mean",
+        "raw_plus_rolling_stats",
+        "lag",
+    ] = "raw"
+    windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
+    lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])
 
 
 class ModelConfig(BaseModel):
@@ -51,15 +64,11 @@ class ModelConfig(BaseModel):
     Args:
         name: Baseline model identifier.
         alpha: Ridge regularization strength.
-        feature_set: Sensor-derived feature family for the baseline estimator.
-        windows: Rolling window sizes for baseline feature engineering.
         artifact_dir: Directory for local run artifacts.
     """
 
     name: Literal["ridge"] = "ridge"
     alpha: float = Field(default=100.0, gt=0.0)
-    feature_set: Literal["raw", "raw_plus_rolling", "rolling"] = "rolling"
-    windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
     artifact_dir: Path = Path("artifacts/models")
 
 
@@ -129,7 +138,9 @@ class ProjectConfig(BaseModel):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(
+    base: dict[str, object], override: dict[str, object]
+) -> dict[str, object]:
     """Recursively merge override into base, returning a new dict.
 
     Nested dicts are merged key-by-key; all other values are replaced.
@@ -144,7 +155,10 @@ def _deep_merge(base: dict, override: dict) -> dict:
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+            result[key] = _deep_merge(
+                cast(dict[str, object], result[key]),
+                cast(dict[str, object], value),
+            )
         else:
             result[key] = value
     return result
