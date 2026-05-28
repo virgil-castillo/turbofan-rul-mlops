@@ -19,55 +19,45 @@ from turbofan.models.gru import GRURULRegressor
 from turbofan.models.sequence_training import TrainingResult
 
 
-class _FakeNormalizer:
-    """Minimal operating-mode normalizer test double."""
+class _FakePipeline:
+    """Minimal pipeline test double returning input unchanged."""
 
     def __init__(self, feature_cols: list[str] | None = None, **kwargs: object) -> None:
-        self.feature_cols = feature_cols or []
-
-    def fit_transform(self, frame: object) -> object:
-        """Return the input training frame unchanged.
+        """Initialize with optional feature_cols list.
 
         Args:
-            frame: Training frame placeholder.
-
-        Returns:
-            Unchanged frame placeholder.
+            feature_cols: Columns the pipeline exposes via feature_engineer.
+            **kwargs: Absorbed for compatibility with build_feature_pipeline kwargs.
         """
-        return frame
-
-    def transform(self, frame: object) -> object:
-        """Return the input frame unchanged.
-
-        Args:
-            frame: Frame placeholder.
-
-        Returns:
-            Unchanged frame placeholder.
-        """
-        return frame
-
-    def to_payload(self) -> dict[str, object]:
-        """Return a minimal normalizer payload.
-
-        Returns:
-            Minimal operating-mode normalizer payload.
-        """
-        return {
-            "schema_version": 1,
-            "normalizer_type": "operating_mode",
-            "feature_cols": list(self.feature_cols),
-            "op_cols": ["op_1", "op_2", "op_3"],
-            "sensor_feature_cols": list(self.feature_cols),
-            "n_modes": 1,
-            "std_floor": 1e-3,
-            "random_state": 42,
-            "mode_centers": None,
-            "global_means": {col: 0.0 for col in self.feature_cols},
-            "global_stds": {col: 1.0 for col in self.feature_cols},
-            "mode_means": {"0": {col: 0.0 for col in self.feature_cols}},
-            "mode_stds": {"0": {col: 1.0 for col in self.feature_cols}},
+        _fc = feature_cols or ["s_1", "s_2"]
+        _fake_fe = type("FakeFeatureEngineer", (), {"feature_cols_": _fc})()
+        _fake_norm = type("FakeNorm", (), {"to_payload": lambda self: {}})()
+        self.named_steps: dict[str, object] = {
+            "normalizer": _fake_norm,
+            "feature_engineer": _fake_fe,
         }
+
+    def fit_transform(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Return input unchanged.
+
+        Args:
+            frame: Input DataFrame.
+
+        Returns:
+            The same DataFrame, unmodified.
+        """
+        return frame
+
+    def transform(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Return input unchanged.
+
+        Args:
+            frame: Input DataFrame.
+
+        Returns:
+            The same DataFrame, unmodified.
+        """
+        return frame
 
 
 def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
@@ -279,15 +269,19 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         "resolve_device",
         lambda requested: torch.device("cpu"),
     )
-    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    _fake_df = pd.DataFrame(
+        {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
+    )
+    monkeypatch.setattr(
+        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+    )
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
     monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         module,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
-    monkeypatch.setattr(module, "OperatingModeNormalizer", _FakeNormalizer)
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
@@ -312,6 +306,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module, "save_json", lambda payload, path: None)
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
+    monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     torch.manual_seed(999)
@@ -400,17 +395,21 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         "_parse_args",
         lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
     )
+    _fake_df = pd.DataFrame(
+        {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
+    )
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda requested: torch.device("cpu"))
-    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
+    monkeypatch.setattr(
+        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+    )
+    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
     monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         module,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
-    monkeypatch.setattr(module, "OperatingModeNormalizer", _FakeNormalizer)
     monkeypatch.setattr(
         module,
         "build_sliding_windows",
@@ -428,6 +427,7 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     monkeypatch.setattr(module, "save_json", lambda payload, path: None)
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
+    monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
     monkeypatch.setattr(
         module,
@@ -597,17 +597,13 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """GRU training constructs OperatingModeNormalizer with subset mode count."""
+    """GRU training calls build_feature_pipeline with subset mode count."""
     module = _load_train_sequence_gru_module()
     captured: list[dict[str, object]] = []
 
-    class _CapturingNormalizer(_FakeNormalizer):
-        def __init__(self, **kwargs: object) -> None:
-            feature_cols = kwargs.get("feature_cols")
-            super().__init__(
-                feature_cols=list(feature_cols) if feature_cols is not None else []
-            )
-            captured.append(dict(kwargs))
+    def _capturing_pipeline(**kwargs: object) -> _FakePipeline:
+        captured.append(kwargs)
+        return _FakePipeline(["s1", "s2"])
 
     cfg = ProjectConfig(
         project_name="test",
@@ -649,15 +645,17 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module, "resolve_device", lambda r: torch.device("cpu")
     )
-    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1", "s2"])
-    monkeypatch.setattr(module, "load_raw_train", lambda c: object())
+    _fake_df = pd.DataFrame(
+        {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
+    )
+    monkeypatch.setattr(module, "build_feature_pipeline", _capturing_pipeline)
+    monkeypatch.setattr(module, "load_raw_train", lambda c: _fake_df)
     monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
         module,
         "split_by_engine",
         lambda f, test_size, random_seed: (f, f),
     )
-    monkeypatch.setattr(module, "OperatingModeNormalizer", _CapturingNormalizer)
     monkeypatch.setattr(
         module, "build_sliding_windows", lambda *a, **k: object()
     )
@@ -682,10 +680,11 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(module, "save_json", lambda p, pa: None)
     monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
+    monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     monkeypatch.setattr(module, "append_training_log", lambda e: None)
 
     module.main()
 
-    assert captured, "OperatingModeNormalizer was never constructed"
+    assert captured, "build_feature_pipeline was never called"
     assert captured[0]["n_modes"] == 1  # FD001 → 1 mode
     assert captured[0]["random_state"] == 77

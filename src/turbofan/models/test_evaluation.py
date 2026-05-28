@@ -11,8 +11,8 @@ from turbofan.models.evaluate import align_official_test_labels
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
 from turbofan.models.sequence_training import predict_windows
+from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.normalize import SequenceNormalizer
 from turbofan.sequences.windowing import build_final_windows
 
 
@@ -56,7 +56,7 @@ def evaluate_test_from_df(
     test_df: pd.DataFrame,
     rul_labels: pd.Series,
     model: GRURULRegressor,
-    normalizer: SequenceNormalizer,
+    normalizer: OperatingModeNormalizer,
     feature_cols: list[str],
     device: torch.device,
     window_size: int,
@@ -74,7 +74,7 @@ def evaluate_test_from_df(
         test_df: Raw or feature-engineered test DataFrame.
         rul_labels: Official RUL labels in full test engine order.
         model: Trained GRU model.
-        normalizer: Fitted normalizer (trained on training data).
+        normalizer: Fitted operating-mode normalizer (trained on training data).
         feature_cols: Feature columns matching the model's input.
         device: Torch device for inference.
         window_size: Sequence window size.
@@ -109,7 +109,7 @@ def evaluate_test_from_df(
 def evaluate_official_test(
     data_config: DataConfig,
     model: GRURULRegressor,
-    normalizer: SequenceNormalizer,
+    normalizer: OperatingModeNormalizer,
     feature_cols: list[str],
     device: torch.device,
     window_size: int,
@@ -123,7 +123,7 @@ def evaluate_official_test(
     Args:
         data_config: Data config for file paths and ``max_rul``.
         model: Trained GRU model.
-        normalizer: Fitted normalizer (trained on training data).
+        normalizer: Fitted operating-mode normalizer (trained on training data).
         feature_cols: Feature columns matching the model's input.
         device: Torch device for inference.
         window_size: Sequence window size.

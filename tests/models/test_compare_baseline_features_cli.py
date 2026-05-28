@@ -87,7 +87,7 @@ def test_feature_comparison_returns_expected_rows(tmp_path: Path) -> None:
 
     results = module.run_feature_comparison(
         config_path=cfg_path,
-        feature_sets=["raw", "raw_plus_rolling", "rolling"],
+        feature_sets=["raw", "raw_plus_rolling_mean", "rolling_mean"],
         windows=[3, 5],
         n_jobs=1,
     )
@@ -98,10 +98,10 @@ def test_feature_comparison_returns_expected_rows(tmp_path: Path) -> None:
     }
     assert observed_specs == {
         ("raw", ""),
-        ("raw_plus_rolling", "3"),
-        ("rolling", "3"),
-        ("raw_plus_rolling", "5"),
-        ("rolling", "5"),
+        ("raw_plus_rolling_mean", "3"),
+        ("rolling_mean", "3"),
+        ("raw_plus_rolling_mean", "5"),
+        ("rolling_mean", "5"),
     }
     assert set(results.columns) == {
         "feature_set",
@@ -127,7 +127,7 @@ def test_feature_comparison_validates_inputs(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="n_jobs"):
         module.run_feature_comparison(cfg_path, ["raw"], [3], n_jobs=0)
     with pytest.raises(ValueError, match="Unsupported feature_set"):
-        module.run_feature_comparison(cfg_path, ["bad"], [3], n_jobs=1)
+        module.run_feature_comparison(cfg_path, ["raw_plus_rolling"], [3], n_jobs=1)
 
 
 def test_compare_baseline_features_cli_writes_csv(tmp_path: Path) -> None:
@@ -147,8 +147,8 @@ def test_compare_baseline_features_cli_writes_csv(tmp_path: Path) -> None:
             str(cfg_path),
             "--feature-sets",
             "raw",
-            "raw_plus_rolling",
-            "rolling",
+            "raw_plus_rolling_mean",
+            "rolling_mean",
             "--windows",
             "3",
             "--n-jobs",

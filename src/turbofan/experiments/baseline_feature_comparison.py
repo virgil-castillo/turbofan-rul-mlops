@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Literal, NamedTuple, cast
+from typing import Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -11,12 +11,20 @@ from joblib import Parallel, delayed
 
 from turbofan.config.schema import load_config
 from turbofan.data.loader import load_raw_train
-from turbofan.models.baseline import BaselineFeatureSet, build_baseline_pipeline
+from turbofan.features.engineering import FeatureSet
+from turbofan.models.baseline import build_baseline_pipeline
 from turbofan.models.evaluate import add_rul_column, split_features_target
 from turbofan.models.metrics import regression_metrics
 from turbofan.models.split import split_by_engine
 
-SUPPORTED_FEATURE_SETS: set[str] = {"raw", "raw_plus_rolling", "rolling"}
+SUPPORTED_FEATURE_SETS: set[str] = {
+    "raw",
+    "raw_plus_rolling_mean",
+    "raw_plus_rolling_stats",
+    "rolling_mean",
+    "rolling_stats",
+    "lag",
+}
 
 
 class ExperimentSpec(NamedTuple):
@@ -27,7 +35,7 @@ class ExperimentSpec(NamedTuple):
         windows: Rolling window sizes for the feature family.
     """
 
-    feature_set: BaselineFeatureSet
+    feature_set: FeatureSet
     windows: tuple[int, ...]
 
 
@@ -47,7 +55,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--feature-sets",
         nargs="+",
-        default=["raw", "raw_plus_rolling", "rolling"],
+        default=["raw", "raw_plus_rolling_mean", "rolling_mean"],
         help="Feature families to evaluate.",
     )
     parser.add_argument(
@@ -74,14 +82,14 @@ def _parse_args() -> argparse.Namespace:
 
 def _validate_feature_sets(
     feature_sets: list[str],
-) -> list[BaselineFeatureSet]:
+) -> list[FeatureSet]:
     """Validate feature-set names.
 
     Args:
         feature_sets: Requested feature-set names.
 
     Returns:
-        Validated feature-set names.
+        Validated feature-set names cast to FeatureSet.
 
     Raises:
         ValueError: If a feature-set name is unsupported.
@@ -89,14 +97,14 @@ def _validate_feature_sets(
     invalid = sorted(set(feature_sets) - SUPPORTED_FEATURE_SETS)
     if invalid:
         raise ValueError(f"Unsupported feature_set: {invalid[0]}")
-    return [cast(BaselineFeatureSet, feature_set) for feature_set in feature_sets]
+    return list(feature_sets)  # type: ignore[arg-type]
 
 
 def _validate_inputs(
     feature_sets: list[str],
     windows: list[int],
     n_jobs: int,
-) -> list[BaselineFeatureSet]:
+) -> list[FeatureSet]:
     """Validate comparison inputs.
 
     Args:
@@ -118,7 +126,7 @@ def _validate_inputs(
 
 
 def _build_experiment_specs(
-    feature_sets: list[BaselineFeatureSet],
+    feature_sets: list[FeatureSet],
     windows: list[int],
 ) -> list[ExperimentSpec]:
     """Build independent experiment specs from requested feature families.
@@ -158,9 +166,9 @@ def _format_windows(windows: tuple[int, ...]) -> str:
 def _evaluate_spec(
     spec: ExperimentSpec,
     X_train: pd.DataFrame,
-    y_train: pd.Series,
+    y_train: pd.Series[float],
     X_val: pd.DataFrame,
-    y_val: pd.Series,
+    y_val: pd.Series[float],
     model_name: Literal["ridge"],
     alpha: float,
     sensor_drop: list[str] | None,
@@ -185,7 +193,7 @@ def _evaluate_spec(
     estimator = build_baseline_pipeline(
         model_name=model_name,
         alpha=alpha,
-        windows=list(spec.windows),
+        windows=list(spec.windows) or None,
         sensor_drop=sensor_drop,
         feature_set=spec.feature_set,
     )

@@ -12,6 +12,7 @@ import pandas as pd
 
 from turbofan.config.schema import load_config
 from turbofan.data.loader import load_raw_train
+from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
@@ -23,9 +24,7 @@ from turbofan.models.sequence_training import (
 )
 from turbofan.models.split import split_by_engine
 from turbofan.models.training_log import append_training_log, build_log_entry
-from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.normalize import default_feature_cols
 from turbofan.sequences.windowing import build_sliding_windows
 
 RESULT_COLUMNS = [
@@ -184,7 +183,6 @@ def run_gru_sweep(
         raise ValueError("GRU sweep requires sequence architecture='gru'.")
 
     torch_device = resolve_device(cast(Literal["cpu", "cuda"], device))
-    feature_cols = default_feature_cols()
     train_raw = load_raw_train(cfg.data)
     train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
     train_df, val_df = split_by_engine(
@@ -193,13 +191,33 @@ def run_gru_sweep(
         random_seed=cfg.data.random_seed,
     )
 
-    normalizer = OperatingModeNormalizer(
-        feature_cols=feature_cols,
+    pipeline = build_feature_pipeline(
+        sensor_drop=cfg.features.sensor_cols_to_drop or None,
         n_modes=cfg.features.n_modes,
         random_state=cfg.data.random_seed,
+        feature_set=cfg.features.feature_set,
+        windows=cfg.features.windows,
+        lag_steps=cfg.features.lag_steps,
     )
-    train_normalized = normalizer.fit_transform(train_df)
-    val_normalized = normalizer.transform(val_df)
+    _id_cols = ["engine_id", "cycle", "rul"]
+    train_features = pipeline.fit_transform(train_df)
+    val_features = pipeline.transform(val_df)
+    feature_cols = pipeline.named_steps["feature_engineer"].feature_cols_
+
+    train_normalized = pd.concat(
+        [
+            train_df[_id_cols].reset_index(drop=True),
+            train_features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
+    val_normalized = pd.concat(
+        [
+            val_df[_id_cols].reset_index(drop=True),
+            val_features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
 
     rows: list[dict[str, float | int]] = []
     specs = list(product(window_sizes, hidden_sizes, learning_rates))

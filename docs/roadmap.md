@@ -88,6 +88,27 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 - [x] `compute_coefficient_of_variation` removed from `quality.py` (CV did not help distinguish informative low-std sensors)
 - [x] Tests added for `_base_` composition (deep merge, scalar replace, nested merge, list replace, key stripping)
 
+## Completed — Unified Feature Pipeline (2026-05-29)
+
+Ridge and GRU previously received fundamentally different data: Ridge used rolling statistics on a filtered sensor set; GRU used raw values on all 21 sensors with its own normalization path. This refactor makes them share a single preprocessing contract.
+
+- [x] `FeatureEngineer` sklearn transformer — config-driven feature sets (`raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, `lag`); rolling and lag computed per engine, no boundary crossing
+- [x] 4-step shared `build_feature_pipeline`: `SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`
+- [x] `FeatureConfig` gains `feature_set`, `windows`, `lag_steps`; `ModelConfig` loses them (they are feature engineering parameters, not model parameters)
+- [x] Ridge: simplified to 2-step pipeline (`build_feature_pipeline → Ridge`); old dead helpers removed (`RollingFeatureExtractor`, `_ModelFeatureSelector`, `_LowVarianceFeatureDropper`, `StandardScaler`, etc.)
+- [x] GRU training and sweep: manual `OperatingModeNormalizer` + `default_feature_cols()` replaced by `build_feature_pipeline`; `feature_cols` derived from `pipeline.named_steps["feature_engineer"].feature_cols_`
+- [x] Dead code deleted: `rolling.py`, `SequenceNormalizer`, `default_feature_cols`
+
+**Design decisions:**
+
+`windows` and `lag_steps` live in `FeatureConfig`, not `ModelConfig`, because they determine what features the model sees — not how the model is parameterized. Changing them without retraining produces an incompatible model.
+
+`SensorColumnSelector` keeps `engine_id` as a pass-through so `FeatureEngineer` can do per-engine groupby for rolling and lag without it appearing in the final model input.
+
+The `_AutoSensorNormalizer` subclass infers sensor columns from training data at fit time rather than requiring the caller to pass an explicit list. This avoids having to compute the "kept sensors" list at pipeline construction time (before `SensorDropper` has run).
+
+Existing GRU checkpoints trained before this refactor are incompatible: `feature_cols` in the old payload included op cols and all 21 sensors. Those artifacts will fail to load with a retrain error.
+
 ## Next — Multi-Dataset Training (FD002–FD004)
 
 EDA and per-subset configuration are complete. Next step is training and evaluation.
@@ -106,9 +127,8 @@ The original plan included Random Forest, XGBoost, LSTM, and Transformer models.
 
 ## Future — Advanced Feature Engineering
 
-Current features: constant sensor removal, rolling statistics, operating-condition normalization. The original plan listed several more:
+Current features: constant sensor removal, rolling statistics, lag features, operating-condition normalization — all config-driven via `feature_set`. The original plan listed several more exotic variants:
 
-- [ ] Lag features
 - [ ] Degradation slope estimation
 - [ ] Trend indicators
 - [ ] Frequency-domain features (FFT/spectral)
