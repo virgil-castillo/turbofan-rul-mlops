@@ -14,6 +14,47 @@ import pytest
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 
 
+class _FakePipeline:
+    """Minimal pipeline test double returning input unchanged."""
+
+    def __init__(self, feature_cols: list[str] | None = None, **kwargs: object) -> None:
+        """Initialize with optional feature_cols list.
+
+        Args:
+            feature_cols: Columns the pipeline exposes via feature_engineer.
+            **kwargs: Absorbed for compatibility with build_feature_pipeline kwargs.
+        """
+        _fc = feature_cols or ["s_1"]
+        _fake_fe = type("FakeFeatureEngineer", (), {"feature_cols_": _fc})()
+        _fake_norm = type("FakeNorm", (), {"to_payload": lambda self: {}})()
+        self.named_steps: dict[str, object] = {
+            "normalizer": _fake_norm,
+            "feature_engineer": _fake_fe,
+        }
+
+    def fit_transform(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Return input unchanged.
+
+        Args:
+            frame: Input DataFrame.
+
+        Returns:
+            The same DataFrame, unmodified.
+        """
+        return frame
+
+    def transform(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Return input unchanged.
+
+        Args:
+            frame: Input DataFrame.
+
+        Returns:
+            The same DataFrame, unmodified.
+        """
+        return frame
+
+
 def _load_module(project_root: Path) -> ModuleType:
     """Load the GRU sweep module for helper testing.
 
@@ -185,39 +226,28 @@ def test_gru_sweep_reports_validation_window_metrics(
     train_windows = FakeWindows([0.0])
     validation_windows = FakeWindows([10.0, 20.0])
 
-    class FakeNormalizer:
-        """Minimal normalizer returning distinguishable frames."""
+    _fake_train_df = pd.DataFrame(
+        {"engine_id": [1, 1], "cycle": [1, 2], "rul": [2, 1], "s_1": [0.1, 0.2]}
+    )
+    _fake_val_df = pd.DataFrame(
+        {"engine_id": [2, 2], "cycle": [1, 2], "rul": [2, 1], "s_1": [0.3, 0.4]}
+    )
 
-        def __init__(self, **kwargs: object) -> None:
-            pass
-
-        def fit_transform(self, frame: object) -> str:
-            """Return a training-frame sentinel.
-
-            Args:
-                frame: Training frame placeholder.
-
-            Returns:
-                Training-frame sentinel.
-            """
-            del frame
-            return "train_normalized"
-
-        def transform(self, frame: object) -> str:
-            """Return a validation-frame sentinel.
-
-            Args:
-                frame: Validation frame placeholder.
-
-            Returns:
-                Validation-frame sentinel.
-            """
-            del frame
-            return "validation_normalized"
+    _window_call_count: list[int] = [0]
 
     def fake_build_sliding_windows(frame: object, **kwargs: object) -> FakeWindows:
-        del kwargs
-        if frame == "train_normalized":
+        """Return train windows on odd calls and validation windows on even calls.
+
+        Args:
+            frame: Normalized DataFrame passed to windowing.
+            **kwargs: Ignored windowing parameters.
+
+        Returns:
+            Train or validation FakeWindows alternating by call order.
+        """
+        del frame, kwargs
+        _window_call_count[0] += 1
+        if _window_call_count[0] % 2 == 1:
             return train_windows
         return validation_windows
 
@@ -227,6 +257,17 @@ def test_gru_sweep_reports_validation_window_metrics(
         device: object,
         max_rul: int = 1,
     ) -> np.ndarray:
+        """Return predictions matching validation targets when loader is validation.
+
+        Args:
+            model: Ignored model placeholder.
+            loader: Window loader to identify train vs validation.
+            device: Ignored device placeholder.
+            max_rul: Ignored RUL cap.
+
+        Returns:
+            Perfect predictions for validation_windows, zeros otherwise.
+        """
         del model
         del device
         if loader is validation_windows:
@@ -235,15 +276,16 @@ def test_gru_sweep_reports_validation_window_metrics(
 
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda device: "cpu")
-    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1"])
     monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
     monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         module,
         "split_by_engine",
-        lambda frame, test_size, random_seed: ("train", "validation"),
+        lambda frame, test_size, random_seed: (_fake_train_df, _fake_val_df),
     )
-    monkeypatch.setattr(module, "OperatingModeNormalizer", FakeNormalizer)
+    monkeypatch.setattr(
+        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s_1"])
+    )
     monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
     monkeypatch.setattr(
         module,
@@ -259,7 +301,6 @@ def test_gru_sweep_reports_validation_window_metrics(
     )
     monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
     monkeypatch.setattr(module, "append_training_log", lambda entry: None)
-
 
     results = module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
@@ -315,41 +356,31 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
     appended_entries: list[dict[str, object]] = []
     timer_values = iter([1.0, 1.5, 4.0, 6.25])
 
-    class FakeNormalizer:
-        """Minimal normalizer returning distinguishable frames."""
+    _fake_train_df = pd.DataFrame(
+        {"engine_id": [1, 1], "cycle": [1, 2], "rul": [2, 1], "s_1": [0.1, 0.2]}
+    )
+    _fake_val_df = pd.DataFrame(
+        {"engine_id": [2, 2], "cycle": [1, 2], "rul": [2, 1], "s_1": [0.3, 0.4]}
+    )
 
-        def __init__(self, **kwargs: object) -> None:
-            pass
-
-        def fit_transform(self, frame: object) -> str:
-            """Return a training-frame sentinel.
-
-            Args:
-                frame: Training frame placeholder.
-
-            Returns:
-                Training-frame sentinel.
-            """
-            del frame
-            return "train_normalized"
-
-        def transform(self, frame: object) -> str:
-            """Return a validation-frame sentinel.
-
-            Args:
-                frame: Validation frame placeholder.
-
-            Returns:
-                Validation-frame sentinel.
-            """
-            del frame
-            return "validation_normalized"
+    _window_call_count: list[int] = [0]
 
     def fake_build_sliding_windows(frame: object, **kwargs: object) -> FakeWindows:
-        del kwargs
-        if frame == "validation_normalized":
-            return validation_windows
-        return FakeWindows([0.0])
+        """Return train windows on odd calls and validation windows on even calls.
+
+        Args:
+            frame: Normalized DataFrame passed to windowing.
+            **kwargs: Ignored windowing parameters.
+
+        Returns:
+            Fresh FakeWindows for train (odd calls); validation_windows for
+            val (even calls).
+        """
+        del frame, kwargs
+        _window_call_count[0] += 1
+        if _window_call_count[0] % 2 == 1:
+            return FakeWindows([0.0])
+        return validation_windows
 
     def fake_predict_windows(
         model: object,
@@ -357,6 +388,17 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         device: object,
         max_rul: int = 1,
     ) -> np.ndarray:
+        """Return predictions matching validation targets when loader is validation.
+
+        Args:
+            model: Ignored model placeholder.
+            loader: Window loader to identify train vs validation.
+            device: Ignored device placeholder.
+            max_rul: Ignored RUL cap.
+
+        Returns:
+            Perfect predictions for validation_windows, zeros otherwise.
+        """
         del model
         del device
         if loader is validation_windows:
@@ -369,15 +411,16 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
 
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda device: "cpu")
-    monkeypatch.setattr(module, "default_feature_cols", lambda: ["s1"])
     monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
     monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         module,
         "split_by_engine",
-        lambda frame, test_size, random_seed: ("train", "validation"),
+        lambda frame, test_size, random_seed: (_fake_train_df, _fake_val_df),
     )
-    monkeypatch.setattr(module, "OperatingModeNormalizer", FakeNormalizer)
+    monkeypatch.setattr(
+        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s_1"])
+    )
     monkeypatch.setattr(module, "build_sliding_windows", fake_build_sliding_windows)
     monkeypatch.setattr(
         module,
@@ -405,7 +448,6 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         lambda: next(timer_values),
         raising=False,
     )
-
 
     results = module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
