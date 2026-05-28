@@ -69,6 +69,13 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 - [x] GRU inference: reconstructs normalizer from payload; legacy flat-stat checkpoints rejected with a clear retrain error
 - [x] Stale `OperationalNormalizer` and `SequenceNormalizer` tests removed
 
+## Completed — Config-Driven Sensor Dropping (2026-05-28)
+
+- [x] `SensorDropper` rewritten: takes an explicit `drop: list[str]` from config; no statistics computed from training data; `check_is_fitted` guard added
+- [x] `FeatureConfig.sensor_cols_to_drop` replaces `sensor_std_threshold` and `sensor_keep`
+- [x] Rename propagated through pipeline factory, baseline builder, CLI, and experiments
+- [x] `configs/default.yaml` updated; FD002 users set `sensor_cols_to_drop: [s_16, s_1, s_5, s_18, s_19]`
+
 ## Next — Multi-Dataset Support (FD002–FD004)
 
 The config already accepts `fd_subset: FD002` etc., but no training runs or validation have been done beyond FD001.
@@ -114,6 +121,8 @@ Deliberately deferred until the modeling contract stabilizes:
 **GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error.
 
 
+
+**Sensor dropping is config-driven, not threshold-based.** `sensor_cols_to_drop` in `FeatureConfig` holds the EDA-derived explicit drop list. `SensorDropper` applies it without recomputation — no runtime statistics. A single threshold cannot distinguish pre-normalization low-variance sensors (e.g. `s_16`) from post-normalization zero-variance sensors (e.g. `s_1`, `s_5`, `s_18`, `s_19` on FD002), and recomputing at fit time undermines reproducibility.
 
 **Prediction semantics should be one per engine.** Ridge scores all valid input rows and returns the last-cycle prediction per engine. GRU returns one final-window prediction per eligible engine.
 
