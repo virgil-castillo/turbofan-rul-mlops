@@ -85,8 +85,7 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
                 "    - 5",
                 f"  artifact_dir: {artifact_dir.as_posix()}",
                 "features:",
-                "  sensor_std_threshold: 0.02",
-                "  sensor_keep:",
+                "  sensor_cols_to_drop:",
                 "    - s_2",
             ]
         )
@@ -139,8 +138,7 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
 
     estimator = joblib.load(run_dir / "model.joblib")
     dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]
-    assert dropper.std_threshold == 0.02
-    assert dropper.keep == ["s_2"]
+    assert dropper.drop == ["s_2"]
     rolling = estimator.named_steps["features"].named_steps["rolling_features"]
     selector = estimator.named_steps["select_model_features"]
     assert rolling.windows == [5]

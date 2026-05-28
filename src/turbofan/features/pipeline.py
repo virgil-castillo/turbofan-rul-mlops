@@ -11,8 +11,7 @@ from turbofan.preprocessing.normalization import OperatingModeNormalizer
 def build_feature_pipeline(
     windows: list[int] | None = None,
     op_cols: list[str] | None = None,
-    sensor_std_threshold: float = 0.0,
-    sensor_keep: list[str] | None = None,
+    sensor_drop: list[str] | None = None,
     n_modes: int = 1,
     random_state: int = 42,
 ) -> Pipeline:
@@ -25,11 +24,9 @@ def build_feature_pipeline(
         windows: Rolling window sizes. Default ``[5, 10, 20]``.
         op_cols: Operational setting columns.
             Default ``["op_1", "op_2", "op_3"]``.
-        sensor_std_threshold: Maximum training standard deviation at
-            which sensor columns are dropped.
-        sensor_keep: Sensor columns to force-keep even when low-variance.
-        n_modes: Number of operating modes for the normalizer.  Derived from
-            ``fd_subset`` by the caller via ``mode_count_for_subset``.
+        sensor_drop: Sensor column names to drop before rolling extraction.
+            Determined from EDA; passed directly to ``SensorDropper``.
+        n_modes: Number of operating modes for the normalizer.
         random_state: KMeans random seed for the normalizer.
 
     Returns:
@@ -39,10 +36,7 @@ def build_feature_pipeline(
         [
             (
                 "sensor_dropper",
-                SensorDropper(
-                    std_threshold=sensor_std_threshold,
-                    keep=sensor_keep,
-                ),
+                SensorDropper(drop=sensor_drop),
             ),
             (
                 "rolling_features",

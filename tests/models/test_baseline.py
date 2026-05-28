@@ -138,12 +138,12 @@ def test_default_baseline_uses_final_phm08_feature_selection() -> None:
     assert rolling.windows == [10]
 
 
-def test_configures_sensor_std_threshold() -> None:
-    """Sensor std threshold is passed into the feature pipeline."""
-    pipe = build_baseline_pipeline(sensor_std_threshold=0.01)
+def test_configures_sensor_drop() -> None:
+    """sensor_drop list is forwarded into the feature pipeline."""
+    pipe = build_baseline_pipeline(sensor_drop=["s_1", "s_5"])
     features = pipe.named_steps["features"]
     dropper = features.named_steps["sensor_dropper"]
-    assert dropper.std_threshold == 0.01
+    assert dropper.drop == ["s_1", "s_5"]
 
 
 def test_pipeline_can_fit_and_predict() -> None:

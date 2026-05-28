@@ -163,8 +163,7 @@ def _evaluate_spec(
     y_val: pd.Series,
     model_name: Literal["ridge"],
     alpha: float,
-    sensor_std_threshold: float,
-    sensor_keep: list[str],
+    sensor_drop: list[str] | None,
     max_rul: int,
 ) -> dict[str, float | int | str]:
     """Fit and evaluate one feature comparison experiment.
@@ -177,8 +176,7 @@ def _evaluate_spec(
         y_val: Validation RUL labels.
         model_name: Baseline model name.
         alpha: Ridge regularization strength.
-        sensor_std_threshold: Sensor dropper standard-deviation threshold.
-        sensor_keep: Sensor columns to force-keep.
+        sensor_drop: Sensor column names to remove before feature engineering.
         max_rul: Maximum configured RUL value.
 
     Returns:
@@ -188,8 +186,7 @@ def _evaluate_spec(
         model_name=model_name,
         alpha=alpha,
         windows=list(spec.windows),
-        sensor_std_threshold=sensor_std_threshold,
-        sensor_keep=sensor_keep,
+        sensor_drop=sensor_drop,
         feature_set=spec.feature_set,
     )
     estimator.fit(X_train, y_train)
@@ -242,6 +239,7 @@ def run_feature_comparison(
     X_train, y_train = split_features_target(train_df)
     X_val, y_val = split_features_target(val_df)
 
+    sensor_drop = cfg.features.sensor_cols_to_drop or None
     rows = Parallel(n_jobs=n_jobs)(
         delayed(_evaluate_spec)(
             spec,
@@ -251,8 +249,7 @@ def run_feature_comparison(
             y_val,
             cfg.model.name,
             cfg.model.alpha,
-            cfg.features.sensor_std_threshold,
-            cfg.features.sensor_keep,
+            sensor_drop,
             cfg.data.max_rul,
         )
         for spec in specs

@@ -200,8 +200,7 @@ def main() -> None:
         alpha=cfg.model.alpha,
         windows=cfg.model.windows,
         feature_set=cfg.model.feature_set,
-        sensor_std_threshold=cfg.features.sensor_std_threshold,
-        sensor_keep=cfg.features.sensor_keep,
+        sensor_drop=cfg.features.sensor_cols_to_drop or None,
         n_modes=cfg.features.n_modes,
         random_state=cfg.data.random_seed,
     )
