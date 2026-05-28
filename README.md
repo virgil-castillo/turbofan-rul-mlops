@@ -158,10 +158,10 @@ The project includes both baseline and neural sequence modeling approaches.
 
 | Model | Description |
 |---|---|
-| Ridge Regression | Linear baseline trained on engineered tabular features (rolling statistics, normalized by operating condition) |
+| Ridge Regression | Linear baseline trained on engineered tabular features |
 | GRU | Recurrent sequence model trained on sliding windows of sensor readings |
 
-The feature engineering pipeline drops constant sensors, computes rolling statistics over configurable windows, and normalizes features by operating condition. The GRU model operates on fixed-length sliding windows with its own normalization path.
+Both models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_set` config key selects which engineered features both models receive — `raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, or `lag`. Rolling and lag features are computed per engine without crossing engine boundaries.
 
 ## Evaluation
 
@@ -289,6 +289,7 @@ mypy src/turbofan               # strict type checking
 - [x] Config-driven sensor dropping (EDA-derived explicit drop list replaces runtime std-threshold)
 - [x] EDA notebooks for all four subsets with correlation-based sensor filter
 - [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
+- [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
 - [ ] Train baseline and GRU on FD002–FD004
 - [ ] Cross-dataset benchmark table
 - [ ] Additional models (LSTM, Transformer)
