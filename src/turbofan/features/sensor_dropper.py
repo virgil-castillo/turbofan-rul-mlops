@@ -5,6 +5,7 @@ from typing import Self
 
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 class SensorDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
@@ -42,6 +43,10 @@ class SensorDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
 
         Returns:
             DataFrame with configured sensors removed.
+
+        Raises:
+            NotFittedError: If the transformer has not been fitted.
         """
+        check_is_fitted(self)
         present = [c for c in self.columns_to_drop_ if c in X.columns]
         return X.drop(columns=present)
