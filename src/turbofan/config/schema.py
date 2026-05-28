@@ -39,10 +39,12 @@ class FeatureConfig(BaseModel):
         sensor_std_threshold: Maximum training standard deviation at which
             sensor columns are dropped.
         sensor_keep: Sensor columns to force-keep even when low-variance.
+        n_modes: Number of operating-mode clusters for normalization.
     """
 
     sensor_std_threshold: float = Field(default=0.0, ge=0.0)
     sensor_keep: list[str] = Field(default_factory=list)
+    n_modes: int = Field(default=1, gt=0)
 
 
 class ModelConfig(BaseModel):
