@@ -141,9 +141,9 @@ See `docs/feature-sweep-spec.md` for the full retroactive spec.
 EDA, per-subset configuration, and the cross-dataset feature-engineering sweep are
 complete. The remaining step is production training and a final benchmark.
 
-- [ ] Train and persist baseline and GRU production artifacts on FD002, FD003, FD004 using `configs/subsets/`
+- [x] Train and persist baseline and GRU production artifacts on FD002, FD003, FD004 using `configs/subsets/`
 - [x] Verify feature engineering handles 6 operating conditions (FD002/FD004) — confirmed by the feature sweep running cleanly on all four subsets
-- [ ] Cross-dataset benchmark table from persisted production models (validation-split feature comparison already in `docs/feature_sweep_*`)
+- [x] Cross-dataset benchmark table from persisted production models (validation-split feature comparison already in `docs/feature_sweep_*`)
 
 ## Future — Additional Models
 
