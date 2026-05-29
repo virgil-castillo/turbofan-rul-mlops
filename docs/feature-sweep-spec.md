@@ -151,7 +151,7 @@ turbofan-sweep-features \
 ```
 
 Defaults (if no `--feature-sets`, `--windows`, `--lag-steps` given):
-- Feature sets: `raw rolling_mean`
+- Feature sets: `raw rolling_mean lag`
 - Windows: `5 10 20`
-- Lag steps: `1 3 5`
+- Lag steps: `2 4 8`
 - Config: `configs/default.yaml` (FD001)

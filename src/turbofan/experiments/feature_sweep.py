@@ -450,7 +450,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--feature-sets",
         nargs="+",
-        default=["raw", "rolling_mean"],
+        default=["raw", "rolling_mean", "lag"],
         help="Feature families to evaluate.",
     )
     parser.add_argument(
@@ -464,7 +464,7 @@ def _parse_args() -> argparse.Namespace:
         "--lag-steps",
         type=int,
         nargs="+",
-        default=[1, 3, 5],
+        default=[2, 4, 8],
         help="Lag offsets to evaluate independently.",
     )
     parser.add_argument(
