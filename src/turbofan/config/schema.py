@@ -53,6 +53,7 @@ class FeatureConfig(BaseModel):
         "raw_plus_rolling_mean",
         "raw_plus_rolling_stats",
         "lag",
+        "raw_plus_lag",
     ] = "raw"
     windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
     lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])

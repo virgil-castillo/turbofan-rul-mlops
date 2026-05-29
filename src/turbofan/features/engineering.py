@@ -14,6 +14,7 @@ FeatureSet = Literal[
     "raw_plus_rolling_mean",
     "raw_plus_rolling_stats",
     "lag",
+    "raw_plus_lag",
 ]
 
 _VALID_FEATURE_SETS: frozenset[str] = frozenset(get_args(FeatureSet))
@@ -95,6 +96,9 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         if self.feature_set == "raw_plus_rolling_stats":
             raw = X[self.sensor_cols_].copy()
             return pd.concat([raw, self._rolling_stats(X)], axis=1)
+        if self.feature_set == "raw_plus_lag":
+            raw = X[self.sensor_cols_].copy()
+            return pd.concat([raw, self._lag_features(X)], axis=1)
         # lag
         return self._lag_features(X)
 
@@ -131,6 +135,12 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
                 for w in self._windows
                 for col in self.sensor_cols_
                 for stat in ["rmean", "rstd", "rmin", "rmax"]
+            ]
+        if self.feature_set == "raw_plus_lag":
+            return list(self.sensor_cols_) + [
+                f"{col}_lag_{step}"
+                for step in self._lag_steps
+                for col in self.sensor_cols_
             ]
         # lag
         return [
@@ -185,21 +195,32 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         return pd.DataFrame(cols, index=X.index)
 
     def _lag_features(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Compute per-engine lagged sensor values, backfilling early cycles.
+        """Compute per-engine normalized lag-difference features.
+
+        Each feature is ``(x[t] - x[t-N]) / rolling_mean(x, N)``, where
+        ``N`` is the lag step. Dividing by the rolling mean makes the change
+        scale-invariant across sensors and suppresses absolute-level noise.
+        Early cycles where ``x[t-N]`` has no history are backfilled, yielding
+        a difference of zero. When the rolling mean is near zero the raw
+        difference is returned unchanged to avoid division instability.
 
         Args:
             X: Input DataFrame with ``engine_id`` and sensor columns.
 
         Returns:
-            DataFrame of lag feature columns.
+            DataFrame of normalized lag-difference feature columns.
         """
         cols: dict[str, pd.Series] = {}
         for step in self._lag_steps:
             for col in self.sensor_cols_:
-                def _lag_and_backfill(s: pd.Series, _step: int = step) -> pd.Series:
-                    return s.shift(_step).bfill()
-
-                cols[f"{col}_lag_{step}"] = X.groupby("engine_id")[col].transform(
-                    _lag_and_backfill
+                grp = X.groupby("engine_id")[col]
+                lagged = grp.transform(
+                    lambda s, _step=step: s.shift(_step).bfill()
                 )
+                mean = grp.transform(
+                    lambda s, _step=step: s.rolling(_step, min_periods=1).mean()
+                )
+                diff = X[col] - lagged
+                safe_mean = mean.where(mean.abs() > 1e-9, other=1.0)
+                cols[f"{col}_lag_{step}"] = diff / safe_mean
         return pd.DataFrame(cols, index=X.index)
