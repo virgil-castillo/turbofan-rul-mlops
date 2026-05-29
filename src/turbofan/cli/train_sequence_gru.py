@@ -247,9 +247,9 @@ def main() -> None:
         sensor_drop=cfg.features.sensor_cols_to_drop or None,
         n_modes=cfg.features.n_modes,
         random_state=cfg.data.random_seed,
-        feature_set=cfg.features.feature_set,
-        windows=cfg.features.windows,
-        lag_steps=cfg.features.lag_steps,
+        feature_set=(gf := cfg.features.for_model("gru")).feature_set,
+        windows=gf.windows,
+        lag_steps=gf.lag_steps,
     )
     _id_cols = ["engine_id", "cycle", "rul"]
     train_features = pipeline.fit_transform(train_df)

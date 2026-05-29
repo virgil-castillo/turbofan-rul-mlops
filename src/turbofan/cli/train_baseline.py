@@ -198,9 +198,9 @@ def main() -> None:
     estimator = build_baseline_pipeline(
         model_name=cfg.model.name,
         alpha=cfg.model.alpha,
-        feature_set=cfg.features.feature_set,
-        windows=cfg.features.windows,
-        lag_steps=cfg.features.lag_steps,
+        feature_set=(rf := cfg.features.for_model("ridge")).feature_set,
+        windows=rf.windows,
+        lag_steps=rf.lag_steps,
         sensor_drop=cfg.features.sensor_cols_to_drop or None,
         n_modes=cfg.features.n_modes,
         random_state=cfg.data.random_seed,
