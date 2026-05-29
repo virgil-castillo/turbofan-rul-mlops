@@ -134,9 +134,7 @@ through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 - Sweep dimensions (`feature_sets`, `windows`, `lag_steps`) are CLI arguments, not a second config file. The subset configs still own dataset-specific parameters (`sensor_cols_to_drop`, `n_modes`, `max_rul`).
 - The bespoke `top_corr` / `top_corr_rolling` feature sets from the old GRU sweep were dropped; sensor selection lives at EDA time via `sensor_cols_to_drop`.
 
-See `docs/feature-sweep-spec.md` for the full retroactive spec.
-
-## Next — Multi-Dataset Training
+## Completed — Multi-Dataset Training
 
 EDA, per-subset configuration, and the cross-dataset feature-engineering sweep are
 complete. The remaining step is production training and a final benchmark.

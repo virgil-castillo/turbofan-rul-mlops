@@ -1,6 +1,6 @@
 # Turbofan Remaining Useful Life Prediction
 
-This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. EDA and per-subset configuration are complete for all four C-MAPSS subsets; model training currently targets FD001.
+This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. EDA, per-subset configuration, and model training are complete for all four C-MAPSS subsets (FD001–FD004).
 
 ## What this repo contains
 
@@ -21,9 +21,9 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 | Dataset | EDA | Config | Training |
 |---|---|---|---|
 | FD001 | Done | Done | Done |
-| FD002 | Done | Done | Planned |
-| FD003 | Done | Done | Planned |
-| FD004 | Done | Done | Planned |
+| FD002 | Done | Done | Done |
+| FD003 | Done | Done | Done |
+| FD004 | Done | Done | Done |
 
 ## Key findings
 
@@ -76,7 +76,7 @@ turbofan-download-data --kaggle
 turbofan-download-data --check
 ```
 
-This downloads all four C-MAPSS subsets (FD001–FD004) into `data/raw/`. The current training workflow targets FD001.
+This downloads all four C-MAPSS subsets (FD001–FD004) into `data/raw/`.
 
 Train the Ridge baseline:
 
@@ -327,8 +327,8 @@ mypy src/turbofan               # strict type checking
 - [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
 - [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
 - [x] Unified feature-engineering sweep CLI (`turbofan-sweep-features`) with Ridge vs GRU analysis across all four subsets
-- [ ] Train and persist baseline and GRU production artifacts on FD002–FD004
-- [ ] Cross-dataset benchmark table from persisted models
+- [x] Train and persist baseline and GRU production artifacts on FD002–FD004
+- [x] Cross-dataset benchmark table from persisted models
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
 - [ ] MLOps infrastructure (experiment tracking, CI/CD)
