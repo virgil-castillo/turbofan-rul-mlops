@@ -13,8 +13,8 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 CONDA_HOME="${CONDA_HOME:-$HOME/miniconda3}"
 CONDA_ENV="${CONDA_ENV:-mlops}"
-FEATURE_SETS="${FEATURE_SETS:-raw rolling_mean lag}"
-WINDOWS="${WINDOWS:-5 10 20}"
+FEATURE_SETS="${FEATURE_SETS:-raw rolling_mean lag raw_plus_lag raw_plus_rolling_mean}"
+WINDOWS="${WINDOWS:-2 4 6 8 10 15 20}"
 LAG_STEPS="${LAG_STEPS:-2 4 8}"
 DEVICE="${DEVICE:-cuda}"
 

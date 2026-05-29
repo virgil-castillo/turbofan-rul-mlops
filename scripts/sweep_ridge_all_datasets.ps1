@@ -6,10 +6,10 @@
 conda activate mlops
 
 $FeatureSets = $env:FEATURE_SETS -split ' ' | Where-Object { $_ } | ForEach-Object { $_ }
-if (-not $FeatureSets) { $FeatureSets = @("raw", "rolling_mean", "lag") }
+if (-not $FeatureSets) { $FeatureSets = @("raw", "rolling_mean", "lag", "raw_plus_lag", "raw_plus_rolling_mean") }
 
 $Windows = $env:WINDOWS -split ' ' | Where-Object { $_ }
-if (-not $Windows) { $Windows = @("5", "10", "20") }
+if (-not $Windows) { $Windows = @("2", "4", "6", "8", "10", "15", "20") }
 
 $LagSteps = $env:LAG_STEPS -split ' ' | Where-Object { $_ }
 if (-not $LagSteps) { $LagSteps = @("2", "4", "8") }
