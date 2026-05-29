@@ -115,21 +115,17 @@ def test_rolling_respects_engine_boundaries() -> None:
     assert engine2_first_rmean == pytest.approx(5.0)
 
 
-def test_lag_backfills_within_engine() -> None:
-    """Lag is backfilled for early cycles within each engine (no cross-engine leak)."""
+def test_lag_first_cycle_yields_zero() -> None:
+    """Cycle 1 has no prior history so backfill makes diff=0, feature=0."""
     df = pd.DataFrame({
         "engine_id": [1, 1, 1, 2, 2, 2],
         "s_1": [10.0, 20.0, 30.0, 100.0, 200.0, 300.0],
     })
     eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
     result = eng.fit_transform(df)
-    # Engine 1 cycle 1 has no prior cycle: backfill from cycle 2 value
-    e1_lag = result.loc[df["engine_id"] == 1, "s_1_lag_1"].tolist()
-    assert e1_lag[0] == pytest.approx(10.0)  # backfilled: no prior, uses own value
-    assert e1_lag[1] == pytest.approx(10.0)  # cycle 2 lag-1 = cycle 1 value
-    # Engine 2 cycle 1 should not be affected by engine 1
-    e2_lag = result.loc[df["engine_id"] == 2, "s_1_lag_1"].tolist()
-    assert e2_lag[0] == pytest.approx(100.0)  # backfilled from engine 2's own data
+    # Both engines: cycle 1 diff is zero because backfill = current value
+    assert result.iloc[0]["s_1_lag_1"] == pytest.approx(0.0)
+    assert result.iloc[3]["s_1_lag_1"] == pytest.approx(0.0)
 
 
 def test_unsupported_feature_set_raises() -> None:
@@ -153,8 +149,97 @@ def test_feature_cols_attribute_rolling_stats() -> None:
 def test_no_engine_id_in_output() -> None:
     """engine_id is never present in transform output."""
     df = _sensor_df()
-    for fs in ["raw", "rolling_mean", "rolling_stats", "lag"]:
+    for fs in ["raw", "rolling_mean", "rolling_stats", "lag", "raw_plus_lag"]:
         kwargs = {"windows": [3]} if "rolling" in fs else {"lag_steps": [1]}
         eng = FeatureEngineer(feature_set=fs, **kwargs)  # type: ignore[arg-type]
         result = eng.fit_transform(df)
         assert "engine_id" not in result.columns, f"engine_id in output for {fs}"
+
+
+def test_raw_plus_lag_columns() -> None:
+    """raw_plus_lag produces raw sensor columns followed by lag columns."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="raw_plus_lag", lag_steps=[1])
+    result = eng.fit_transform(df)
+    expected = ["s_1", "s_2", "s_3", "s_1_lag_1", "s_2_lag_1", "s_3_lag_1"]
+    assert list(result.columns) == expected
+    assert "engine_id" not in result.columns
+
+
+def test_raw_plus_lag_feature_cols_attribute() -> None:
+    """feature_cols_ matches raw + lag column list for raw_plus_lag."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="raw_plus_lag", lag_steps=[1, 2])
+    eng.fit(df)
+    expected = (
+        ["s_1", "s_2", "s_3"]
+        + ["s_1_lag_1", "s_2_lag_1", "s_3_lag_1"]
+        + ["s_1_lag_2", "s_2_lag_2", "s_3_lag_2"]
+    )
+    assert eng.feature_cols_ == expected
+
+
+def test_lag_computes_normalized_difference_lag1() -> None:
+    """lag features are (x[t] - x[t-N]) / rolling_mean(x, N), not raw lag values."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1],
+        "s_1": [100.0, 110.0, 120.0],
+    })
+    eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
+    result = eng.fit_transform(df)
+    # cycle 1: diff=0 (backfill), mean=100, feature=0
+    # cycle 2: diff=10, mean(w=1)=110, feature=10/110
+    # cycle 3: diff=10, mean(w=1)=120, feature=10/120
+    values = result["s_1_lag_1"].tolist()
+    assert values[0] == pytest.approx(0.0)
+    assert values[1] == pytest.approx(10.0 / 110.0)
+    assert values[2] == pytest.approx(10.0 / 120.0)
+
+
+def test_lag_computes_normalized_difference_lag2() -> None:
+    """lag-2 feature normalizes by rolling_mean over 2 cycles."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1],
+        "s_1": [100.0, 110.0, 120.0],
+    })
+    eng = FeatureEngineer(feature_set="lag", lag_steps=[2])
+    result = eng.fit_transform(df)
+    # shift(2).bfill() = [100, 100, 100]
+    # rolling_mean(w=2): [100, 105, 115]
+    # diffs: [0, 10, 20]; features: [0/100, 10/105, 20/115]
+    values = result["s_1_lag_2"].tolist()
+    assert values[0] == pytest.approx(0.0)
+    assert values[1] == pytest.approx(10.0 / 105.0)
+    assert values[2] == pytest.approx(20.0 / 115.0)
+
+
+def test_lag_constant_sensor_yields_zero() -> None:
+    """Constant sensor produces zero lag-diff features (no change to measure)."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 1],
+        "s_1": [50.0, 50.0, 50.0, 50.0],
+    })
+    eng = FeatureEngineer(feature_set="lag", lag_steps=[1, 3])
+    result = eng.fit_transform(df)
+    assert result.abs().max().max() == pytest.approx(0.0, abs=1e-9)
+
+
+def test_lag_no_nan_in_output() -> None:
+    """Lag-diff output contains no NaN values."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="lag", lag_steps=[1, 3])
+    result = eng.fit_transform(df)
+    assert not result.isna().any().any()
+
+
+def test_lag_diff_respects_engine_boundaries() -> None:
+    """Lag-diff for engine 2 cycle 1 is not contaminated by engine 1 values."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 2, 2, 2],
+        "s_1": [10.0, 20.0, 30.0, 100.0, 110.0, 120.0],
+    })
+    eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
+    result = eng.fit_transform(df)
+    # Engine 2 cycle 1: backfilled → diff=0, feature=0
+    e2 = result.loc[df["engine_id"] == 2, "s_1_lag_1"].tolist()
+    assert e2[0] == pytest.approx(0.0)
