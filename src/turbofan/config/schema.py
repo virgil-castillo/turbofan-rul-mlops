@@ -32,31 +32,100 @@ class DataConfig(BaseModel):
     random_seed: int = 42
 
 
+FeatureSetName = Literal[
+    "raw",
+    "rolling_mean",
+    "rolling_stats",
+    "raw_plus_rolling_mean",
+    "raw_plus_rolling_stats",
+    "lag",
+    "raw_plus_lag",
+]
+
+
+class ModelFeatureConfig(BaseModel):
+    """Per-model feature-engineering overrides.
+
+    Any field left as ``None`` inherits the shared ``FeatureConfig`` value when
+    resolved via :meth:`FeatureConfig.for_model`.
+
+    Args:
+        feature_set: Feature family for this model, or ``None`` to inherit.
+        windows: Rolling window sizes for this model, or ``None`` to inherit.
+        lag_steps: Lag offsets for this model, or ``None`` to inherit.
+    """
+
+    feature_set: FeatureSetName | None = None
+    windows: list[PositiveWindow] | None = None
+    lag_steps: list[PositiveWindow] | None = None
+
+
+class ResolvedFeatureConfig(BaseModel):
+    """Fully resolved feature settings for a single model.
+
+    Args:
+        feature_set: Selected feature family.
+        windows: Rolling window sizes.
+        lag_steps: Lag offsets.
+    """
+
+    feature_set: FeatureSetName
+    windows: list[PositiveWindow]
+    lag_steps: list[PositiveWindow]
+
+
 class FeatureConfig(BaseModel):
     """Configuration for feature engineering.
+
+    The top-level ``feature_set`` / ``windows`` / ``lag_steps`` are the shared
+    defaults. Optional ``ridge`` and ``gru`` blocks override them per model;
+    resolve the effective settings for a model with :meth:`for_model`.
 
     Args:
         sensor_cols_to_drop: Sensor column names to remove before modeling.
             Determined from EDA; applied without recomputation at fit time.
         n_modes: Number of operating-mode clusters for normalization.
-        feature_set: Which engineered feature family both models receive.
-        windows: Rolling window sizes in cycles. Used by rolling feature sets.
-        lag_steps: Lag offsets in cycles. Used by the lag feature set.
+        feature_set: Shared engineered feature family (per-model fallback).
+        windows: Shared rolling window sizes. Used by rolling feature sets.
+        lag_steps: Shared lag offsets. Used by the lag feature set.
+        ridge: Optional Ridge-specific feature overrides.
+        gru: Optional GRU-specific feature overrides.
     """
 
     sensor_cols_to_drop: list[str] = Field(default_factory=list)
     n_modes: int = Field(default=1, gt=0)
-    feature_set: Literal[
-        "raw",
-        "rolling_mean",
-        "rolling_stats",
-        "raw_plus_rolling_mean",
-        "raw_plus_rolling_stats",
-        "lag",
-        "raw_plus_lag",
-    ] = "raw"
+    feature_set: FeatureSetName = "raw"
     windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
     lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])
+    ridge: ModelFeatureConfig | None = None
+    gru: ModelFeatureConfig | None = None
+
+    def for_model(self, model: Literal["ridge", "gru"]) -> ResolvedFeatureConfig:
+        """Resolve effective feature settings for a model.
+
+        Applies the model-specific override block when present, falling back to
+        the shared values for any field the override leaves unset.
+
+        Args:
+            model: Model whose feature settings to resolve.
+
+        Returns:
+            Fully resolved feature settings for the model.
+        """
+        override = self.ridge if model == "ridge" else self.gru
+        feature_set = self.feature_set
+        windows = self.windows
+        lag_steps = self.lag_steps
+        if override is not None:
+            if override.feature_set is not None:
+                feature_set = override.feature_set
+            if override.windows is not None:
+                windows = override.windows
+            if override.lag_steps is not None:
+                lag_steps = override.lag_steps
+        return ResolvedFeatureConfig(
+            feature_set=feature_set, windows=windows, lag_steps=lag_steps
+        )
 
 
 class ModelConfig(BaseModel):
