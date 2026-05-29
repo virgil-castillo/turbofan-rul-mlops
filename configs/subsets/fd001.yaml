@@ -14,3 +14,10 @@ features:
     - s_18
     - s_19
   n_modes: 1
+  # Best-config feature engineering per model (from the feature sweep).
+  ridge:
+    feature_set: raw_plus_rolling_mean
+    windows: [2]
+  gru:
+    feature_set: rolling_mean
+    windows: [15]

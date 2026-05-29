@@ -16,3 +16,10 @@ features:
     - s_20
     - s_21
   n_modes: 6
+  # Best-config feature engineering per model (from the feature sweep).
+  ridge:
+    feature_set: raw_plus_rolling_mean
+    windows: [8]
+  gru:
+    feature_set: raw_plus_rolling_mean
+    windows: [10]
