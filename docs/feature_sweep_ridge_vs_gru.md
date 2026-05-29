@@ -98,7 +98,24 @@ lag family should be abandoned.
   a directly measured effect. The GRU's RMSE ordering instead tracks operating-mode
   count cleanly (FD003 ≈ FD001 < FD002 < FD004).
 
-## 7. Limitations and open questions
+## 7. Official test-set results
+
+Production models trained on each subset's best config, evaluated on the C-MAPSS
+official test set (unseen engines, single prediction per engine at the last cycle):
+
+| Subset | Ridge test RMSE | Ridge test MAE | GRU test RMSE | GRU test MAE | GRU RMSE Δ vs Ridge |
+|--------|---:|---:|---:|---:|---:|
+| FD001 | 21.58 | 17.44 | 15.81 | 11.53 | −27% |
+| FD002 | 31.31 | 22.85 | 24.63 | 15.56 | −21% |
+| FD003 | 23.01 | 18.20 | 14.76 | 10.11 | −36% |
+| FD004 | 32.88 | 26.20 | 23.67 | 16.81 | −28% |
+
+The validation-set advantage carries to official test: the GRU leads by 21–36% on
+RMSE. Multi-condition subsets (FD002, FD004) are harder for both models, with
+larger val→test gaps — the official test distribution may differ from the training
+distribution more on those subsets.
+
+## 8. Limitations and open questions
 
 These sweeps fixed the GRU at `hidden_size=64`, `window_size=45`, and Ridge at
 `alpha=100`. The window-direction and lag findings concern feature choices at those
