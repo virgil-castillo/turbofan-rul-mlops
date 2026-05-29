@@ -9,7 +9,9 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 - GRU-based sequence modeling for temporal degradation patterns
 - Evaluation with RMSE, MAE, and PHM08 score
 - Hyperparameter sweep experiments (Ridge alpha, GRU architecture, feature selection)
-- Exploratory data analysis utilities and notebook
+- Unified feature-engineering sweep running Ridge and GRU on identical features across all four C-MAPSS subsets
+- Cross-model feature-engineering analysis (Ridge vs GRU) with findings reports grounded in the sweep data and EDA
+- Exploratory data analysis utilities and notebooks
 - Saved model artifacts and experiment outputs
 - Tests for core project components
 - Batch prediction, FastAPI serving, and Docker serving interfaces
@@ -22,6 +24,30 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 | FD002 | Done | Done | Planned |
 | FD003 | Done | Done | Planned |
 | FD004 | Done | Done | Planned |
+
+## Key findings
+
+Feature-engineering sweeps across all four C-MAPSS subsets (engine-level
+validation split) compared Ridge and GRU on identical features:
+
+| Subset | Ridge — best RMSE | GRU — best RMSE |
+|---|---:|---:|
+| FD001 | 20.7 | 10.9 |
+| FD002 | 19.4 | 13.2 |
+| FD003 | 17.1 | 10.6 |
+| FD004 | 18.5 | 14.7 |
+
+- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features.
+- The optimal rolling-mean window is **opposite** for the two models — Ridge favors
+  short windows (2–4), the GRU favors long ones (~15) — because Ridge is memoryless
+  while the GRU already models the sequence.
+- Lag-difference features are counterproductive: additive-neutral for Ridge, and they
+  prevent the GRU from converging.
+
+RMSE shown is for each model's PHM08-selected best configuration. Full analysis:
+[Ridge](docs/feature_sweep_ridge_report.md) ·
+[GRU](docs/feature_sweep_gru_report.md) ·
+[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md)
 
 ## Quickstart
 
@@ -106,6 +132,7 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-compare-baseline-features` | Compare feature sets (raw, rolling, engineered) |
 | `turbofan-sweep-gru` | Sweep GRU hyperparameters |
 | `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
+| `turbofan-sweep-features` | Unified Ridge/GRU feature-engineering sweep through the shared preprocessing pipeline |
 | `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
 | `turbofan-serve-api` | FastAPI inference server |
 
@@ -128,6 +155,12 @@ features:
     - s_18
     - s_19
   n_modes: 6              # 6 operating conditions
+  ridge:                  # Ridge's best feature config (from the sweep)
+    feature_set: raw_plus_rolling_mean
+    windows: [4]
+  gru:                    # GRU's best feature config (from the sweep)
+    feature_set: rolling_mean
+    windows: [15]
 ```
 
 Pass a subset config directly to any training CLI:
@@ -138,6 +171,8 @@ turbofan-train-sequence-gru --config configs/subsets/fd002.yaml
 ```
 
 The `sensor_cols_to_drop` lists are derived from the EDA notebooks (`notebooks/eda_fd00{1-4}.ipynb`) and represent the authoritative drop decision for each subset.
+
+The optional `features.ridge` and `features.gru` blocks set per-model feature engineering: the top-level `feature_set`/`windows` are shared fallbacks, and each model's training CLI resolves its own block (inheriting the shared values for anything left unset). The values committed per subset are each model's best configuration from the feature sweep.
 
 ## Dataset
 
@@ -161,7 +196,7 @@ The project includes both baseline and neural sequence modeling approaches.
 | Ridge Regression | Linear baseline trained on engineered tabular features |
 | GRU | Recurrent sequence model trained on sliding windows of sensor readings |
 
-Both models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_set` config key selects which engineered features both models receive — `raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, or `lag`. Rolling and lag features are computed per engine without crossing engine boundaries.
+Both models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_set` config key selects which engineered features both models receive — `raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, `lag`, or `raw_plus_lag`. Rolling and lag features are computed per engine without crossing engine boundaries; `lag` is a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)`. Feature settings can differ per model via the `features.ridge` / `features.gru` config blocks.
 
 ## Evaluation
 
@@ -290,8 +325,9 @@ mypy src/turbofan               # strict type checking
 - [x] EDA notebooks for all four subsets with correlation-based sensor filter
 - [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
 - [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
-- [ ] Train baseline and GRU on FD002–FD004
-- [ ] Cross-dataset benchmark table
+- [x] Unified feature-engineering sweep CLI (`turbofan-sweep-features`) with Ridge vs GRU analysis across all four subsets
+- [ ] Train and persist baseline and GRU production artifacts on FD002–FD004
+- [ ] Cross-dataset benchmark table from persisted models
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
 - [ ] MLOps infrastructure (experiment tracking, CI/CD)

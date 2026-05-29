@@ -109,13 +109,41 @@ The `_AutoSensorNormalizer` subclass infers sensor columns from training data at
 
 Existing GRU checkpoints trained before this refactor are incompatible: `feature_cols` in the old payload included op cols and all 21 sensors. Those artifacts will fail to load with a retrain error.
 
-## Next — Multi-Dataset Training (FD002–FD004)
+## Completed — Unified Feature-Engineering Sweep (2026-05-29)
 
-EDA and per-subset configuration are complete. Next step is training and evaluation.
+A single sweep harness now evaluates Ridge and GRU on identical feature inputs
+through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 
-- [ ] Train baseline and GRU on FD002, FD003, FD004 using `configs/subsets/`
-- [ ] Verify feature engineering handles 6 operating conditions (FD002/FD004)
-- [ ] Cross-dataset benchmark table comparing all subsets
+- [x] `turbofan-sweep-features --model ridge|gru` (`src/turbofan/experiments/feature_sweep.py`) — one CLI routing both models through the same preprocessing contract; results carry a `model` column so separate runs stack and compare
+- [x] `raw_plus_lag` feature set added as the lag-family companion to `raw_plus_rolling_mean`
+- [x] `lag` semantics corrected to a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)` (previously returned the raw historical value `x[t-N]`)
+- [x] Multi-dataset runner scripts: `scripts/sweep_ridge_all_datasets.ps1` and `jobs/slurm/run_feature_sweep_gru_all_datasets.sh`
+- [x] Default output path `results/feature_sweep_{model}_{subset}.csv`; sweeps run for all four subsets across both models
+- [x] Cross-model analysis reports grounded solely in the sweep data and EDA, with methodology citations: `docs/feature_sweep_ridge_report.md`, `docs/feature_sweep_gru_report.md`, `docs/feature_sweep_ridge_vs_gru.md`
+- [x] Removed the superseded `baseline_feature_comparison` job/results and stale pre-refactor reports
+- [x] Per-model best-config feature engineering wired into the subset configs via `features.ridge` / `features.gru` blocks (resolved by `FeatureConfig.for_model`); each train CLI loads its own block
+
+**Headline findings (engine-level validation split):**
+
+- The GRU roughly halves best validation RMSE versus Ridge on the same features (e.g. FD001 10.9 vs 20.7).
+- The optimal rolling-mean window is opposite by model — Ridge short (2–4), GRU long (~15) — because Ridge is memoryless while the GRU already models the sequence.
+- Lag-difference features are counterproductive for both: additive-neutral for Ridge, and they prevent the GRU from converging (early-stop at epoch 1–3).
+
+**Design decisions:**
+
+- Sweep dimensions (`feature_sets`, `windows`, `lag_steps`) are CLI arguments, not a second config file. The subset configs still own dataset-specific parameters (`sensor_cols_to_drop`, `n_modes`, `max_rul`).
+- The bespoke `top_corr` / `top_corr_rolling` feature sets from the old GRU sweep were dropped; sensor selection lives at EDA time via `sensor_cols_to_drop`.
+
+See `docs/feature-sweep-spec.md` for the full retroactive spec.
+
+## Next — Multi-Dataset Training
+
+EDA, per-subset configuration, and the cross-dataset feature-engineering sweep are
+complete. The remaining step is production training and a final benchmark.
+
+- [ ] Train and persist baseline and GRU production artifacts on FD002, FD003, FD004 using `configs/subsets/`
+- [x] Verify feature engineering handles 6 operating conditions (FD002/FD004) — confirmed by the feature sweep running cleanly on all four subsets
+- [ ] Cross-dataset benchmark table from persisted production models (validation-split feature comparison already in `docs/feature_sweep_*`)
 
 ## Future — Additional Models
 
