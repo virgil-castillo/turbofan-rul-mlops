@@ -163,6 +163,21 @@ asymmetric sum, instead tracks engine count (FD002/FD004 highest).
 - Per-mode normalization is mandatory for FD002/FD004 — EDA shows raw correlations
   vanish without it, and the configs already encode `n_modes=6`.
 
+## Official test-set results
+
+Production Ridge models trained with each subset's best sweep config
+(`raw_plus_rolling_mean`), evaluated on the C-MAPSS official test set:
+
+| Subset | Feature config | Val RMSE | Test RMSE | Test MAE | Test PHM08 |
+|--------|---------------|---:|---:|---:|---:|
+| FD001 | raw_plus_rolling_mean, w=2 | 20.72 | 21.58 | 17.44 | 1,315 |
+| FD002 | raw_plus_rolling_mean, w=4 | 19.35 | 31.31 | 22.85 | 17,733 |
+| FD003 | raw_plus_rolling_mean, w=4 | 17.07 | 23.01 | 18.20 | 2,492 |
+| FD004 | raw_plus_rolling_mean, w=8 | 18.47 | 32.88 | 26.20 | 9,646 |
+
+Multi-condition subsets (FD002, FD004) show the largest val→test RMSE gap (~12–14
+points), consistent with a harder distribution shift on those subsets.
+
 ## References
 
 Methodology references support the mechanism explanations only; all empirical

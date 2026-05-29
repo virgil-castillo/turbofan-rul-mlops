@@ -166,6 +166,22 @@ than the linear model.
 - `raw` is an acceptable minimal fallback (~10% off best on clean subsets), with
   rolling-mean denoising as the low-cost upgrade.
 
+## Official test-set results
+
+Production GRU models trained with each subset's best sweep config, evaluated on
+the C-MAPSS official test set:
+
+| Subset | Feature config | Val RMSE | Test RMSE | Test MAE | Test PHM08 |
+|--------|---------------|---:|---:|---:|---:|
+| FD001 | rolling_mean, w=15 | 10.91 | 15.81 | 11.53 | 314 |
+| FD002 | rolling_mean, w=15 | 13.17 | 24.63 | 15.56 | 4,945 |
+| FD003 | rolling_mean, w=15 | 10.57 | 14.76 | 10.11 | 512 |
+| FD004 | raw_plus_rolling_mean, w=10 | 14.73 | 23.67 | 16.81 | 3,144 |
+
+The same pattern holds: single-condition subsets (FD001, FD003) generalize well
+(~5 point val→test gap), while multi-condition subsets (FD002, FD004) show a larger
+gap (~9–11 points).
+
 ## References
 
 Methodology references support the mechanism explanations only; all empirical

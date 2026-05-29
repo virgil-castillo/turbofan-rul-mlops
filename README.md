@@ -27,24 +27,25 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 
 ## Key findings
 
-Feature-engineering sweeps across all four C-MAPSS subsets (engine-level
-validation split) compared Ridge and GRU on identical features:
+Production models trained on each subset's best feature config (from the sweep),
+evaluated on both the engine-level validation split and the official C-MAPSS test set:
 
-| Subset | Ridge — best RMSE | GRU — best RMSE |
-|---|---:|---:|
-| FD001 | 20.7 | 10.9 |
-| FD002 | 19.4 | 13.2 |
-| FD003 | 17.1 | 10.6 |
-| FD004 | 18.5 | 14.7 |
+| Subset | Ridge val RMSE | Ridge test RMSE | GRU val RMSE | GRU test RMSE |
+|--------|---:|---:|---:|---:|
+| FD001 | 20.72 | 21.58 | 10.91 | 15.81 |
+| FD002 | 19.35 | 31.31 | 13.17 | 24.63 |
+| FD003 | 17.07 | 23.01 | 10.57 | 14.76 |
+| FD004 | 18.47 | 32.88 | 14.73 | 23.67 |
 
-- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features.
+- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 27–38%.
 - The optimal rolling-mean window is **opposite** for the two models — Ridge favors
   short windows (2–4), the GRU favors long ones (~15) — because Ridge is memoryless
   while the GRU already models the sequence.
 - Lag-difference features are counterproductive: additive-neutral for Ridge, and they
   prevent the GRU from converging.
+- Multi-condition subsets (FD002, FD004) show larger val→test gaps for both models.
 
-RMSE shown is for each model's PHM08-selected best configuration. Full analysis:
+Full sweep analysis:
 [Ridge](docs/feature_sweep_ridge_report.md) ·
 [GRU](docs/feature_sweep_gru_report.md) ·
 [Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md)
