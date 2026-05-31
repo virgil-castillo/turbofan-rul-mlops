@@ -29,14 +29,16 @@ EXPECTED_HISTORY_COLUMNS = [
 ]
 
 
-def _loader(shuffle: bool = False) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
+def _loader(
+    shuffle: bool = False,
+) -> DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     """Build a tiny deterministic sequence DataLoader.
 
     Args:
         shuffle: Whether the DataLoader should shuffle samples.
 
     Returns:
-        DataLoader with four two-step windows and scalar targets.
+        DataLoader with four two-step windows, scalar targets, and lengths.
     """
     features = torch.tensor(
         [
@@ -48,7 +50,10 @@ def _loader(shuffle: bool = False) -> DataLoader[tuple[torch.Tensor, torch.Tenso
         dtype=torch.float32,
     )
     targets = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
-    return DataLoader(TensorDataset(features, targets), batch_size=2, shuffle=shuffle)
+    lengths = torch.full((4,), 2, dtype=torch.int64)
+    return DataLoader(
+        TensorDataset(features, targets, lengths), batch_size=2, shuffle=shuffle
+    )
 
 
 class _AlternatingOrderSampler(torch.utils.data.Sampler[int]):
@@ -170,7 +175,8 @@ def test_evaluate_loader_keeps_predictions_and_targets_paired() -> None:
     """Evaluation pairs predictions and targets from the same loader pass."""
     targets = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
     features = targets.reshape(-1, 1, 1)
-    dataset = TensorDataset(features, targets)
+    lengths = torch.full((4,), 1, dtype=torch.int64)
+    dataset = TensorDataset(features, targets, lengths)
     loader = DataLoader(
         dataset,
         batch_size=2,
@@ -187,7 +193,8 @@ def test_evaluate_loader_clips_negative_predictions_before_metrics() -> None:
     """Evaluation clips impossible negative RUL predictions before metrics."""
     targets = torch.tensor([2.0, 4.0], dtype=torch.float32)
     features = torch.zeros((2, 1, 1), dtype=torch.float32)
-    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    lengths = torch.full((2,), 1, dtype=torch.int64)
+    loader = DataLoader(TensorDataset(features, targets, lengths), batch_size=2)
     model = _NegativeRegressor()
 
     metrics = _evaluate_loader(model, loader, torch.device("cpu"), max_rul=1)
@@ -231,6 +238,7 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         TensorDataset(
             torch.zeros((2, 1, 1), dtype=torch.float32),
             torch.ones(2, dtype=torch.float32),
+            torch.full((2,), 1, dtype=torch.int64),
         ),
         batch_size=2,
     )
@@ -238,6 +246,7 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         TensorDataset(
             torch.zeros((2, 1, 1), dtype=torch.float32),
             torch.full((2,), 0.2, dtype=torch.float32),
+            torch.full((2,), 1, dtype=torch.int64),
         ),
         batch_size=2,
     )
@@ -311,7 +320,8 @@ def test_evaluate_loader_rescales_predictions_by_max_rul() -> None:
     """Evaluate loader multiplies raw predictions by max_rul before clipping."""
     targets = torch.tensor([10.0, 10.0], dtype=torch.float32)
     features = torch.zeros((2, 1, 1), dtype=torch.float32)
-    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    lengths = torch.full((2,), 1, dtype=torch.int64)
+    loader = DataLoader(TensorDataset(features, targets, lengths), batch_size=2)
     model = _ConstantRegressor(0.1)
     device = torch.device("cpu")
 

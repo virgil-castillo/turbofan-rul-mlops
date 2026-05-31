@@ -16,7 +16,7 @@ from turbofan.config.schema import SequenceConfig
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
 
-type SequenceBatch = tuple[torch.Tensor, torch.Tensor]
+type SequenceBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 type SequenceLoader = DataLoader[SequenceBatch]
 
 
@@ -161,7 +161,7 @@ def _predict_windows_and_targets(
     predictions: list[npt.NDArray[np.float64]] = []
     targets: list[npt.NDArray[np.float64]] = []
     with torch.no_grad():
-        for features, batch_targets in loader:
+        for features, batch_targets, _lengths in loader:
             batch_predictions = model(features.to(device))
             predictions.append(
                 batch_predictions.detach().cpu().numpy().astype(np.float64)
@@ -209,7 +209,7 @@ def _train_one_epoch(
     model.train()
     total_loss = 0.0
     total_count = 0
-    for features, targets in loader:
+    for features, targets, _lengths in loader:
         features = features.to(device)
         targets = targets.to(device) / max_rul
         optimizer.zero_grad()
