@@ -15,7 +15,8 @@ Resolving these is a prerequisite to claiming the GRU baseline is "stressed enou
 ## 2. Scope
 
 ### In scope
-- Two-stage joint sweep over **sequence-level** parameters (`window_size`, `hidden_size`) crossed with the **narrowed** feature space identified by prior reports.
+- **Stage 0 prerequisite:** left-zero-padding infrastructure for short engines, replacing the current silent-skip behaviour with `pack_padded_sequence` so all engines participate in training, validation, and test evaluation regardless of `window_size`.
+- Three-stage sweep (Stage 0 infrastructure → Stage 1 temporal-context cross → Stage 2 capacity sweep) over **sequence-level** parameters (`window_size`, `hidden_size`) crossed with the **narrowed** feature space identified by prior reports.
 - All four subsets: FD001, FD002, FD003, FD004.
 - Validation-only ranking (engine-level split). Official test evaluation is **only** run on the final selected configurations, and only to refresh the production benchmark table — not to rank sweep runs.
 - One follow-on retrain of production artifacts from the selected configs and a refresh of the README/benchmark table.
@@ -28,6 +29,84 @@ Resolving these is a prerequisite to claiming the GRU baseline is "stressed enou
 - Multi-layer GRU / dropout sweep — current GRU is single-layer by design (see roadmap "Design Decisions Worth Preserving"). Add only if Stage 2 indicates capacity saturation.
 
 ## 3. Experiment design
+
+### Stage 0 — Short-engine padding infrastructure
+
+**Problem.** `_build_windows()` in `src/turbofan/sequences/windowing.py` silently skips engines shorter than `window_size` (`if len(group) < window_size: continue`). When the sweep tests `window_size=60`, some FD002/FD004 engines vanish from training *and* evaluation, making scores across window sizes incomparable. The inference predictor (`src/turbofan/inference/predictors.py`) already identifies short engines but either errors or skips them.
+
+**Solution.** Left-zero-pad short engines at windowing time and use `torch.nn.utils.rnn.pack_padded_sequence` so the GRU processes only the real timesteps.
+
+#### 3.0.1 WindowedSequences changes
+
+Add a `lengths` field to `WindowedSequences`:
+
+```python
+@dataclass(frozen=True)
+class WindowedSequences:
+    X: npt.NDArray[np.float32]       # (n_windows, window_size, n_features)
+    y: npt.NDArray[np.float32]       # (n_windows,)
+    metadata: pd.DataFrame           # gains a "padded" bool column
+    lengths: npt.NDArray[np.int64]   # (n_windows,) actual timesteps per window
+```
+
+In `_build_windows()`, when `len(group) < window_size`:
+- Build one left-zero-padded window: `np.zeros((window_size, n_features))` with real data right-aligned.
+- Record `actual_length = len(group)` in `lengths`. Full-length windows get `length = window_size`.
+- Set `metadata["padded"] = True` for that window.
+- For sliding mode, short engines produce exactly one padded window (can't slide). For `final_only` mode, same — one padded window.
+
+**Why pad at windowing time, not at DataLoader collation time.** The existing pipeline expects uniform `(n_windows, window_size, n_features)` tensors in `WindowedSequences.X`. Padding at windowing time preserves this contract. Collation-time padding would require variable-length storage and a custom `collate_fn` — a larger refactor for negligible memory savings, since only a handful of engines per subset are short.
+
+#### 3.0.2 GRU model changes
+
+`GRURULRegressor.forward()` gains an optional `lengths` parameter:
+
+```python
+def forward(self, X: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
+```
+
+When `lengths` is provided:
+1. Call `pack_padded_sequence(X, lengths.cpu(), batch_first=True, enforce_sorted=False)`.
+2. Pass the packed sequence to `self.gru`.
+3. The GRU's returned `hidden` state already reflects only the real timesteps — `hidden[-1]` is the hidden state after the last *real* timestep, not the last *padded* position.
+
+When `lengths` is `None`: unchanged behaviour, backward compatible.
+
+**Why `enforce_sorted=False`.** Sorting batches by length would require a custom `collate_fn` and undo-sort after the GRU. `enforce_sorted=False` handles unsorted batches with a small performance cost that is negligible given batch sizes of 64.
+
+#### 3.0.3 Dataset and DataLoader changes
+
+`SequenceDataset` stores an optional `_lengths` tensor. When present, `__getitem__` returns a 3-tuple `(features, target, length)`.
+
+`build_sequence_loader` detects whether `WindowedSequences.lengths` exists (it always will after Stage 0, but backward compat is preserved for any code that builds `WindowedSequences` without it).
+
+The batch type becomes:
+```python
+type SequenceBatch = tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+```
+
+Training loop functions (`_train_one_epoch`, `_evaluate_loader`, `_predict_windows_and_targets`) unpack the optional third element and pass it through to `model.forward()`.
+
+#### 3.0.4 Sweep CSV reporting columns
+
+Every sweep CSV row gains three columns:
+- `n_engines_total` — total unique engines in the validation split.
+- `n_engines_padded` — engines shorter than `window_size` that were zero-padded.
+- `n_engines_full` — engines that produced full-length windows.
+
+Derived from `WindowedSequences.metadata["padded"]`. The training log `extra` block also records these for the training split.
+
+**Why include padded engines in all metrics.** `pack_padded_sequence` makes padded engines legitimate GRU inputs — the hidden state evolves only over real timesteps. Excluding them from scoring would re-introduce the population-thinning problem. Including them and *reporting the counts* lets the reader judge comparability. If padding hurts predictions, the score reflects it naturally.
+
+#### 3.0.5 Inference predictor alignment
+
+`GRUPredictor._filter_short_engines()`:
+- `allow_partial=True`: pad short engines instead of skipping. Still emit a per-engine warning.
+- `allow_partial=False`: unchanged (error on short engines — strict mode means the caller expects all engines to be long enough).
+
+#### 3.0.6 Roadmap update
+
+Update `docs/roadmap.md` "Short engines are skipped, not padded" to reflect the new behaviour: "Short engines are left-zero-padded and processed with `pack_padded_sequence`."
 
 ### Stage 1 — Temporal-context cross
 
@@ -74,8 +153,18 @@ Purpose: check whether FD002 / FD004 specifically benefit from more capacity onc
 
 This is "what must exist," not "how to build it" — implementation choices are deferred to the plan.
 
+### Stage 0 code surface
+- `WindowedSequences` gains a `lengths: npt.NDArray[np.int64]` field and `metadata` gains a `padded` boolean column.
+- `_build_windows()` pads short engines instead of skipping them; full-length windows get `length = window_size`.
+- `GRURULRegressor.forward()` accepts optional `lengths` and uses `pack_padded_sequence` when provided.
+- `SequenceDataset` and `build_sequence_loader` propagate `lengths` through the 3-tuple batch path.
+- `_train_one_epoch`, `_evaluate_loader`, and `_predict_windows_and_targets` unpack and forward `lengths`.
+- `GRUPredictor._filter_short_engines()` pads instead of skipping in `allow_partial=True` mode.
+- All existing tests updated; new tests for padded windowing, packed GRU forward pass, and round-trip through the loader.
+
+### Sweep code surface
 - Sweep harness must accept **sequence-side dimensions** (`window_size`, `hidden_size`, optionally `learning_rate`) in addition to the existing `feature_set` / `windows` / `lag_steps` axes. Today `src/turbofan/experiments/feature_sweep.py` reads those from `cfg.sequence` only.
-- Result rows must include the swept sequence/capacity parameters so Stage 1 and Stage 2 CSVs can be analysed together. Current row schema (`_evaluate_gru_spec`) only carries `feature_set`, `windows`, `lag_steps`, `best_epoch`, `n_features`, and metrics.
+- Result rows must include the swept sequence/capacity parameters **and** the Stage 0 engine-count columns (`n_engines_total`, `n_engines_padded`, `n_engines_full`) so Stage 1 and Stage 2 CSVs can be analysed together. Current row schema (`_evaluate_gru_spec`) only carries `feature_set`, `windows`, `lag_steps`, `best_epoch`, `n_features`, and metrics.
 - Output paths should distinguish stages and subsets, e.g. `results/gru_temporal_sweep_stage1_<subset>.csv` and `..._stage2_<subset>.csv`.
 - A multi-dataset runner equivalent to `jobs/slurm/run_feature_sweep_gru_all_datasets.sh` for each stage.
 - Training-log append (`append_training_log`) must continue to capture the swept hyperparameters in the `extra` block so the persistent log remains the source of truth.
@@ -84,7 +173,8 @@ The plan will decide whether to extend the existing `turbofan-sweep-features` CL
 
 ## 6. Deliverables
 
-1. Sweep CSVs for both stages, all four subsets, under `results/`.
+0. **Stage 0:** Padding infrastructure landed and tested — all existing tests pass, new tests cover padded windowing, packed GRU forward, and the loader round-trip. No sweep runs required; this is pure infrastructure.
+1. Sweep CSVs for both stages, all four subsets, under `results/`. Each row includes `n_engines_total`, `n_engines_padded`, `n_engines_full`.
 2. A short report `docs/gru_temporal_capacity_sweep.md` that:
    - states which of the three Stage-1 hypotheses (denoising / context-substitution / capacity) the data supports per subset;
    - ranks the final selected config per subset with the validation metric and the runner-up;
@@ -96,6 +186,7 @@ The plan will decide whether to extend the existing `turbofan-sweep-features` CL
 
 ## 7. Success criteria
 
+- **Stage 0:** All existing tests pass after padding refactor. New tests verify: (a) short engines produce one left-zero-padded window with correct `lengths` value, (b) `GRURULRegressor.forward(X, lengths)` produces identical output to `forward(X)` when all lengths equal `window_size`, (c) the loader round-trips 3-tuple batches correctly.
 - All ~96 sweep runs complete and produce valid metric rows (`best_epoch >= 1`, finite PHM08).
 - At least one of the three Stage-1 hypotheses is answered for each subset, with the evidence cited.
 - For each subset, the **selected** GRU configuration's validation PHM08 is ≤ the current production GRU's validation PHM08 (no regressions). If a config is selected that is *worse* on validation but materially simpler, the report must justify it.
@@ -104,7 +195,7 @@ The plan will decide whether to extend the existing `turbofan-sweep-features` CL
 ## 8. Risks & non-goals
 
 - **Risk:** Stage 1's `raw` arm may be the strongest on some subset, which would imply re-litigating the feature-sweep conclusion. Mitigation: report it honestly; do not silently drop the `raw` arm. The point of including it is exactly to test the denoising story.
-- **Risk:** Sequence window 60 may exceed the shortest test engines on FD002/FD004 (engines shorter than the window are currently skipped — see roadmap "Short engines are skipped, not padded"). Mitigation: report skipped-engine counts in the sweep CSV alongside metrics so a high score on a thinned set isn't mistaken for a real win.
+- **Risk (resolved by Stage 0):** Sequence window 60 may exceed the shortest test engines on FD002/FD004. Previously these engines were silently skipped. **Mitigation:** Stage 0 replaces skipping with left-zero-padding and `pack_padded_sequence`, so all engines participate in every window-size configuration. Sweep CSVs report `n_engines_padded` per row so the reader can assess whether padded engines disproportionately affect the score.
 - **Non-goal:** This sweep is not an MLOps-infrastructure deliverable. The existing CSV + `training_log` pattern is sufficient. MLflow / registry remain deferred per the roadmap.
 
 ## 9. Proposed roadmap entry (verbatim, to slot in before "Future — Additional Models")
@@ -115,6 +206,7 @@ The plan will decide whether to extend the existing `turbofan-sweep-features` CL
 > candidates to validate the denoising hypothesis from
 > `docs/feature_sweep_ridge_vs_gru.md` and to address the FD002 / FD004
 > validation→test generalization gap, before adding a second architecture (LSTM).
-> Two stages: temporal-context cross at fixed capacity, then capacity sweep on
-> the top configs per subset. Ranking is validation-only; official test
-> evaluation is reserved for the selected production retrains.
+> Three stages: short-engine padding infrastructure (Stage 0), temporal-context
+> cross at fixed capacity (Stage 1), then capacity sweep on the top configs per
+> subset (Stage 2). Ranking is validation-only; official test evaluation is
+> reserved for the selected production retrains.
