@@ -19,7 +19,8 @@ Resolving these is a prerequisite to claiming the GRU baseline is "stressed enou
 - Three-stage sweep (Stage 0 infrastructure → Stage 1 temporal-context cross → Stage 2 capacity sweep) over **sequence-level** parameters (`window_size`, `hidden_size`) crossed with the **narrowed** feature space identified by prior reports.
 - All four subsets: FD001, FD002, FD003, FD004.
 - Validation-only ranking (engine-level split). Official test evaluation is **only** run on the final selected configurations, and only to refresh the production benchmark table — not to rank sweep runs.
-- One follow-on retrain of production artifacts from the selected configs and a refresh of the README/benchmark table.
+- Job scripts under `jobs/slurm/` that let the owner run Stage 1, Stage 2, and final selected-config retraining on the cluster.
+- Post-run analysis/reporting once owner-produced CSVs and artifacts are available.
 
 ### Out of scope (explicitly deferred)
 - SHAP / interpretability — deferred until after this sweep so it targets a stable model contract.
@@ -166,7 +167,8 @@ This is "what must exist," not "how to build it" — implementation choices are 
 - Sweep harness must accept **sequence-side dimensions** (`window_size`, `hidden_size`, optionally `learning_rate`) in addition to the existing `feature_set` / `windows` / `lag_steps` axes. Today `src/turbofan/experiments/feature_sweep.py` reads those from `cfg.sequence` only.
 - Result rows must include the swept sequence/capacity parameters **and** the Stage 0 engine-count columns (`n_engines_total`, `n_engines_padded`, `n_engines_full`) so Stage 1 and Stage 2 CSVs can be analysed together. Current row schema (`_evaluate_gru_spec`) only carries `feature_set`, `windows`, `lag_steps`, `best_epoch`, `n_features`, and metrics.
 - Output paths should distinguish stages and subsets, e.g. `results/gru_temporal_sweep_stage1_<subset>.csv` and `..._stage2_<subset>.csv`.
-- A multi-dataset runner equivalent to `jobs/slurm/run_feature_sweep_gru_all_datasets.sh` for each stage.
+- SLURM scripts under `jobs/slurm/` should follow the existing conventions in `run_feature_sweep_gru_all_datasets.sh`: configurable `PROJECT_DIR`, `CONDA_HOME`, `CONDA_ENV`, `DEVICE`, stage-specific grid environment variables, `results/` and `outputs/logs/` creation, and explicit echoing of resolved parameters before execution.
+- Provide a multi-dataset Stage 1 runner and a Stage 2 runner. The Stage 2 runner may either consume Stage 1 CSV paths/top-k selectors directly or accept explicit top-config arguments, but it must not require hand-editing Python code between subsets.
 - Training-log append (`append_training_log`) must continue to capture the swept hyperparameters in the `extra` block so the persistent log remains the source of truth.
 
 The plan will decide whether to extend the existing `turbofan-sweep-features` CLI or add a sibling `turbofan-sweep-gru-temporal` CLI.
@@ -174,20 +176,25 @@ The plan will decide whether to extend the existing `turbofan-sweep-features` CL
 ## 6. Deliverables
 
 0. **Stage 0:** Padding infrastructure landed and tested — all existing tests pass, new tests cover padded windowing, packed GRU forward, and the loader round-trip. No sweep runs required; this is pure infrastructure.
-1. Sweep CSVs for both stages, all four subsets, under `results/`. Each row includes `n_engines_total`, `n_engines_padded`, `n_engines_full`.
-2. A short report `docs/gru_temporal_capacity_sweep.md` that:
+1. Sweep harness support for the Stage 1 and Stage 2 grids. The harness writes CSVs under `results/` when run, and each row includes `n_engines_total`, `n_engines_padded`, `n_engines_full`.
+2. Runnable SLURM job scripts under `jobs/slurm/`, following the existing script style:
+   - Stage 1 all-subset temporal-context sweep job.
+   - Stage 2 capacity sweep job that consumes Stage 1 results or explicit top configs.
+   - Optional selected-config retrain/benchmark-refresh job for after results are reviewed.
+   The scripts are the handoff artifact; the owner will run training.
+3. A short post-run report `docs/gru_temporal_capacity_sweep.md`, produced after owner-run CSVs are available, that:
    - states which of the three Stage-1 hypotheses (denoising / context-substitution / capacity) the data supports per subset;
    - ranks the final selected config per subset with the validation metric and the runner-up;
    - explicitly notes whether the FD002 / FD004 validation→test gap narrowed.
    Must follow the existing "grounded reports" rule: cite only this repo's sweep CSVs, EDA notebooks, and prior reports; no external knowledge.
-3. Re-trained production GRU artifacts for any subset whose selected config differs from the current `configs/subsets/<x>.yaml gru` block; update those blocks in-place.
-4. Refresh of the official-test benchmark table in `README.md` / `docs/feature_sweep_*` for the new production GRUs only.
-5. New roadmap entry under a "Completed — GRU Temporal-Capacity Sweep" section, mirroring the structure of the existing "Completed — Unified Feature-Engineering Sweep" block.
+4. After owner-run results are reviewed, update `configs/subsets/<x>.yaml gru` blocks for selected configs and refresh the official-test benchmark table in `README.md` / `docs/feature_sweep_*` for retrained production GRUs only.
+5. New roadmap entry under a "Completed — GRU Temporal-Capacity Sweep" section, mirroring the structure of the existing "Completed — Unified Feature-Engineering Sweep" block, after the sweep has actually been run and analyzed.
 
 ## 7. Success criteria
 
 - **Stage 0:** All existing tests pass after padding refactor. New tests verify: (a) short engines produce one left-zero-padded window with correct `lengths` value, (b) `GRURULRegressor.forward(X, lengths)` produces identical output to `forward(X)` when all lengths equal `window_size`, (c) the loader round-trips 3-tuple batches correctly.
-- All ~96 sweep runs complete and produce valid metric rows (`best_epoch >= 1`, finite PHM08).
+- Stage 1 and Stage 2 job scripts can be invoked without code edits and are parameterized enough for local dry runs or cluster submission.
+- Owner-run sweep CSVs contain valid metric rows (`best_epoch >= 1`, finite PHM08) for the completed jobs.
 - At least one of the three Stage-1 hypotheses is answered for each subset, with the evidence cited.
 - For each subset, the **selected** GRU configuration's validation PHM08 is ≤ the current production GRU's validation PHM08 (no regressions). If a config is selected that is *worse* on validation but materially simpler, the report must justify it.
 - The production benchmark refresh either improves FD002 / FD004 test RMSE or, if it doesn't, the report explicitly states that the temporal/capacity axes did not close that gap — feeding the next roadmap decision (LSTM vs. interpretability).
