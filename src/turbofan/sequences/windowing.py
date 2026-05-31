@@ -18,7 +18,7 @@ class WindowedSequences:
         X: Window features with shape ``(n_windows, window_size, n_features)``.
         y: Labels with shape ``(n_windows,)``.
         metadata: Final-timestep metadata for each window. Includes a
-            ``padded`` boolean column flagging windows that were left-zero
+            ``padded`` boolean column flagging windows that were right-zero
             padded because the engine was shorter than ``window_size``.
         lengths: Actual (un-padded) timestep counts per window, dtype
             ``int64``. Full-length windows carry ``length == window_size``.
@@ -127,9 +127,9 @@ def _build_windows(
             targets = group[target_col].to_numpy(dtype=np.float32)
 
         if n_rows < window_size:
-            # Left-zero-pad the short engine
+            # Right-zero-pad the short engine (real data at start, zeros at end)
             padded_features = np.zeros((window_size, n_features), dtype=np.float32)
-            padded_features[-n_rows:, :] = features
+            padded_features[:n_rows, :] = features
             X_chunks.append(padded_features[np.newaxis, ...])
             y_chunks.append(np.asarray([targets[-1]], dtype=np.float32))
             length_chunks.append(np.asarray([n_rows], dtype=np.int64))

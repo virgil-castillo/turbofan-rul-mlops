@@ -56,10 +56,10 @@ def test_sliding_windows_are_sorted_and_labeled_by_final_timestep() -> None:
         windows.X[2],
         np.array([[21.0, 210.0], [22.0, 220.0]], dtype=np.float32),
     )
-    # engine 3 is left-zero-padded
+    # engine 3 is right-zero-padded
     np.testing.assert_array_equal(
         windows.X[4],
-        np.array([[0.0, 0.0], [31.0, 310.0]], dtype=np.float32),
+        np.array([[31.0, 310.0], [0.0, 0.0]], dtype=np.float32),
     )
     assert windows.lengths[4] == 1
     assert bool(windows.metadata["padded"].iloc[4]) is True
@@ -81,10 +81,10 @@ def test_final_windows_return_one_window_per_engine() -> None:
         windows.X[0],
         np.array([[12.0, 120.0], [13.0, 130.0]], dtype=np.float32),
     )
-    # engine 3 is left-zero-padded
+    # engine 3 is right-zero-padded
     np.testing.assert_array_equal(
         windows.X[2],
-        np.array([[0.0, 0.0], [31.0, 310.0]], dtype=np.float32),
+        np.array([[31.0, 310.0], [0.0, 0.0]], dtype=np.float32),
     )
     assert windows.lengths[2] == 1
 
@@ -108,7 +108,7 @@ def test_final_windows_without_target_returns_nan_labels() -> None:
 
 
 def test_short_engines_are_padded_not_skipped() -> None:
-    """Engines shorter than the window size are left-zero-padded, not skipped."""
+    """Engines shorter than the window size are right-zero-padded, not skipped."""
     windows = build_sliding_windows(_df(), FEATURE_COLS, window_size=3)
 
     # engine 3 has 1 cycle, engines 1 and 2 have 3 cycles each
@@ -181,8 +181,8 @@ def _toy_frame(engine_id: int, n_cycles: int, n_features: int = 3) -> pd.DataFra
     return pd.DataFrame(data)
 
 
-def test_sliding_window_pads_short_engine_left_zero() -> None:
-    """Short engines produce one left-zero-padded window in sliding mode."""
+def test_sliding_window_pads_short_engine_right_zero() -> None:
+    """Short engines produce one right-zero-padded window in sliding mode."""
     short = _toy_frame(engine_id=1, n_cycles=5)  # shorter than window
     long = _toy_frame(engine_id=2, n_cycles=12)
     frame = pd.concat([short, long], ignore_index=True)
@@ -198,12 +198,13 @@ def test_sliding_window_pads_short_engine_left_zero() -> None:
     short_idx = short_rows.index[0]
     assert windows.lengths[short_idx] == 5
     assert bool(short_rows["padded"].iloc[0]) is True
-    # left-zero-pad: first 5 timesteps must be zero
+    # right-zero-pad: last 5 timesteps must be zero (window_size=10, n_rows=5)
     np.testing.assert_array_equal(
-        windows.X[short_idx, :5, :], np.zeros((5, 3), dtype=np.float32)
+        windows.X[short_idx, 5:, :], np.zeros((5, 3), dtype=np.float32)
     )
-    # real data is right-aligned
-    assert windows.X[short_idx, -1, 0] == 4.0
+    # real data is left-aligned
+    assert windows.X[short_idx, 0, 0] == 0.0   # first real value (feature 0)
+    assert windows.X[short_idx, 4, 0] == 4.0   # last real value
 
     # long engine windows are full length, not padded
     long_rows = windows.metadata.loc[windows.metadata["engine_id"] == 2]
@@ -213,7 +214,7 @@ def test_sliding_window_pads_short_engine_left_zero() -> None:
 
 
 def test_final_window_pads_short_engine() -> None:
-    """Short engines produce one left-zero-padded window in final mode."""
+    """Short engines produce one right-zero-padded window in final mode."""
     short = _toy_frame(engine_id=1, n_cycles=4)
     windows = build_final_windows(
         short, window_size=8, feature_cols=["f_0", "f_1", "f_2"]
@@ -221,6 +222,7 @@ def test_final_window_pads_short_engine() -> None:
     assert len(windows.metadata) == 1
     assert windows.lengths[0] == 4
     assert bool(windows.metadata["padded"].iloc[0]) is True
+    # right-zero-pad: last 4 timesteps must be zero (window_size=8, n_rows=4)
     np.testing.assert_array_equal(
-        windows.X[0, :4, :], np.zeros((4, 3), dtype=np.float32)
+        windows.X[0, 4:, :], np.zeros((4, 3), dtype=np.float32)
     )
