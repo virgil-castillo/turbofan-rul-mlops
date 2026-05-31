@@ -32,6 +32,7 @@ def _windows() -> WindowedSequences:
                 "cycle": [2, 3, 2, 3],
             }
         ),
+        lengths=np.full(4, 2, dtype=np.int64),
     )
 
 

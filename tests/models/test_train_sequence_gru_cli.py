@@ -517,10 +517,10 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     _assert_metric_keys(metrics, "official_test")
 
 
-def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
+def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
     tmp_path: Path,
 ) -> None:
-    """Official test labels align to eligible final-window test engines only."""
+    """Official test labels align to all test engines, including short padded ones."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
@@ -537,9 +537,13 @@ def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
     with (run_dir / "official_test_predictions.csv").open(newline="") as csv_file:
         rows = list(DictReader(csv_file))
 
-    assert len(rows) == 1
-    assert rows[0]["engine_id"] == "2"
-    assert rows[0]["rul"] == "22.0"
+    # Both engines are now included: engine 1 is left-zero-padded (2 cycles < window 3)
+    assert len(rows) == 2
+    engine_ids = {row["engine_id"] for row in rows}
+    assert engine_ids == {"1", "2"}
+    rul_by_engine = {row["engine_id"]: row["rul"] for row in rows}
+    assert rul_by_engine["1"] == "11.0"
+    assert rul_by_engine["2"] == "22.0"
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     _assert_metric_keys(metrics, "validation_windows")
