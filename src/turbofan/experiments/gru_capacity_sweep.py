@@ -131,6 +131,13 @@ def build_stage2_specs(
             windows: tuple[int, ...] = _parse_tuple_cell(windows_raw)
         elif isinstance(windows_raw, (list, tuple)):
             windows = tuple(int(w) for w in windows_raw)
+        elif isinstance(windows_raw, float) and windows_raw != windows_raw:
+            # NaN produced by pandas when reading an empty-string cell (raw
+            # feature set has no rolling windows).
+            windows = ()
+        elif isinstance(windows_raw, (int, float)):
+            # Bare numeric value – a single window stored without parens.
+            windows = (int(windows_raw),)
         else:
             raise TypeError(f"Unexpected type for 'windows': {type(windows_raw)}")
         seq_win = base["sequence_window_size"]

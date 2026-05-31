@@ -59,15 +59,23 @@ class ExperimentSpec(NamedTuple):
 
 
 def _format_tuple(values: tuple[int, ...]) -> str:
-    """Format an integer tuple as a comma-separated string.
+    """Format an integer tuple as a parenthesised tuple string.
+
+    The output mirrors Python's built-in ``repr`` for tuples and is
+    round-trippable through CSV via :func:`_parse_tuple_cell`.
 
     Args:
         values: Integer tuple to format.
 
     Returns:
-        Comma-separated string, or empty string for an empty tuple.
+        Parenthesised tuple string, e.g. ``"()"`` or ``"(15,)"`` or
+        ``"(10, 20)"``.
     """
-    return ",".join(str(v) for v in values)
+    if not values:
+        return "()"
+    if len(values) == 1:
+        return f"({values[0]},)"
+    return "(" + ", ".join(str(v) for v in values) + ")"
 
 
 def _build_experiment_specs(
