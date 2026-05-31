@@ -189,6 +189,6 @@ Deliberately deferred until the modeling contract stabilizes:
 
 **Inference schema contract.** Public input is always canonical raw C-MAPSS format (engine_id, cycle, op_1–3, s_1–21). Model-specific preprocessing is owned by the artifact. No pre-normalized or pre-featurized input is accepted.
 
-**Short engines are skipped, not padded.** Engines shorter than the GRU window size are currently skipped during training. Padding/masking is deferred.
+**Short engines are left-zero-padded and processed with `pack_padded_sequence`.** The GRU pipeline pads engines shorter than the configured `window_size` and runs them as packed sequences so the final hidden state reflects only real timesteps.
 
 **Single-layer GRU by design.** Kept simple to avoid grid explosion. Multi-layer and alternative architectures (LSTM, TCN) are deferred.
