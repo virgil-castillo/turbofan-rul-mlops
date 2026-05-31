@@ -60,17 +60,36 @@ class GRURULRegressor(nn.Module):
         )
         self.regressor = nn.Linear(hidden_size, 1)
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        X: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Run a sequence batch through the GRU regressor.
 
         Args:
             X: Input tensor with shape ``(batch_size, sequence_length,
-                input_size)``.
+                input_size)``. Left-zero-padded entries are tolerated when
+                ``lengths`` is provided.
+            lengths: Optional actual timestep counts per row, shape
+                ``(batch_size,)``. When supplied, the GRU runs over a packed
+                sequence so the final hidden state reflects only real
+                timesteps. When ``None``, behaviour matches the unpacked
+                path.
 
         Returns:
             Tensor with shape ``(batch_size,)`` containing RUL predictions.
         """
-        _, hidden = self.gru(X)
+        if lengths is None:
+            _, hidden = self.gru(X)
+        else:
+            packed = torch.nn.utils.rnn.pack_padded_sequence(
+                X,
+                lengths.detach().cpu(),
+                batch_first=True,
+                enforce_sorted=False,
+            )
+            _, hidden = self.gru(packed)
         final_hidden = hidden[-1]
         predictions = self.regressor(final_hidden)
         return cast(torch.Tensor, predictions.squeeze(dim=-1))
