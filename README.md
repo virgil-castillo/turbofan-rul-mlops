@@ -134,6 +134,8 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-sweep-gru` | Sweep GRU hyperparameters |
 | `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
 | `turbofan-sweep-features` | Unified Ridge/GRU feature-engineering sweep through the shared preprocessing pipeline |
+| `turbofan-sweep-gru-temporal` | Stage 1: cross GRU sequence window size with the rolling-feature grid per subset |
+| `turbofan-sweep-gru-capacity` | Stage 2: cross GRU hidden size and learning rate on the top Stage 1 configs |
 | `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
 | `turbofan-serve-api` | FastAPI inference server |
 
@@ -329,6 +331,8 @@ mypy src/turbofan               # strict type checking
 - [x] Unified feature-engineering sweep CLI (`turbofan-sweep-features`) with Ridge vs GRU analysis across all four subsets
 - [x] Train and persist baseline and GRU production artifacts on FD002–FD004
 - [x] Cross-dataset benchmark table from persisted models
+- [x] Left-zero-pad short engines in GRU windowing (packed sequences; no engine skipped)
+- [x] Two-stage GRU temporal-context and capacity sweep CLIs (`turbofan-sweep-gru-temporal`, `turbofan-sweep-gru-capacity`) with SLURM drivers
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
 - [ ] MLOps infrastructure (experiment tracking, CI/CD)

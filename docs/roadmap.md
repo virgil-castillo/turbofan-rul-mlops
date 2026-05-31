@@ -143,6 +143,21 @@ complete. The remaining step is production training and a final benchmark.
 - [x] Verify feature engineering handles 6 operating conditions (FD002/FD004) — confirmed by the feature sweep running cleanly on all four subsets
 - [x] Cross-dataset benchmark table from persisted production models (validation-split feature comparison already in `docs/feature_sweep_*`)
 
+## Completed — GRU Temporal-Context and Capacity Sweep (2026-05-31)
+
+Two-stage sweep harness that disentangles how much temporal context the GRU needs
+(sequence window size and rolling features) from how much model capacity it needs
+(hidden size and learning rate). Short engines are now padded rather than skipped so
+no engine is dropped from any window size.
+
+- [x] Left-zero-pad short engines: `_build_windows` pads engines with fewer cycles than `window_size` (instead of skipping them) and records a `padded` flag and per-window `lengths`; `SequenceDataset`/`build_sequence_loader` yield 3-tuples; `GRURULRegressor.forward` accepts optional `lengths` and uses `pack_padded_sequence`; training, eval, and predict loops thread lengths through; `GRUPredictor` pads in `allow_partial` mode (strict mode unchanged); GRU sweep rows record `n_engines_total`, `n_engines_padded`, `n_engines_full`
+- [x] Stage 1 temporal-context sweep CLI (`turbofan-sweep-gru-temporal`, `src/turbofan/experiments/gru_temporal_sweep.py`) — crosses `sequence_window_size` × the rolling-feature grid (plus a raw control) per subset
+- [x] Stage 2 capacity sweep CLI (`turbofan-sweep-gru-capacity`, `src/turbofan/experiments/gru_capacity_sweep.py`) — consumes the Stage 1 output CSV and crosses `hidden_size` × `learning_rate` on the top-K configs
+- [x] SLURM drivers: `jobs/slurm/run_gru_temporal_sweep_stage1.sh`, `jobs/slurm/run_gru_capacity_sweep_stage2.sh`, `jobs/slurm/run_gru_selected_retrain.sh`
+
+The post-run analysis report and any selected-config updates are deferred until the
+cluster sweeps complete.
+
 ## Future — Additional Models
 
 The original plan included Random Forest, XGBoost, LSTM, and Transformer models. Current priority is depth on the existing models before breadth.
