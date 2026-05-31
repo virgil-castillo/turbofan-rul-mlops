@@ -56,4 +56,7 @@ mlartifacts/
 # Claude Code
 .claude/
 
+# Local scratch notes
+tmp/
+
 .ipynb_checkpoints/
