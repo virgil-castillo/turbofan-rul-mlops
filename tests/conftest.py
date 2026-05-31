@@ -8,6 +8,27 @@ import pytest
 
 from turbofan.config.schema import DataConfig
 
+
+def _write_cmapss_file(path: Path, n_engines: int, n_cycles: int) -> None:
+    """Write a small C-MAPSS-style whitespace-delimited file.
+
+    Args:
+        path: Destination file path.
+        n_engines: Number of synthetic engines.
+        n_cycles: Number of cycles per engine.
+    """
+    lines = []
+    for engine_id in range(1, n_engines + 1):
+        for cycle in range(1, n_cycles + 1):
+            op_cols = [0.0, 0.0, 0.0]
+            sensors = [
+                float(cycle + sensor_idx + engine_id)
+                for sensor_idx in range(1, 22)
+            ]
+            values = [engine_id, cycle, *op_cols, *sensors]
+            lines.append(" ".join(str(v) for v in values))
+    path.write_text("\n".join(lines))
+
 SENSOR_COLS = {f"s_{i}": float(i) for i in range(1, 22)}
 
 
@@ -60,3 +81,51 @@ def data_cfg(tmp_data_dir: Path) -> DataConfig:
         interim_dir=tmp_data_dir / "interim",
         fd_subset="FD001",
     )
+
+
+@pytest.fixture
+def tiny_config_path(tmp_path: Path) -> Path:
+    """Path to a minimal YAML config suitable for fast GRU integration tests.
+
+    Writes a 5-engine, 25-cycle C-MAPSS stub and a config with tiny GRU
+    hyperparameters so tests complete quickly on CPU.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+
+    Returns:
+        Path to the written config YAML.
+    """
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapss_file(raw_dir / "train_FD001.txt", n_engines=5, n_cycles=25)
+    _write_cmapss_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=10)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "project_name: tiny_test",
+                "data:",
+                f"  raw_dir: {raw_dir.as_posix()}",
+                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
+                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
+                "  fd_subset: FD001",
+                "  max_rul: 30",
+                "  test_size: 0.4",
+                "  random_seed: 42",
+                "sequence:",
+                "  architecture: gru",
+                "  window_size: 10",
+                "  batch_size: 8",
+                "  hidden_size: 4",
+                "  num_layers: 1",
+                "  dropout: 0.0",
+                "  learning_rate: 0.001",
+                "  epochs: 2",
+                "  patience: 2",
+                "  device: cpu",
+            ]
+        )
+    )
+    return cfg_path
