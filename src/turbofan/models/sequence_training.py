@@ -161,8 +161,8 @@ def _predict_windows_and_targets(
     predictions: list[npt.NDArray[np.float64]] = []
     targets: list[npt.NDArray[np.float64]] = []
     with torch.no_grad():
-        for features, batch_targets, _lengths in loader:
-            batch_predictions = model(features.to(device))
+        for features, batch_targets, lengths in loader:
+            batch_predictions = model(features.to(device), lengths=lengths)
             predictions.append(
                 batch_predictions.detach().cpu().numpy().astype(np.float64)
             )
@@ -209,11 +209,11 @@ def _train_one_epoch(
     model.train()
     total_loss = 0.0
     total_count = 0
-    for features, targets, _lengths in loader:
+    for features, targets, lengths in loader:
         features = features.to(device)
         targets = targets.to(device) / max_rul
         optimizer.zero_grad()
-        predictions = model(features)
+        predictions = model(features, lengths=lengths)
         loss = criterion(predictions, targets)
         loss.backward()
         optimizer.step()
