@@ -242,6 +242,9 @@ def test_run_feature_sweep_gru_returns_expected_columns(tmp_path: Path) -> None:
         "lag_steps",
         "n_features",
         "best_epoch",
+        "n_engines_total",
+        "n_engines_padded",
+        "n_engines_full",
         "rmse",
         "mae",
         "phm08_score",
@@ -384,6 +387,38 @@ def test_feature_sweep_cli_ridge_writes_csv(tmp_path: Path) -> None:
     assert "model" in df.columns
     assert df["model"].iloc[0] == "ridge"
     assert len(df) == 1
+
+
+def test_evaluate_gru_spec_emits_engine_count_columns(tmp_path: Path) -> None:
+    """_evaluate_gru_spec returns n_engines_total, n_engines_padded, n_engines_full."""
+    import torch
+
+    from turbofan.config.schema import load_config
+    from turbofan.models.evaluate import add_rul_column
+    from turbofan.models.split import split_by_engine
+
+    module = _load_module()
+    cfg_path = _write_config(tmp_path)
+    cfg = load_config(cfg_path)
+
+    from turbofan.data.loader import load_raw_train
+
+    train_raw = load_raw_train(cfg.data)
+    train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
+    train_df, val_df = split_by_engine(
+        train_labeled,
+        test_size=cfg.data.test_size,
+        random_seed=cfg.data.random_seed,
+    )
+
+    spec = module.ExperimentSpec(feature_set="raw", windows=(), lag_steps=())
+    device = torch.device("cpu")
+    row = module._evaluate_gru_spec(spec, train_df, val_df, cfg, device)
+
+    for column in ("n_engines_total", "n_engines_padded", "n_engines_full"):
+        assert column in row, f"missing column: {column}"
+        assert int(row[column]) >= 0  # type: ignore[arg-type]
+    assert row["n_engines_padded"] + row["n_engines_full"] == row["n_engines_total"]
 
 
 def test_feature_sweep_cli_gru_writes_csv(tmp_path: Path) -> None:

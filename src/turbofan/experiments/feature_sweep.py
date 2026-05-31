@@ -264,6 +264,12 @@ def _evaluate_gru_spec(
         feature_cols=feature_cols,
         window_size=cfg.sequence.window_size,
     )
+    val_metadata = val_windows.metadata
+    n_engines_total = int(val_metadata["engine_id"].nunique())
+    padded_engines = val_metadata.loc[val_metadata["padded"], "engine_id"].unique()
+    n_engines_padded = int(len(padded_engines))
+    n_engines_full = n_engines_total - n_engines_padded
+
     train_loader = build_sequence_loader(
         train_windows, batch_size=cfg.sequence.batch_size, shuffle=True
     )
@@ -320,6 +326,9 @@ def _evaluate_gru_spec(
             "feature_set": spec.feature_set,
             "windows": _format_tuple(spec.windows),
             "lag_steps": _format_tuple(spec.lag_steps),
+            "n_engines_total": n_engines_total,
+            "n_engines_padded": n_engines_padded,
+            "n_engines_full": n_engines_full,
         },
     )
     append_training_log(log_entry)
@@ -331,6 +340,9 @@ def _evaluate_gru_spec(
         "lag_steps": _format_tuple(spec.lag_steps),
         "n_features": len(feature_cols),
         "best_epoch": result.best_epoch,
+        "n_engines_total": n_engines_total,
+        "n_engines_padded": n_engines_padded,
+        "n_engines_full": n_engines_full,
         **metrics,
     }
 
