@@ -219,7 +219,10 @@ class GRUPredictor:
         )
         with torch.no_grad():
             tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
-            raw_predictions = self._model(tensor).detach().cpu().numpy()
+            lengths_tensor = torch.as_tensor(
+                windows.lengths, dtype=torch.int64, device="cpu"
+            )
+            raw_predictions = self._model(tensor, lengths_tensor).detach().cpu().numpy()
         rescaled = (
             np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * self._max_rul
         )
@@ -257,13 +260,11 @@ class GRUPredictor:
             )
         for engine_id in short_engines:
             warnings.append(
-                f"Skipped engine {engine_id}: shorter than window_size "
-                f"{self._window_size}."
+                f"Engine {engine_id}: shorter than window_size "
+                f"{self._window_size}; left-zero-padded."
             )
-        filtered = frame.loc[~frame["engine_id"].isin(short_engines)].copy()
-        if filtered.empty:
-            raise SchemaValidationError("No eligible sequence windows could be built.")
-        return filtered
+        # Return the frame unchanged — downstream windowing will pad.
+        return frame
 
 
 def load_predictor(artifact_path: Path) -> Predictor:
