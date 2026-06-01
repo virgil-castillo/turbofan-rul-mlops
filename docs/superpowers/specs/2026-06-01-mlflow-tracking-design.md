@@ -45,8 +45,8 @@ A thin, testable wrapper over MLflow containing no training logic. Public API
 - `TRAINING_EXPERIMENT: str = "turbofan-training"`
 - `SWEEP_EXPERIMENT: str = "turbofan-sweeps"`
 - `configure_mlflow(tracking_uri: str | None = None) -> None`
-  Point MLflow at the local SQLite store (default `sqlite:///mlflow.db`; honors
-  the `MLFLOW_TRACKING_URI` env var when set, e.g. an HPC scratch path).
+  Point MLflow at the local SQLite store (default `sqlite:///mlflow.db`, created
+  in the working directory; honors the `MLFLOW_TRACKING_URI` env var when set).
   Idempotent.
 - `log_params(params: Mapping[str, object]) -> None`
   Stringify and log a flat param mapping.
@@ -122,24 +122,22 @@ only thing being swapped.
   `training_log.jsonl`-era data; per project convention, historical numbers are
   not rewritten.
 
-## HPC / operations notes
+## Operations notes
 
-- **Where it writes:** by default, the SQLite DB is created relative to the
-  working directory the script runs in. On HPC, override the location with the
-  `MLFLOW_TRACKING_URI` env var (e.g. point it at a scratch/project path):
-  `export MLFLOW_TRACKING_URI=sqlite:////scratch/$USER/turbofan/mlflow.db`.
-  Nothing is sent off-node — the store stays on whatever filesystem you choose.
-- **Footprint:** SQLite keeps the whole run history in a single DB file (avoids
-  the thousands-of-small-files / inode pressure a file store causes on parallel
-  filesystems). Bytes are modest (curves are production-only and small).
-- **Viewing runs:** `mlflow ui --backend-store-uri sqlite:///<path>/mlflow.db`,
-  either on HPC with SSH port-forwarding or after copying the single `.db` file
-  back to a workstation.
+- **Where it writes:** identical on every machine (laptop or HPC) — a single
+  `mlflow.db` is created in the working directory (the project root, since runs
+  are launched from there). No machine-specific configuration. Nothing is sent
+  off the machine.
+- **Footprint:** SQLite keeps the whole run history in one DB file, avoiding the
+  thousands-of-small-files / inode pressure a directory-based file store would
+  cause. Bytes are modest (curves are production-only and small).
+- **Viewing runs:** `mlflow ui --backend-store-uri sqlite:///mlflow.db`. For runs
+  produced on HPC, either copy the single `mlflow.db` file back to a workstation
+  and open it locally, or run the UI on HPC with SSH port-forwarding.
 - **Concurrency caveat:** sweeps log trials sequentially within one process, so a
-  single sweep is safe. Launching **parallel array-job sweeps that all write the
-  same DB** is not recommended; give each job its own `MLFLOW_TRACKING_URI` (e.g.
-  per-job DB) and merge later if needed. (Multi-writer consolidation is out of
-  scope for this step.)
+  single sweep is safe. Many processes writing the *same* DB at once is not
+  supported by SQLite-backed MLflow; multi-writer consolidation is out of scope
+  for this step.
 
 ## Out of scope (deferred)
 
