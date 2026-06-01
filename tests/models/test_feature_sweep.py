@@ -208,6 +208,7 @@ def test_run_feature_sweep_ridge_returns_expected_columns(tmp_path: Path) -> Non
         windows=[5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert set(results.columns) == {
         "model",
@@ -234,6 +235,7 @@ def test_run_feature_sweep_gru_returns_expected_columns(tmp_path: Path) -> None:
         windows=[5],
         lag_steps=[1],
         device="cpu",
+        output_path=tmp_path / "sweep.csv",
     )
     assert set(results.columns) == {
         "model",
@@ -263,6 +265,7 @@ def test_run_feature_sweep_raw_produces_one_row(tmp_path: Path) -> None:
         windows=[5, 10],
         lag_steps=[1, 2],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert len(results) == 1
 
@@ -280,6 +283,7 @@ def test_run_feature_sweep_rolling_mean_two_windows_produces_two_rows(
         windows=[3, 5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert len(results) == 2
 
@@ -295,6 +299,7 @@ def test_run_feature_sweep_results_sorted_by_phm08_score(tmp_path: Path) -> None
         windows=[5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert results["phm08_score"].is_monotonic_increasing
 
@@ -449,7 +454,7 @@ def test_feature_sweep_cli_gru_writes_csv(tmp_path: Path) -> None:
             "--output",
             str(output_path),
         ],
-        cwd=project_root,
+        cwd=tmp_path,
         check=True,
         capture_output=True,
         text=True,
