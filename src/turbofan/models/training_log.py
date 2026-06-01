@@ -7,6 +7,9 @@ from pathlib import Path
 
 _REQUIRED_METRICS = frozenset({"rmse", "mae", "phm08_score"})
 
+# Module-level default so tests can redirect via monkeypatch.setattr.
+_DEFAULT_LOG_PATH = Path("results/training_log.jsonl")
+
 
 def build_log_entry(
     model_type: str,
@@ -63,18 +66,20 @@ def build_log_entry(
 
 def append_training_log(
     entry: dict[str, object],
-    log_path: Path = Path("results/training_log.jsonl"),
+    log_path: Path | None = None,
 ) -> None:
     """Append a training log entry to a JSON Lines file.
 
     Args:
         entry: Training log entry to serialize.
-        log_path: Destination JSON Lines log path.
+        log_path: Destination JSON Lines log path. Defaults to
+            ``_DEFAULT_LOG_PATH`` (``results/training_log.jsonl``).
 
     Returns:
         None.
     """
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as file:
+    resolved = log_path if log_path is not None else _DEFAULT_LOG_PATH
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    with resolved.open("a", encoding="utf-8") as file:
         file.write(json.dumps(entry, default=str))
         file.write("\n")

@@ -7,6 +7,15 @@ import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig
+import turbofan.models.training_log as _training_log_module
+
+
+@pytest.fixture(autouse=True)
+def _redirect_training_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect training log writes to tmp_path so tests never touch results/."""
+    monkeypatch.setattr(
+        _training_log_module, "_DEFAULT_LOG_PATH", tmp_path / "training_log.jsonl"
+    )
 
 
 def _write_cmapss_file(path: Path, n_engines: int, n_cycles: int) -> None:
