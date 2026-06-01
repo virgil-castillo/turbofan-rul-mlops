@@ -7,7 +7,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turbofan.models.metrics import mae, phm08_score, regression_metrics, rmse
+from turbofan.models.metrics import (
+    mae,
+    official_test_metrics,
+    phm08_score,
+    regression_metrics,
+    rmse,
+)
 
 
 def test_rmse_matches_hand_computation() -> None:
@@ -40,9 +46,20 @@ def test_phm08_score_does_not_overflow_for_large_residuals() -> None:
     assert score > 0.0
 
 
-def test_regression_metrics_returns_all_metrics() -> None:
-    """Combined metrics returns the expected values."""
+def test_regression_metrics_excludes_phm08() -> None:
+    """Validation metrics contain only RMSE and MAE, never the PHM08 score."""
     metrics = regression_metrics(
+        pd.Series([10.0, 20.0]),
+        pd.Series([13.0, 18.0]),
+    )
+    assert set(metrics) == {"rmse", "mae"}
+    assert metrics["rmse"] == pytest.approx(math.sqrt(13.0 / 2.0))
+    assert metrics["mae"] == pytest.approx(2.5)
+
+
+def test_official_test_metrics_includes_phm08() -> None:
+    """Official-test metrics extend RMSE/MAE with the asymmetric PHM08 score."""
+    metrics = official_test_metrics(
         pd.Series([10.0, 20.0]),
         pd.Series([13.0, 18.0]),
     )

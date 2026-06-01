@@ -12,7 +12,7 @@ from turbofan.experiments.gru_capacity_sweep import (
 )
 
 
-def test_select_top_k_from_stage1_picks_best_by_phm08(tmp_path: Path) -> None:
+def test_select_top_k_from_stage1_picks_best_by_rmse(tmp_path: Path) -> None:
     csv = tmp_path / "stage1.csv"
     pd.DataFrame(
         {
@@ -21,8 +21,8 @@ def test_select_top_k_from_stage1_picks_best_by_phm08(tmp_path: Path) -> None:
             "sequence_window_size": [30, 45, 60],
             "hidden_size": [64, 64, 64],
             "learning_rate": [0.001, 0.001, 0.001],
-            "phm08_score": [300.0, 250.0, 275.0],
             "rmse": [25.0, 22.0, 23.0],
+            "mae": [20.0, 17.0, 18.0],
         }
     ).to_csv(csv, index=False)
 

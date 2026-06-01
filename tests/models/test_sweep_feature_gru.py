@@ -175,7 +175,6 @@ def test_feature_sweep_returns_expected_columns(
         "best_epoch",
         "rmse",
         "mae",
-        "phm08_score",
     ]
 
 
@@ -222,7 +221,6 @@ def test_feature_sweep_cli_writes_csv(tmp_path: Path) -> None:
         "best_epoch",
         "rmse",
         "mae",
-        "phm08_score",
     ]
     assert len(results) == 1
 

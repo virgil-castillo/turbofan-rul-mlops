@@ -74,8 +74,8 @@ def _parse_tuple_cell(cell: str) -> tuple[int, ...]:
 def select_top_k_from_stage1(
     csv_path: Path,
     k: int,
-    primary: str = "phm08_score",
-    tiebreak: str = "rmse",
+    primary: str = "rmse",
+    tiebreak: str = "mae",
 ) -> list[dict[str, object]]:
     """Select the top-K configurations from a Stage 1 sweep CSV.
 
@@ -87,9 +87,9 @@ def select_top_k_from_stage1(
         csv_path: Path to the Stage 1 sweep results CSV.
         k: Number of top configurations to return.
         primary: Column name to sort by first (ascending). Defaults to
-            ``"phm08_score"``.
+            ``"rmse"`` (the validation ranking metric).
         tiebreak: Column name to sort by second (ascending) when ``primary``
-            values are equal. Defaults to ``"rmse"``.
+            values are equal. Defaults to ``"mae"``.
 
     Returns:
         List of at most ``k`` row dicts, sorted best-first.
@@ -201,7 +201,7 @@ def run_stage2_sweep(
             Defaults to ``results/stage2_capacity_sweep_<fd_subset>.csv``.
 
     Returns:
-        DataFrame of results sorted ascending by ``phm08_score``.
+        DataFrame of results sorted ascending by ``rmse``.
     """
     from turbofan.models.sequence_training import resolve_device
 
@@ -249,10 +249,10 @@ def run_stage2_sweep(
             f"windows={spec.windows} "
             f"hidden_size={spec.hidden_size} "
             f"learning_rate={spec.learning_rate} "
-            f"phm08_score={row['phm08_score']:.6f}"
+            f"rmse={row['rmse']:.6f}"
         )
 
-    results = pd.DataFrame(rows).sort_values("phm08_score").reset_index(drop=True)
+    results = pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
     if output_path is None:
         output_path = Path(
             f"results/stage2_capacity_sweep_{cfg.data.fd_subset.lower()}.csv"

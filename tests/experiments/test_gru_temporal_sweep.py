@@ -52,7 +52,6 @@ def test_run_stage1_sweep_writes_csv_with_required_columns(
         "learning_rate",
         "best_epoch",
         "rmse",
-        "phm08_score",
         "n_engines_total",
         "n_engines_padded",
         "n_engines_full",

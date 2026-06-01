@@ -16,7 +16,7 @@ def _metrics() -> dict[str, float]:
     Returns:
         Metrics containing all required training log keys.
     """
-    return {"rmse": 1.5, "mae": 1.0, "phm08_score": 2.5}
+    return {"rmse": 1.5, "mae": 1.0}
 
 
 def test_build_log_entry_required_fields() -> None:
@@ -56,7 +56,7 @@ def test_build_log_entry_required_fields() -> None:
     assert entry["extra"] == {}
 
 
-@pytest.mark.parametrize("missing_metric", ["rmse", "mae", "phm08_score"])
+@pytest.mark.parametrize("missing_metric", ["rmse", "mae"])
 def test_build_log_entry_validates_metrics(missing_metric: str) -> None:
     """Missing required metrics raise ValueError."""
     metrics = _metrics()

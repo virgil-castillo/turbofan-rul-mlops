@@ -105,7 +105,6 @@ def train_gru_model(
                 "train_loss": train_loss,
                 "validation_windows_rmse": window_metrics["rmse"],
                 "validation_windows_mae": window_metrics["mae"],
-                "validation_windows_phm08_score": window_metrics["phm08_score"],
             }
         )
 

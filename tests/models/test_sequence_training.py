@@ -28,7 +28,6 @@ EXPECTED_HISTORY_COLUMNS = [
     "train_loss",
     "validation_windows_rmse",
     "validation_windows_mae",
-    "validation_windows_phm08_score",
 ]
 
 
@@ -431,4 +430,5 @@ def test_evaluate_loader_returns_finite_metrics() -> None:
         model, loader, device=torch.device("cpu"), max_rul=125
     )
     assert np.isfinite(metrics["rmse"])
-    assert np.isfinite(metrics["phm08_score"])
+    assert np.isfinite(metrics["mae"])
+    assert "phm08_score" not in metrics

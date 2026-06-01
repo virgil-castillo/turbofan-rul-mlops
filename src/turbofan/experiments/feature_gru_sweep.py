@@ -37,7 +37,6 @@ RESULT_COLUMNS = [
     "best_epoch",
     "rmse",
     "mae",
-    "phm08_score",
 ]
 
 _ALL_SENSOR_COLS = [f"s_{i}" for i in range(1, 22)]
@@ -258,7 +257,7 @@ def run_feature_sweep(
         output_path: Optional CSV path for incremental and final results.
 
     Returns:
-        Results sorted by validation PHM08 score.
+        Results sorted by validation RMSE.
 
     Raises:
         ValueError: If sweep inputs are invalid.
@@ -386,7 +385,6 @@ def run_feature_sweep(
             "best_epoch": result.best_epoch,
             "rmse": metrics["rmse"],
             "mae": metrics["mae"],
-            "phm08_score": metrics["phm08_score"],
         }
 
         rows.append(row)
@@ -427,11 +425,11 @@ def run_feature_sweep(
             f"feature_set={feature_set} "
             f"corr_threshold={corr_threshold} "
             f"n_features={len(feature_cols)} "
-            f"phm08_score={metrics['phm08_score']:.6f}"
+            f"rmse={metrics['rmse']:.6f}"
         )
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)
-    return results.sort_values("phm08_score").reset_index(drop=True)
+    return results.sort_values("rmse").reset_index(drop=True)
 
 
 def main() -> None:

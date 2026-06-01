@@ -14,7 +14,7 @@ import pandas as pd
 from turbofan.inference.predictors import load_predictor
 from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.inference.service import prediction_result_to_dict
-from turbofan.models.metrics import regression_metrics
+from turbofan.models.metrics import official_test_metrics
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -93,7 +93,7 @@ def _try_evaluate(
         [float(str(row["prediction"])) for row in predictions],
         dtype=np.float64,
     )
-    return regression_metrics(labels, y_pred)
+    return official_test_metrics(labels, y_pred)
 
 
 def _build_parser() -> argparse.ArgumentParser:

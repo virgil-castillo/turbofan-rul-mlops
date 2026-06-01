@@ -9,7 +9,7 @@ from turbofan.config.schema import DataConfig
 from turbofan.data.loader import load_raw_test, load_rul_labels
 from turbofan.models.evaluate import align_official_test_labels
 from turbofan.models.gru import GRURULRegressor
-from turbofan.models.metrics import regression_metrics
+from turbofan.models.metrics import official_test_metrics
 from turbofan.models.sequence_training import predict_windows
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
@@ -98,7 +98,7 @@ def evaluate_test_from_df(
         predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
     )
     y_true = align_labels_to_eligible_engines(test_windows.metadata, rul_labels)
-    metrics = regression_metrics(y_true, y_pred)
+    metrics = official_test_metrics(y_true, y_pred)
     return {
         "test_rmse": metrics["rmse"],
         "test_mae": metrics["mae"],

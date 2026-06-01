@@ -17,7 +17,7 @@ from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.models.artifacts import create_run_dir, save_json, save_predictions
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
-from turbofan.models.metrics import regression_metrics
+from turbofan.models.metrics import official_test_metrics, regression_metrics
 from turbofan.models.sequence_training import (
     predict_windows,
     resolve_device,
@@ -188,7 +188,7 @@ def _evaluate_official_test(
         test_windows.metadata,
         rul_labels,
     )
-    metrics = regression_metrics(y_true, y_pred)
+    metrics = official_test_metrics(y_true, y_pred)
     predictions = _prediction_frame(test_windows, y_true, y_pred)
     return metrics, predictions
 
@@ -380,7 +380,6 @@ def main() -> None:
     print(f"run_dir: {run_dir}")
     print(f"validation_windows rmse: {window_metrics['rmse']:.6f}")
     print(f"validation_windows mae: {window_metrics['mae']:.6f}")
-    print(f"validation_windows phm08_score: {window_metrics['phm08_score']:.6f}")
     if official is not None:
         print(f"official_test rmse: {official_metrics['rmse']:.6f}")
         print(f"official_test mae: {official_metrics['mae']:.6f}")

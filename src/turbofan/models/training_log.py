@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-_REQUIRED_METRICS = frozenset({"rmse", "mae", "phm08_score"})
+_REQUIRED_METRICS = frozenset({"rmse", "mae"})
 
 # Module-level default so tests can redirect via monkeypatch.setattr.
 _DEFAULT_LOG_PATH = Path("results/training_log.jsonl")
@@ -31,7 +31,8 @@ def build_log_entry(
         random_seed: Random seed used for training.
         hyperparameters: Hyperparameters used for the run.
         metrics: Evaluation metrics for the trained model. Must include
-            ``rmse``, ``mae``, and ``phm08_score``.
+            ``rmse`` and ``mae``. The PHM08 score is recorded only for official
+            test evaluations, typically inside ``extra``.
         training_duration_seconds: Training wall-clock duration in seconds.
         device: Device used for training.
         run_dir: Optional directory containing run artifacts.

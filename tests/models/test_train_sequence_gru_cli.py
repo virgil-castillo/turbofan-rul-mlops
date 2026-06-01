@@ -147,15 +147,17 @@ def _write_config(
 def _assert_metric_keys(metrics: dict[str, object], section: str) -> None:
     """Assert a metrics section contains the expected regression metrics.
 
+    Validation sections carry only RMSE and MAE; the PHM08 score is reserved
+    for the official test section.
+
     Args:
         metrics: Metrics payload loaded from JSON.
         section: Top-level metric section name.
     """
-    assert set(metrics[section]) == {
-        "rmse",
-        "mae",
-        "phm08_score",
-    }
+    expected = {"rmse", "mae"}
+    if section == "official_test":
+        expected = {"rmse", "mae", "phm08_score"}
+    assert set(metrics[section]) == expected
 
 
 def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
@@ -297,7 +299,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         module,
         "_evaluate_windows",
         lambda *args, **kwargs: (
-            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            {"rmse": 0.0, "mae": 0.0},
             pd.DataFrame(),
         ),
     )
@@ -353,7 +355,7 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
             artifact_dir=tmp_path / "artifacts",
         ),
     )
-    window_metrics = {"rmse": 1.0, "mae": 2.0, "phm08_score": 3.0}
+    window_metrics = {"rmse": 1.0, "mae": 2.0}
     build_calls: list[dict[str, object]] = []
     appended_entries: list[dict[str, object]] = []
     timer_values = iter([10.0, 12.5])
@@ -671,7 +673,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
         module,
         "_evaluate_windows",
         lambda *a, **k: (
-            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            {"rmse": 0.0, "mae": 0.0},
             pd.DataFrame(),
         ),
     )

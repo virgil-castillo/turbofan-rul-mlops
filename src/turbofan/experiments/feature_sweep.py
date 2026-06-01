@@ -378,7 +378,7 @@ def run_feature_sweep(
         output_path: Optional CSV path for sweep results.
 
     Returns:
-        Results sorted ascending by validation PHM08 score.
+        Results sorted ascending by validation RMSE.
 
     Raises:
         ValueError: If any sweep input is invalid.
@@ -435,10 +435,10 @@ def run_feature_sweep(
                 f"feature_set={spec.feature_set} "
                 f"windows={_format_tuple(spec.windows)} "
                 f"lag_steps={_format_tuple(spec.lag_steps)} "
-                f"phm08_score={row['phm08_score']:.6f}"
+                f"rmse={row['rmse']:.6f}"
             )
 
-    results = pd.DataFrame(rows).sort_values("phm08_score").reset_index(drop=True)
+    results = pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
     if output_path is None:
         output_path = Path(
             f"results/feature_sweep_{model}_{cfg.data.fd_subset.lower()}.csv"

@@ -126,7 +126,7 @@ def run_stage1_sweep(
         output_path: Optional CSV path; writes sorted results when provided.
 
     Returns:
-        DataFrame of results sorted ascending by ``phm08_score``.
+        DataFrame of results sorted ascending by ``rmse``.
     """
     from turbofan.models.sequence_training import resolve_device
 
@@ -175,10 +175,10 @@ def run_stage1_sweep(
             f"feature_set={spec.feature_set} "
             f"windows={spec.windows} "
             f"sequence_window_size={spec.sequence_window_size} "
-            f"phm08_score={row['phm08_score']:.6f}"
+            f"rmse={row['rmse']:.6f}"
         )
 
-    results = pd.DataFrame(rows).sort_values("phm08_score").reset_index(drop=True)
+    results = pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
     if output_path is None:
         output_path = Path(
             f"results/stage1_temporal_sweep_{cfg.data.fd_subset.lower()}.csv"

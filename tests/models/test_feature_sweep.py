@@ -219,7 +219,6 @@ def test_run_feature_sweep_ridge_returns_expected_columns(tmp_path: Path) -> Non
         "alpha",
         "rmse",
         "mae",
-        "phm08_score",
     }
     assert (results["model"] == "ridge").all()
 
@@ -249,7 +248,6 @@ def test_run_feature_sweep_gru_returns_expected_columns(tmp_path: Path) -> None:
         "n_engines_full",
         "rmse",
         "mae",
-        "phm08_score",
     }
     assert (results["model"] == "gru").all()
 
@@ -288,8 +286,8 @@ def test_run_feature_sweep_rolling_mean_two_windows_produces_two_rows(
     assert len(results) == 2
 
 
-def test_run_feature_sweep_results_sorted_by_phm08_score(tmp_path: Path) -> None:
-    """Results are sorted ascending by phm08_score."""
+def test_run_feature_sweep_results_sorted_by_rmse(tmp_path: Path) -> None:
+    """Results are sorted ascending by rmse."""
     module = _load_module()
     cfg_path = _write_config(tmp_path)
     results = module.run_feature_sweep(
@@ -301,7 +299,7 @@ def test_run_feature_sweep_results_sorted_by_phm08_score(tmp_path: Path) -> None
         n_jobs=1,
         output_path=tmp_path / "sweep.csv",
     )
-    assert results["phm08_score"].is_monotonic_increasing
+    assert results["rmse"].is_monotonic_increasing
 
 
 # ---------------------------------------------------------------------------
