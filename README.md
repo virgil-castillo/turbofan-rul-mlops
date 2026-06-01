@@ -209,9 +209,13 @@ Models are evaluated using:
 |---|---|
 | RMSE | Penalizes larger prediction errors |
 | MAE | Measures average absolute prediction error |
-| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones |
+| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones. Computed on the official test set only |
 
-GRU training reports RMSE, MAE, and PHM08 on an engine-level validation split. When the official FD001 test files are present, training also evaluates against `test_FD001.txt` using labels from `RUL_FD001.txt`.
+Validation and sweep ranking use RMSE and MAE; the PHM08 score is computed only
+on the official test set. GRU training reports RMSE and MAE on an engine-level
+validation split. When the official test files for the configured subset are
+present (e.g. `test_FD001.txt` with `RUL_FD001.txt`), training also evaluates
+against them and reports RMSE, MAE, and the PHM08 score.
 
 Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/sequence_gru/<timestamp>/`. Cross-run summaries are saved under `results/`.
 
