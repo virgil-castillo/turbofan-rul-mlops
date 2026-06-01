@@ -14,10 +14,18 @@ features:
     - s_18
     - s_19
   n_modes: 1
-  # Best-config feature engineering per model (from the feature sweep).
+  # Ridge: best-config feature engineering from the feature sweep.
+  # GRU: selected config from the Stage 2 capacity sweep (docs/gru_capacity_sweep_report.md).
   ridge:
     feature_set: raw_plus_rolling_mean
     windows: [2]
   gru:
     feature_set: rolling_mean
-    windows: [15]
+    windows: [20]
+
+# GRU sequence hyperparameters selected by the Stage 2 capacity sweep.
+# device inherits `cpu` from default.yaml.
+sequence:
+  window_size: 60
+  hidden_size: 64
+  learning_rate: 0.0003
