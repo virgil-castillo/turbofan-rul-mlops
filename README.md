@@ -28,9 +28,10 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 ## Key findings
 
 Production models evaluated on both the engine-level validation split and the
-official C-MAPSS test set. GRU rows are the retrained Stage 2 capacity-sweep
-selected configs (CPU, 2026-06-01); Ridge rows reflect the prior deployed models
-(production refresh pending):
+official C-MAPSS test set. Both models were retrained on CPU (2026-06-01) from
+their per-subset selected configs — GRU from the Stage 2 capacity sweep, Ridge
+from its best feature-sweep config. The Ridge numbers reproduce the prior deployed
+values exactly (Ridge is deterministic given the same config and seed):
 
 | Subset | Ridge val RMSE | Ridge test RMSE | GRU val RMSE | GRU test RMSE |
 |--------|---:|---:|---:|---:|

@@ -112,10 +112,12 @@ lag family should be abandoned.
 
 Production models, evaluated on the C-MAPSS official test set (unseen engines,
 single prediction per engine at the last cycle). The PHM08 score is the canonical
-final-test metric. The **GRU rows are the retrained Stage 2 capacity-sweep selected
-configs** (CPU, 2026-06-01; see [gru_capacity_sweep_report.md](gru_capacity_sweep_report.md));
-the **Ridge rows still reflect the prior deployed models**, whose production refresh
-is pending:
+final-test metric. Both models were retrained on CPU (2026-06-01) from their
+per-subset selected configs: the **GRU rows are the Stage 2 capacity-sweep selected
+configs** (see [gru_capacity_sweep_report.md](gru_capacity_sweep_report.md)) and the
+**Ridge rows are the best feature-sweep config** for each subset. The Ridge values
+reproduce the prior deployed numbers exactly (Ridge is deterministic given the same
+config and seed):
 
 | Subset | Ridge test RMSE | Ridge test MAE | GRU test RMSE | GRU test MAE | GRU RMSE Δ vs Ridge |
 |--------|---:|---:|---:|---:|---:|
