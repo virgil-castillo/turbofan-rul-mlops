@@ -6,8 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from turbofan.config.schema import DataConfig
 import turbofan.models.training_log as _training_log_module
+from turbofan.config.schema import DataConfig
 
 
 @pytest.fixture(autouse=True)
