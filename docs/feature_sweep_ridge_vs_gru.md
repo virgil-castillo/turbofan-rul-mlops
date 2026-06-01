@@ -112,22 +112,22 @@ lag family should be abandoned.
 
 Production models, evaluated on the C-MAPSS official test set (unseen engines,
 single prediction per engine at the last cycle). The PHM08 score is the canonical
-final-test metric. These models were trained with the configs selected by the
-*prior* PHM08-based ranking; RMSE re-ranking shifts some window picks (see the
-per-model reports), so a production refresh is pending and the numbers reflect the
-deployed models as-is:
+final-test metric. The **GRU rows are the retrained Stage 2 capacity-sweep selected
+configs** (CPU, 2026-06-01; see [gru_capacity_sweep_report.md](gru_capacity_sweep_report.md));
+the **Ridge rows still reflect the prior deployed models**, whose production refresh
+is pending:
 
 | Subset | Ridge test RMSE | Ridge test MAE | GRU test RMSE | GRU test MAE | GRU RMSE Δ vs Ridge |
 |--------|---:|---:|---:|---:|---:|
-| FD001 | 21.58 | 17.44 | 15.81 | 11.53 | −27% |
-| FD002 | 31.31 | 22.85 | 24.63 | 15.56 | −21% |
-| FD003 | 23.01 | 18.20 | 14.76 | 10.11 | −36% |
-| FD004 | 32.88 | 26.20 | 23.67 | 16.81 | −28% |
+| FD001 | 21.58 | 17.44 | 15.40 | 11.36 | −29% |
+| FD002 | 31.31 | 22.85 | 25.08 | 16.44 | −20% |
+| FD003 | 23.01 | 18.20 | 14.16 | 10.08 | −38% |
+| FD004 | 32.88 | 26.20 | 25.58 | 18.22 | −22% |
 
-The validation-set advantage carries to official test: the GRU leads by 21–36% on
-RMSE. Multi-condition subsets (FD002, FD004) are harder for both models, with
-larger val→test gaps — the official test distribution may differ from the training
-distribution more on those subsets.
+The validation-set advantage carries to official test: the GRU leads by 20–38% on
+RMSE. Single-condition subsets (FD001, FD003) keep a ~4–5 point val→test gap, while
+multi-condition subsets (FD002, FD004) widen to ~11–12 points — the official test
+distribution likely differs more from training on the multi-mode data.
 
 ## 8. Limitations and open questions
 

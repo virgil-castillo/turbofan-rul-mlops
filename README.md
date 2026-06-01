@@ -27,17 +27,19 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 
 ## Key findings
 
-Production models trained on each subset's best feature config (from the sweep),
-evaluated on both the engine-level validation split and the official C-MAPSS test set:
+Production models evaluated on both the engine-level validation split and the
+official C-MAPSS test set. GRU rows are the retrained Stage 2 capacity-sweep
+selected configs (CPU, 2026-06-01); Ridge rows reflect the prior deployed models
+(production refresh pending):
 
 | Subset | Ridge val RMSE | Ridge test RMSE | GRU val RMSE | GRU test RMSE |
 |--------|---:|---:|---:|---:|
-| FD001 | 20.72 | 21.58 | 10.91 | 15.81 |
-| FD002 | 19.35 | 31.31 | 13.17 | 24.63 |
-| FD003 | 17.07 | 23.01 | 10.57 | 14.76 |
-| FD004 | 18.47 | 32.88 | 14.73 | 23.67 |
+| FD001 | 20.72 | 21.58 | 10.19 | 15.40 |
+| FD002 | 19.35 | 31.31 | 12.78 | 25.08 |
+| FD003 | 17.07 | 23.01 | 10.07 | 14.16 |
+| FD004 | 18.47 | 32.88 | 14.73 | 25.58 |
 
-- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 27–38%.
+- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 20–38%.
 - The optimal rolling-mean window is **opposite** for the two models — Ridge favors
   short windows (2–4), the GRU favors long ones (~15) — because Ridge is memoryless
   while the GRU already models the sequence.
