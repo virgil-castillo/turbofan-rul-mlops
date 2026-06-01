@@ -46,9 +46,10 @@ evaluated on both the engine-level validation split and the official C-MAPSS tes
 - Multi-condition subsets (FD002, FD004) show larger val→test gaps for both models.
 
 Full sweep analysis:
-[Ridge](docs/feature_sweep_ridge_report.md) ·
-[GRU](docs/feature_sweep_gru_report.md) ·
-[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md)
+[Ridge feature sweep](docs/feature_sweep_ridge_report.md) ·
+[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md) ·
+[GRU two-stage capacity sweep](docs/gru_capacity_sweep_report.md)
+(the earlier fixed-capacity [GRU feature sweep](docs/archive/feature_sweep_gru_report.md) is archived)
 
 ## Quickstart
 

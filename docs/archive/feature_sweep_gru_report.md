@@ -1,6 +1,18 @@
+> **Archived / superseded (2026-06-01).** This sweep fixed the GRU at
+> `hidden_size=64`, `window_size=45` and varied only feature engineering. Its
+> headline best-RMSE figures and window/capacity selection are superseded by the
+> two-stage temporal + capacity sweep
+> ([`../gru_capacity_sweep_report.md`](../gru_capacity_sweep_report.md)), which
+> re-explored the sequence window and model capacity per subset with the
+> short-engine padding fix. The **feature-family mechanism findings** here (rolling
+> window direction, lag-family harm, the role of `raw`) are still cited by
+> [`../feature_sweep_ridge_vs_gru.md`](../feature_sweep_ridge_vs_gru.md) and remain
+> valid at the fixed capacity tested — but do not use this file's RMSE values as
+> the current best GRU numbers.
+
 # GRU Feature-Engineering Sweep
 
-Analysis of `results/feature_sweep_gru_fd00{1-4}.csv`.
+Analysis of `results/archive/feature_sweep_gru_fd00{1-4}.csv`.
 
 ## Method
 

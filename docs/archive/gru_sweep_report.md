@@ -1,8 +1,16 @@
+> **Archived / superseded (2026-06-01).** This is the original single-dataset
+> (FD001) GRU architecture sweep, run before the unified feature pipeline. It is
+> superseded by the two-stage GRU sweep (sequence window in Stage 1, hidden size /
+> learning rate in Stage 2 — see
+> [`../gru_capacity_sweep_report.md`](../gru_capacity_sweep_report.md)), which
+> covers all four subsets with the short-engine padding fix. Kept for provenance
+> only; do not cite for current results.
+
 # GRU Sweep Report
 
 Source files:
 
-- `results/gru_sweep.csv`
+- `results/archive/gru_sweep.csv`
 - `results/training_log.jsonl` for training duration
 
 Ranking is by validation RMSE (lower is better); the PHM08 score is not used to

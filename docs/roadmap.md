@@ -119,7 +119,7 @@ through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 - [x] `lag` semantics corrected to a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)` (previously returned the raw historical value `x[t-N]`)
 - [x] Multi-dataset runner scripts: `scripts/sweep_ridge_all_datasets.ps1` and `jobs/slurm/run_feature_sweep_gru_all_datasets.sh`
 - [x] Default output path `results/feature_sweep_{model}_{subset}.csv`; sweeps run for all four subsets across both models
-- [x] Cross-model analysis reports grounded solely in the sweep data and EDA, with methodology citations: `docs/feature_sweep_ridge_report.md`, `docs/feature_sweep_gru_report.md`, `docs/feature_sweep_ridge_vs_gru.md`
+- [x] Cross-model analysis reports grounded solely in the sweep data and EDA, with methodology citations: `docs/feature_sweep_ridge_report.md`, `docs/archive/feature_sweep_gru_report.md` (archived 2026-06-01), `docs/feature_sweep_ridge_vs_gru.md`
 - [x] Removed the superseded `baseline_feature_comparison` job/results and stale pre-refactor reports
 - [x] Per-model best-config feature engineering wired into the subset configs via `features.ridge` / `features.gru` blocks (resolved by `FeatureConfig.for_model`); each train CLI loads its own block
 
