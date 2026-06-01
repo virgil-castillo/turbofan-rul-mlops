@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from torch import nn
@@ -19,24 +20,27 @@ from turbofan.models.sequence_training import (
     resolve_device,
     train_gru_model,
 )
+from turbofan.sequences.dataset import build_sequence_loader
+from turbofan.sequences.windowing import WindowedSequences
 
 EXPECTED_HISTORY_COLUMNS = [
     "epoch",
     "train_loss",
     "validation_windows_rmse",
     "validation_windows_mae",
-    "validation_windows_phm08_score",
 ]
 
 
-def _loader(shuffle: bool = False) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
+def _loader(
+    shuffle: bool = False,
+) -> DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     """Build a tiny deterministic sequence DataLoader.
 
     Args:
         shuffle: Whether the DataLoader should shuffle samples.
 
     Returns:
-        DataLoader with four two-step windows and scalar targets.
+        DataLoader with four two-step windows, scalar targets, and lengths.
     """
     features = torch.tensor(
         [
@@ -48,7 +52,10 @@ def _loader(shuffle: bool = False) -> DataLoader[tuple[torch.Tensor, torch.Tenso
         dtype=torch.float32,
     )
     targets = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
-    return DataLoader(TensorDataset(features, targets), batch_size=2, shuffle=shuffle)
+    lengths = torch.full((4,), 2, dtype=torch.int64)
+    return DataLoader(
+        TensorDataset(features, targets, lengths), batch_size=2, shuffle=shuffle
+    )
 
 
 class _AlternatingOrderSampler(torch.utils.data.Sampler[int]):
@@ -72,11 +79,16 @@ class _AlternatingOrderSampler(torch.utils.data.Sampler[int]):
 class _LastFeatureRegressor(torch.nn.Module):
     """Identity-like model that predicts the final feature value."""
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Predict targets encoded in the final feature column.
 
         Args:
             features: Sequence feature batch.
+            lengths: Ignored; accepted for interface compatibility.
 
         Returns:
             One prediction per sequence window.
@@ -91,11 +103,16 @@ class _BiasRegressor(torch.nn.Module):
         super().__init__()
         self.bias = torch.nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Predict the learned bias for every sequence window.
 
         Args:
             features: Sequence feature batch.
+            lengths: Ignored; accepted for interface compatibility.
 
         Returns:
             One bias prediction per sequence window.
@@ -106,11 +123,16 @@ class _BiasRegressor(torch.nn.Module):
 class _NegativeRegressor(torch.nn.Module):
     """Fixed-output regressor that emits negative RUL predictions."""
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Return negative predictions for every sequence window.
 
         Args:
             features: Sequence feature batch.
+            lengths: Ignored; accepted for interface compatibility.
 
         Returns:
             One negative prediction per sequence window.
@@ -125,11 +147,16 @@ class _ConstantRegressor(torch.nn.Module):
         super().__init__()
         self._value = value
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Return a constant prediction for every window.
 
         Args:
             features: Sequence feature batch.
+            lengths: Ignored; accepted for interface compatibility.
 
         Returns:
             One constant prediction per window.
@@ -170,7 +197,8 @@ def test_evaluate_loader_keeps_predictions_and_targets_paired() -> None:
     """Evaluation pairs predictions and targets from the same loader pass."""
     targets = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
     features = targets.reshape(-1, 1, 1)
-    dataset = TensorDataset(features, targets)
+    lengths = torch.full((4,), 1, dtype=torch.int64)
+    dataset = TensorDataset(features, targets, lengths)
     loader = DataLoader(
         dataset,
         batch_size=2,
@@ -187,7 +215,8 @@ def test_evaluate_loader_clips_negative_predictions_before_metrics() -> None:
     """Evaluation clips impossible negative RUL predictions before metrics."""
     targets = torch.tensor([2.0, 4.0], dtype=torch.float32)
     features = torch.zeros((2, 1, 1), dtype=torch.float32)
-    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    lengths = torch.full((2,), 1, dtype=torch.int64)
+    loader = DataLoader(TensorDataset(features, targets, lengths), batch_size=2)
     model = _NegativeRegressor()
 
     metrics = _evaluate_loader(model, loader, torch.device("cpu"), max_rul=1)
@@ -231,6 +260,7 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         TensorDataset(
             torch.zeros((2, 1, 1), dtype=torch.float32),
             torch.ones(2, dtype=torch.float32),
+            torch.full((2,), 1, dtype=torch.int64),
         ),
         batch_size=2,
     )
@@ -238,6 +268,7 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         TensorDataset(
             torch.zeros((2, 1, 1), dtype=torch.float32),
             torch.full((2,), 0.2, dtype=torch.float32),
+            torch.full((2,), 1, dtype=torch.int64),
         ),
         batch_size=2,
     )
@@ -311,7 +342,8 @@ def test_evaluate_loader_rescales_predictions_by_max_rul() -> None:
     """Evaluate loader multiplies raw predictions by max_rul before clipping."""
     targets = torch.tensor([10.0, 10.0], dtype=torch.float32)
     features = torch.zeros((2, 1, 1), dtype=torch.float32)
-    loader = DataLoader(TensorDataset(features, targets), batch_size=2)
+    lengths = torch.full((2,), 1, dtype=torch.int64)
+    loader = DataLoader(TensorDataset(features, targets, lengths), batch_size=2)
     model = _ConstantRegressor(0.1)
     device = torch.device("cpu")
 
@@ -334,3 +366,69 @@ def test_predict_windows_rescales_by_max_rul() -> None:
     preds_scaled = predict_windows(model, loader, device, max_rul=10)
 
     np.testing.assert_allclose(preds_scaled, preds_identity * 10, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# 3-tuple length threading tests
+# ---------------------------------------------------------------------------
+
+
+def _tiny_windows(n: int = 4, window: int = 6, features: int = 3) -> WindowedSequences:
+    """Build a tiny deterministic WindowedSequences with varied lengths.
+
+    Args:
+        n: Number of windows.
+        window: Padded window size.
+        features: Number of feature columns.
+
+    Returns:
+        WindowedSequences with left-zero-padded short windows.
+    """
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(n, window, features)).astype(np.float32)
+    y = rng.uniform(20.0, 120.0, size=(n,)).astype(np.float32)
+    lengths = np.asarray([window, window - 1, window, window - 2], dtype=np.int64)
+    # Zero out padded prefixes to mimic the real padded format
+    for i, length in enumerate(lengths):
+        pad = window - int(length)
+        if pad:
+            X[i, :pad, :] = 0.0
+    metadata = pd.DataFrame(
+        {
+            "engine_id": list(range(n)),
+            "cycle": [window] * n,
+            "padded": [length < window for length in lengths.tolist()],
+        }
+    )
+    return WindowedSequences(X=X, y=y, metadata=metadata, lengths=lengths)
+
+
+def test_train_one_epoch_handles_three_tuple_batches() -> None:
+    """Training loop unpacks 3-tuple batches and passes lengths to the model."""
+    torch.manual_seed(0)
+    model = GRURULRegressor(input_size=3, hidden_size=4, num_layers=1, dropout=0.0)
+    loader = build_sequence_loader(_tiny_windows(), batch_size=2, shuffle=False)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
+    loss = _train_one_epoch(
+        model,
+        loader,
+        criterion,
+        optimizer,
+        device=torch.device("cpu"),
+        max_rul=125,
+    )
+    assert np.isfinite(loss)
+
+
+def test_evaluate_loader_returns_finite_metrics() -> None:
+    """Evaluation loop unpacks 3-tuple batches and returns finite metrics."""
+    torch.manual_seed(0)
+    model = GRURULRegressor(input_size=3, hidden_size=4, num_layers=1, dropout=0.0)
+    loader = build_sequence_loader(_tiny_windows(), batch_size=2, shuffle=False)
+    metrics = _evaluate_loader(
+        model, loader, device=torch.device("cpu"), max_rul=125
+    )
+    assert np.isfinite(metrics["rmse"])
+    assert np.isfinite(metrics["mae"])
+    assert "phm08_score" not in metrics

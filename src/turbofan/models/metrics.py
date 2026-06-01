@@ -127,11 +127,41 @@ def regression_metrics(
     y_true: MetricInput,
     y_pred: MetricInput,
 ) -> dict[str, float]:
-    """Compute all baseline regression metrics.
+    """Compute validation regression metrics (RMSE and MAE).
+
+    Excludes the PHM08 score, which is reserved for official-test evaluation;
+    see :func:`official_test_metrics`.
 
     Args:
         y_true: Ground-truth RUL values.
         y_pred: Predicted RUL values.
+
+    Returns:
+        Mapping with ``rmse`` and ``mae``.
+
+    Raises:
+        ValueError: If inputs differ in shape, are empty, are not
+            one-dimensional, contain non-finite values, or cannot be converted to
+            numeric arrays.
+    """
+    return {
+        "rmse": rmse(y_true, y_pred),
+        "mae": mae(y_true, y_pred),
+    }
+
+
+def official_test_metrics(
+    y_true: MetricInput,
+    y_pred: MetricInput,
+) -> dict[str, float]:
+    """Compute official-test metrics: RMSE, MAE, and the PHM08 score.
+
+    Use only on the official test set, where predictions are made once per
+    engine at its final cycle.
+
+    Args:
+        y_true: Ground-truth RUL values (one per engine).
+        y_pred: Predicted RUL values (one per engine).
 
     Returns:
         Mapping with ``rmse``, ``mae``, and ``phm08_score``.
@@ -142,7 +172,6 @@ def regression_metrics(
             numeric arrays.
     """
     return {
-        "rmse": rmse(y_true, y_pred),
-        "mae": mae(y_true, y_pred),
+        **regression_metrics(y_true, y_pred),
         "phm08_score": phm08_score(y_true, y_pred),
     }

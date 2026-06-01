@@ -208,6 +208,7 @@ def test_run_feature_sweep_ridge_returns_expected_columns(tmp_path: Path) -> Non
         windows=[5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert set(results.columns) == {
         "model",
@@ -218,7 +219,6 @@ def test_run_feature_sweep_ridge_returns_expected_columns(tmp_path: Path) -> Non
         "alpha",
         "rmse",
         "mae",
-        "phm08_score",
     }
     assert (results["model"] == "ridge").all()
 
@@ -234,6 +234,7 @@ def test_run_feature_sweep_gru_returns_expected_columns(tmp_path: Path) -> None:
         windows=[5],
         lag_steps=[1],
         device="cpu",
+        output_path=tmp_path / "sweep.csv",
     )
     assert set(results.columns) == {
         "model",
@@ -242,9 +243,11 @@ def test_run_feature_sweep_gru_returns_expected_columns(tmp_path: Path) -> None:
         "lag_steps",
         "n_features",
         "best_epoch",
+        "n_engines_total",
+        "n_engines_padded",
+        "n_engines_full",
         "rmse",
         "mae",
-        "phm08_score",
     }
     assert (results["model"] == "gru").all()
 
@@ -260,6 +263,7 @@ def test_run_feature_sweep_raw_produces_one_row(tmp_path: Path) -> None:
         windows=[5, 10],
         lag_steps=[1, 2],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert len(results) == 1
 
@@ -277,12 +281,13 @@ def test_run_feature_sweep_rolling_mean_two_windows_produces_two_rows(
         windows=[3, 5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
     assert len(results) == 2
 
 
-def test_run_feature_sweep_results_sorted_by_phm08_score(tmp_path: Path) -> None:
-    """Results are sorted ascending by phm08_score."""
+def test_run_feature_sweep_results_sorted_by_rmse(tmp_path: Path) -> None:
+    """Results are sorted ascending by rmse."""
     module = _load_module()
     cfg_path = _write_config(tmp_path)
     results = module.run_feature_sweep(
@@ -292,8 +297,9 @@ def test_run_feature_sweep_results_sorted_by_phm08_score(tmp_path: Path) -> None
         windows=[5],
         lag_steps=[1],
         n_jobs=1,
+        output_path=tmp_path / "sweep.csv",
     )
-    assert results["phm08_score"].is_monotonic_increasing
+    assert results["rmse"].is_monotonic_increasing
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +392,38 @@ def test_feature_sweep_cli_ridge_writes_csv(tmp_path: Path) -> None:
     assert len(df) == 1
 
 
+def test_evaluate_gru_spec_emits_engine_count_columns(tmp_path: Path) -> None:
+    """_evaluate_gru_spec returns n_engines_total, n_engines_padded, n_engines_full."""
+    import torch
+
+    from turbofan.config.schema import load_config
+    from turbofan.models.evaluate import add_rul_column
+    from turbofan.models.split import split_by_engine
+
+    module = _load_module()
+    cfg_path = _write_config(tmp_path)
+    cfg = load_config(cfg_path)
+
+    from turbofan.data.loader import load_raw_train
+
+    train_raw = load_raw_train(cfg.data)
+    train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
+    train_df, val_df = split_by_engine(
+        train_labeled,
+        test_size=cfg.data.test_size,
+        random_seed=cfg.data.random_seed,
+    )
+
+    spec = module.ExperimentSpec(feature_set="raw", windows=(), lag_steps=())
+    device = torch.device("cpu")
+    row = module._evaluate_gru_spec(spec, train_df, val_df, cfg, device)
+
+    for column in ("n_engines_total", "n_engines_padded", "n_engines_full"):
+        assert column in row, f"missing column: {column}"
+        assert int(row[column]) >= 0  # type: ignore[arg-type]
+    assert row["n_engines_padded"] + row["n_engines_full"] == row["n_engines_total"]
+
+
 def test_feature_sweep_cli_gru_writes_csv(tmp_path: Path) -> None:
     """CLI --model gru writes a CSV with best_epoch column."""
     project_root = Path(__file__).parent.parent.parent
@@ -414,7 +452,7 @@ def test_feature_sweep_cli_gru_writes_csv(tmp_path: Path) -> None:
             "--output",
             str(output_path),
         ],
-        cwd=project_root,
+        cwd=tmp_path,
         check=True,
         capture_output=True,
         text=True,

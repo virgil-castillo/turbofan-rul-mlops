@@ -172,10 +172,9 @@ def test_gru_sweep_returns_expected_rows(
         "best_epoch",
         "rmse",
         "mae",
-        "phm08_score",
         "training_duration_seconds",
     ]
-    assert results["phm08_score"].is_monotonic_increasing
+    assert results["rmse"].is_monotonic_increasing
 
 
 def test_gru_sweep_validates_inputs(tmp_path: Path) -> None:
@@ -313,7 +312,7 @@ def test_gru_sweep_reports_validation_window_metrics(
     row = results.iloc[0]
     assert row["rmse"] == 0.0
     assert row["mae"] == 0.0
-    assert row["phm08_score"] == 0.0
+    assert "phm08_score" not in results.columns
 
 
 def test_gru_sweep_appends_training_log_entry_per_completed_config(
@@ -472,7 +471,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
                 "epochs": 5,
                 "patience": 3,
             },
-            "metrics": {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            "metrics": {"rmse": 0.0, "mae": 0.0},
             "training_duration_seconds": 0.5,
             "device": "cpu",
             "run_dir": None,
@@ -492,7 +491,7 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
                 "epochs": 5,
                 "patience": 3,
             },
-            "metrics": {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            "metrics": {"rmse": 0.0, "mae": 0.0},
             "training_duration_seconds": 2.25,
             "device": "cpu",
             "run_dir": None,
@@ -542,7 +541,7 @@ def test_sweep_sequence_gru_cli_writes_csv(tmp_path: Path) -> None:
     assert len(results) == 1
     assert "training_duration_seconds" in results.columns
     assert results.loc[0, "training_duration_seconds"] > 0.0
-    assert results["phm08_score"].is_monotonic_increasing
+    assert results["rmse"].is_monotonic_increasing
 
 
 def test_sweep_sequence_gru_cli_writes_default_csv(tmp_path: Path) -> None:
@@ -582,4 +581,4 @@ def test_sweep_sequence_gru_cli_writes_default_csv(tmp_path: Path) -> None:
     assert len(results) == 1
     assert "training_duration_seconds" in results.columns
     assert results.loc[0, "training_duration_seconds"] > 0.0
-    assert results["phm08_score"].is_monotonic_increasing
+    assert results["rmse"].is_monotonic_increasing

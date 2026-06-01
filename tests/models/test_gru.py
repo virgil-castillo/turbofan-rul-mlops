@@ -62,3 +62,38 @@ def test_invalid_constructor_values_raise_value_error(
 
     with pytest.raises(ValueError, match=message):
         GRURULRegressor(**params)
+
+
+def test_forward_with_full_lengths_matches_unpacked() -> None:
+    torch.manual_seed(0)
+    model = GRURULRegressor(
+        input_size=4, hidden_size=8, num_layers=1, dropout=0.0
+    )
+    model.eval()
+    X = torch.randn(3, 6, 4)
+    lengths = torch.full((3,), 6, dtype=torch.int64)
+    with torch.no_grad():
+        unpacked = model(X)
+        packed = model(X, lengths=lengths)
+    torch.testing.assert_close(packed, unpacked, atol=1e-6, rtol=1e-6)
+
+
+def test_forward_with_padded_batch_uses_real_timesteps_only() -> None:
+    torch.manual_seed(0)
+    model = GRURULRegressor(
+        input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
+    model.eval()
+    # Build a single short sequence (length 3) and its right-zero-padded
+    # version inside a window of size 5; pack_padded_sequence uses right-
+    # padding (trailing zeros) so real timesteps occupy positions [0:3] and
+    # zeros fill positions [3:5].
+    real = torch.randn(1, 3, 2)
+    padded = torch.zeros(1, 5, 2)
+    padded[0, :3, :] = real[0]
+    lengths = torch.tensor([3], dtype=torch.int64)
+    with torch.no_grad():
+        # Slice padded to real timesteps; un-padded forward gives the reference.
+        reference = model(padded[:, :3, :])
+        packed = model(padded, lengths=lengths)
+    torch.testing.assert_close(packed, reference, atol=1e-6, rtol=1e-6)

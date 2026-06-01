@@ -27,17 +27,19 @@ This repository is a reproducible ML project for estimating turbofan engine Rema
 
 ## Key findings
 
-Production models trained on each subset's best feature config (from the sweep),
-evaluated on both the engine-level validation split and the official C-MAPSS test set:
+Production models evaluated on both the engine-level validation split and the
+official C-MAPSS test set. GRU rows are the retrained Stage 2 capacity-sweep
+selected configs (CPU, 2026-06-01); Ridge rows reflect the prior deployed models
+(production refresh pending):
 
 | Subset | Ridge val RMSE | Ridge test RMSE | GRU val RMSE | GRU test RMSE |
 |--------|---:|---:|---:|---:|
-| FD001 | 20.72 | 21.58 | 10.91 | 15.81 |
-| FD002 | 19.35 | 31.31 | 13.17 | 24.63 |
-| FD003 | 17.07 | 23.01 | 10.57 | 14.76 |
-| FD004 | 18.47 | 32.88 | 14.73 | 23.67 |
+| FD001 | 20.72 | 21.58 | 10.19 | 15.40 |
+| FD002 | 19.35 | 31.31 | 12.78 | 25.08 |
+| FD003 | 17.07 | 23.01 | 10.07 | 14.16 |
+| FD004 | 18.47 | 32.88 | 14.73 | 25.58 |
 
-- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 27–38%.
+- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 20–38%.
 - The optimal rolling-mean window is **opposite** for the two models — Ridge favors
   short windows (2–4), the GRU favors long ones (~15) — because Ridge is memoryless
   while the GRU already models the sequence.
@@ -46,9 +48,10 @@ evaluated on both the engine-level validation split and the official C-MAPSS tes
 - Multi-condition subsets (FD002, FD004) show larger val→test gaps for both models.
 
 Full sweep analysis:
-[Ridge](docs/feature_sweep_ridge_report.md) ·
-[GRU](docs/feature_sweep_gru_report.md) ·
-[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md)
+[Ridge feature sweep](docs/feature_sweep_ridge_report.md) ·
+[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md) ·
+[GRU two-stage capacity sweep](docs/gru_capacity_sweep_report.md)
+(the earlier fixed-capacity [GRU feature sweep](docs/archive/feature_sweep_gru_report.md) is archived)
 
 ## Quickstart
 
@@ -134,6 +137,8 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-sweep-gru` | Sweep GRU hyperparameters |
 | `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
 | `turbofan-sweep-features` | Unified Ridge/GRU feature-engineering sweep through the shared preprocessing pipeline |
+| `turbofan-sweep-gru-temporal` | Stage 1: cross GRU sequence window size with the rolling-feature grid per subset |
+| `turbofan-sweep-gru-capacity` | Stage 2: cross GRU hidden size and learning rate on the top Stage 1 configs |
 | `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
 | `turbofan-serve-api` | FastAPI inference server |
 
@@ -207,9 +212,13 @@ Models are evaluated using:
 |---|---|
 | RMSE | Penalizes larger prediction errors |
 | MAE | Measures average absolute prediction error |
-| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones |
+| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones. Computed on the official test set only |
 
-GRU training reports RMSE, MAE, and PHM08 on an engine-level validation split. When the official FD001 test files are present, training also evaluates against `test_FD001.txt` using labels from `RUL_FD001.txt`.
+Validation and sweep ranking use RMSE and MAE; the PHM08 score is computed only
+on the official test set. GRU training reports RMSE and MAE on an engine-level
+validation split. When the official test files for the configured subset are
+present (e.g. `test_FD001.txt` with `RUL_FD001.txt`), training also evaluates
+against them and reports RMSE, MAE, and the PHM08 score.
 
 Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/sequence_gru/<timestamp>/`. Cross-run summaries are saved under `results/`.
 
@@ -329,6 +338,8 @@ mypy src/turbofan               # strict type checking
 - [x] Unified feature-engineering sweep CLI (`turbofan-sweep-features`) with Ridge vs GRU analysis across all four subsets
 - [x] Train and persist baseline and GRU production artifacts on FD002–FD004
 - [x] Cross-dataset benchmark table from persisted models
+- [x] Left-zero-pad short engines in GRU windowing (packed sequences; no engine skipped)
+- [x] Two-stage GRU temporal-context and capacity sweep CLIs (`turbofan-sweep-gru-temporal`, `turbofan-sweep-gru-capacity`) with SLURM drivers
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
 - [ ] MLOps infrastructure (experiment tracking, CI/CD)

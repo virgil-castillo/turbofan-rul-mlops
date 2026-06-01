@@ -147,15 +147,17 @@ def _write_config(
 def _assert_metric_keys(metrics: dict[str, object], section: str) -> None:
     """Assert a metrics section contains the expected regression metrics.
 
+    Validation sections carry only RMSE and MAE; the PHM08 score is reserved
+    for the official test section.
+
     Args:
         metrics: Metrics payload loaded from JSON.
         section: Top-level metric section name.
     """
-    assert set(metrics[section]) == {
-        "rmse",
-        "mae",
-        "phm08_score",
-    }
+    expected = {"rmse", "mae"}
+    if section == "official_test":
+        expected = {"rmse", "mae", "phm08_score"}
+    assert set(metrics[section]) == expected
 
 
 def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
@@ -297,7 +299,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         module,
         "_evaluate_windows",
         lambda *args, **kwargs: (
-            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            {"rmse": 0.0, "mae": 0.0},
             pd.DataFrame(),
         ),
     )
@@ -353,7 +355,7 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
             artifact_dir=tmp_path / "artifacts",
         ),
     )
-    window_metrics = {"rmse": 1.0, "mae": 2.0, "phm08_score": 3.0}
+    window_metrics = {"rmse": 1.0, "mae": 2.0}
     build_calls: list[dict[str, object]] = []
     appended_entries: list[dict[str, object]] = []
     timer_values = iter([10.0, 12.5])
@@ -517,10 +519,10 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     _assert_metric_keys(metrics, "official_test")
 
 
-def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
+def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
     tmp_path: Path,
 ) -> None:
-    """Official test labels align to eligible final-window test engines only."""
+    """Official test labels align to all test engines, including short padded ones."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
@@ -537,9 +539,13 @@ def test_train_sequence_gru_cli_aligns_official_labels_to_eligible_test_engines(
     with (run_dir / "official_test_predictions.csv").open(newline="") as csv_file:
         rows = list(DictReader(csv_file))
 
-    assert len(rows) == 1
-    assert rows[0]["engine_id"] == "2"
-    assert rows[0]["rul"] == "22.0"
+    # Both engines are now included: engine 1 is left-zero-padded (2 cycles < window 3)
+    assert len(rows) == 2
+    engine_ids = {row["engine_id"] for row in rows}
+    assert engine_ids == {"1", "2"}
+    rul_by_engine = {row["engine_id"]: row["rul"] for row in rows}
+    assert rul_by_engine["1"] == "11.0"
+    assert rul_by_engine["2"] == "22.0"
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     _assert_metric_keys(metrics, "validation_windows")
@@ -667,7 +673,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
         module,
         "_evaluate_windows",
         lambda *a, **k: (
-            {"rmse": 0.0, "mae": 0.0, "phm08_score": 0.0},
+            {"rmse": 0.0, "mae": 0.0},
             pd.DataFrame(),
         ),
     )

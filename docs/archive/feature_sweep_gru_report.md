@@ -1,6 +1,18 @@
+> **Archived / superseded (2026-06-01).** This sweep fixed the GRU at
+> `hidden_size=64`, `window_size=45` and varied only feature engineering. Its
+> headline best-RMSE figures and window/capacity selection are superseded by the
+> two-stage temporal + capacity sweep
+> ([`../gru_capacity_sweep_report.md`](../gru_capacity_sweep_report.md)), which
+> re-explored the sequence window and model capacity per subset with the
+> short-engine padding fix. The **feature-family mechanism findings** here (rolling
+> window direction, lag-family harm, the role of `raw`) are still cited by
+> [`../feature_sweep_ridge_vs_gru.md`](../feature_sweep_ridge_vs_gru.md) and remain
+> valid at the fixed capacity tested — but do not use this file's RMSE values as
+> the current best GRU numbers.
+
 # GRU Feature-Engineering Sweep
 
-Analysis of `results/feature_sweep_gru_fd00{1-4}.csv`.
+Analysis of `results/archive/feature_sweep_gru_fd00{1-4}.csv`.
 
 ## Method
 
@@ -19,25 +31,24 @@ Two window concepts coexist:
 
 The "window" findings below concern the rolling-feature window. The `best_epoch`
 column is diagnostic: working feature sets converge over ≈5–17 epochs; broken sets
-early-stop at epoch 1–3 (no validation improvement). As in the Ridge analysis,
-PHM08 is a size-scaled sum (used for within-dataset ranking) and RMSE/MAE are used
-across datasets.
+early-stop at epoch 1–3 (no validation improvement). Ranking uses validation RMSE
+(MAE reported alongside); the PHM08 score is reserved for official-test evaluation.
 
 ## Best configuration per dataset
 
-| Dataset | Best feature set | Window | n_features | best_epoch | RMSE | MAE | PHM08 |
-|---|---|---:|---:|---:|---:|---:|---:|
-| FD001 | `rolling_mean` | 15 | 15 | 12 | 10.91 | 7.91 | 5,005 |
-| FD002 | `rolling_mean` | 15 | 16 | 3 | 13.17 | 9.95 | 22,145 |
-| FD003 | `rolling_mean` | 15 | 12 | 9 | 10.57 | 7.66 | 6,481 |
-| FD004 | `raw_plus_rolling_mean` | 10 | 28 | 2 | 14.73 | 9.49 | 208,349 |
+| Dataset | Best feature set | Window | n_features | best_epoch | RMSE | MAE |
+|---|---|---:|---:|---:|---:|---:|
+| FD001 | `rolling_mean` | 20 | 15 | 12 | 10.82 | 7.92 |
+| FD002 | `rolling_mean` | 20 | 16 | 3 | 13.06 | 9.77 |
+| FD003 | `rolling_mean` | 15 | 12 | 9 | 10.57 | 7.66 |
+| FD004 | `raw_plus_rolling_mean` | 10 | 28 | 2 | 14.73 | 9.49 |
 
 Plain `rolling_mean` wins on the three cleaner subsets; the multi-mode FD004
-prefers `raw_plus_rolling_mean`. The optimal window is large (10–15).
+prefers `raw_plus_rolling_mean`. The optimal window is large (10–20).
 
 ## Finding 1 — Feature-family ranking on every dataset
 
-Sorting by PHM08 gives a consistent tiering:
+Sorting by RMSE gives a consistent tiering:
 
 1. `rolling_mean` ≈ `raw_plus_rolling_mean` (top, interleaved)
 2. `raw` (close behind)
@@ -47,41 +58,41 @@ Sorting by PHM08 gives a consistent tiering:
 FD001 spread, showing how close the top tier and `raw` are and how far the lag
 families fall:
 
-| Feature set (FD001, best window/step) | best_epoch | RMSE | PHM08 | vs. best |
-|---|---:|---:|---:|---:|
-| `rolling_mean` (w15) | 12 | 10.91 | 5,005 | — |
-| `raw_plus_rolling_mean` (w15) | 5 | 11.00 | 5,273 | +5.4% |
-| `raw` | 6 | 11.36 | 5,529 | +10.5% |
-| `raw_plus_lag` (step 4) | 22 | 21.88 | 51,337 | +926% |
-| `lag` (step 4) | 1 | 29.18 | 244,299 | +4,782% |
+| Feature set (FD001, best window/step) | best_epoch | RMSE | vs. best |
+|---|---:|---:|---:|
+| `rolling_mean` (w20) | 12 | 10.82 | — |
+| `raw_plus_rolling_mean` (w15) | 5 | 11.00 | +1.6% |
+| `raw` | 6 | 11.36 | +5.0% |
+| `raw_plus_lag` (step 4) | 22 | 21.88 | +102% |
+| `lag` (step 8) | 1 | 28.93 | +167% |
 
 ## Finding 2 — Large rolling windows are preferred (opposite of Ridge)
 
-For plain `rolling_mean`, PHM08 improves as the window grows, peaking at 15
-(FD001):
+For plain `rolling_mean`, RMSE improves monotonically as the window grows, reaching
+its minimum at 20 (FD001):
 
 | Window | 2 | 4 | 6 | 8 | 10 | 15 | 20 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| PHM08 | 6,254 | 6,244 | 6,188 | 6,174 | 5,260 | 5,005 | 5,017 |
+| RMSE | 11.47 | 11.32 | 11.28 | 11.25 | 11.10 | 10.91 | 10.82 |
 
-The pattern repeats across subsets (best plain-rolling windows: 15, 15, 15, and
-~6–10 for FD004). A GRU already models temporal dependencies across its 45-cycle
-input [1, 2], so the rolling mean's role is denoising rather than trend extraction.
+The pattern repeats across subsets (best plain-rolling windows: 20, 20, 15, and 10
+for FD004). A GRU already models temporal dependencies across its 45-cycle input
+[1, 2], so the rolling mean's role is denoising rather than trend extraction.
 A wide moving-average window suppresses high-frequency sensor noise [3] while the
 sequence still supplies the dynamics, so wider windows help — the reverse of the
 short-window responsiveness a memoryless linear model needs.
 
 ## Finding 3 — `raw` alone is already competitive
 
-`raw` lands within ~10% of the best on the cleaner subsets and only collapses on
-FD004:
+`raw` lands within ~5% of the best on the cleaner subsets and only widens its gap
+on FD004:
 
-| Dataset | `raw` RMSE | `raw` PHM08 | best RMSE | best PHM08 |
-|---|---:|---:|---:|---:|
-| FD001 | 11.36 | 5,529 | 10.91 | 5,005 |
-| FD002 | 14.04 | 29,563 | 13.17 | 22,145 |
-| FD003 | 10.97 | 7,226 | 10.57 | 6,481 |
-| FD004 | 15.50 | 360,409 | 14.73 | 208,349 |
+| Dataset | `raw` RMSE | best RMSE | gap |
+|---|---:|---:|---:|
+| FD001 | 11.36 | 10.82 | +5.0% |
+| FD002 | 14.04 | 13.06 | +7.6% |
+| FD003 | 10.97 | 10.57 | +3.8% |
+| FD004 | 15.50 | 14.73 | +5.2% |
 
 A gated recurrent network learns temporal features internally [1, 2], so it does
 not depend on engineered rolling features the way a per-row linear model does;
@@ -100,7 +111,7 @@ This is sharper than for Ridge, where `raw_plus_lag` ≈ `raw`. For the GRU,
 | FD004 | 15.50 | 20.28 | 25.65 |
 
 The `best_epoch` column identifies the mechanism: lag and `raw_plus_lag` runs
-early-stop at epoch 1–3 (e.g. all FD002 lag/`raw_plus_lag` runs at best_epoch 1–2),
+early-stop at epoch 1–3 (e.g. FD002 lag/`raw_plus_lag` runs at best_epoch 1–2),
 meaning validation loss never improved past the first epoch [5]. The lag-difference
 channels are on a different, near-zero-centered scale than the normalized levels;
 poorly conditioned input scaling slows and destabilizes gradient-based training
@@ -112,29 +123,29 @@ the GRU — it is damaging.
 Whether `raw_plus_rolling_mean` beats plain `rolling_mean` splits by
 operating-mode count:
 
-| Dataset | modes | `rolling_mean` best PHM08 | `raw_plus_rolling_mean` best PHM08 | winner |
+| Dataset | modes | `rolling_mean` best RMSE | `raw_plus_rolling_mean` best RMSE | winner |
 |---|---:|---:|---:|---|
-| FD001 | 1 | 5,005 | 5,273 | rolling_mean |
-| FD002 | 6 | 22,145 | 28,778 | rolling_mean |
-| FD003 | 1 | 6,481 | 6,719 | rolling_mean |
-| FD004 | 6 | 252,220 | 208,349 | raw_plus_rolling_mean |
+| FD001 | 1 | 10.82 | 11.00 | rolling_mean |
+| FD002 | 6 | 13.06 | 13.72 | rolling_mean |
+| FD003 | 1 | 10.57 | 10.57 | rolling_mean |
+| FD004 | 6 | 15.10 | 14.73 | raw_plus_rolling_mean |
 
 On the single-condition subsets the raw channels are redundant and marginally hurt.
 On FD004 — the hardest multi-mode subset — retaining the normalized raw value
 beside the smoothed value supplies mode-residual detail a rolling mean washes out,
-improving PHM08 ~17%. FD002 (also 6 modes) does not show this, so the effect is
+improving RMSE ~2.4%. FD002 (also 6 modes) does not show this, so the effect is
 real but not guaranteed by mode count alone.
 
 ## Per-dataset notes (EDA context and sweep behavior)
 
 ### FD001 — 100 engines, 1 condition (EDA: 20,631 rows; lifetimes 128/199/362)
-`n_modes=1`, 15 sensors retained. Cleanest result: best RMSE 10.91 at
-`rolling_mean` w15; `raw` only 10% behind; lag families catastrophic.
+`n_modes=1`, 15 sensors retained. Cleanest result: best RMSE 10.82 at
+`rolling_mean` w20; `raw` only 5% behind; lag families catastrophic.
 
 ### FD002 — 260 engines, 6 conditions (EDA: 53,759 rows; lifetimes 128/199/378)
 EDA: raw correlations vanish until per-mode normalization (`n_modes=6`). Best RMSE
-13.17. Top runs early-stop at epoch 3 — multi-mode data is harder to fit and the
-GRU converges quickly then plateaus.
+13.06 at `rolling_mean` w20. Top runs early-stop at epoch 3 — multi-mode data is
+harder to fit and the GRU converges quickly then plateaus.
 
 ### FD003 — 100 engines, 1 condition (EDA: 24,720 rows; lifetimes 145/220/525)
 Only 12 sensors retained (most aggressive pruning). Best RMSE 10.57 — the best of
@@ -142,11 +153,11 @@ all four subsets — at `rolling_mean` w15, despite longer engines than FD001.
 
 ### FD004 — 249 engines, 6 conditions (EDA: 61,249 rows; lifetimes 128/234/543)
 Largest, longest-lived, hardest. The only subset where `raw_plus_rolling_mean`
-wins, at a smaller window (10) and best_epoch 2. Highest RMSE (14.73) and PHM08.
+wins, at a smaller window (10) and best_epoch 2. Highest RMSE (14.73).
 
 ## Cross-dataset note
 
-By best RMSE, the GRU orders subsets FD003 (10.6) ≈ FD001 (10.9) < FD002 (13.2) <
+By best RMSE, the GRU orders subsets FD003 (10.6) ≈ FD001 (10.8) < FD002 (13.1) <
 FD004 (14.7), cleanly tracking operating-mode count (1 → 6) and overall complexity.
 Unlike Ridge, the GRU's RMSE ordering matches the intuitive difficulty ordering,
 indicating it handles the capped-RUL plateau and varying lifetimes more uniformly
@@ -156,25 +167,29 @@ than the linear model.
 
 - `rolling_mean` is recommended for single-condition subsets;
   `raw_plus_rolling_mean` for FD004.
-- A large rolling window is preferred (~15; ~10 for FD004): the sequence supplies
+- A large rolling window is preferred (~15–20; ~10 for FD004): the sequence supplies
   dynamics, so the rolling mean should denoise.
 - The `lag` family should be removed from the GRU search space: it prevents
   convergence (best_epoch 1–3) and roughly doubles RMSE.
-- `raw` is an acceptable minimal fallback (~10% off best on clean subsets), with
+- `raw` is an acceptable minimal fallback (~5% off best on clean subsets), with
   rolling-mean denoising as the low-cost upgrade.
 
 ## Official test-set results
 
-Production GRU models trained with each subset's best sweep config, evaluated on
-the C-MAPSS official test set:
+Production GRU models, evaluated on the C-MAPSS official test set. These models
+were trained with the configs selected by the *prior* PHM08-based ranking (FD001
+and FD002 at window 15); RMSE re-ranking now favors window 20 on those two subsets,
+so a production refresh at the new configs is pending and the table reflects the
+deployed models as-is:
 
-| Subset | Feature config | Val RMSE | Test RMSE | Test MAE | Test PHM08 |
+| Subset | Feature config (deployed) | Val RMSE | Test RMSE | Test MAE | Test PHM08 |
 |--------|---------------|---:|---:|---:|---:|
 | FD001 | rolling_mean, w=15 | 10.91 | 15.81 | 11.53 | 314 |
 | FD002 | rolling_mean, w=15 | 13.17 | 24.63 | 15.56 | 4,945 |
 | FD003 | rolling_mean, w=15 | 10.57 | 14.76 | 10.11 | 512 |
 | FD004 | raw_plus_rolling_mean, w=10 | 14.73 | 23.67 | 16.81 | 3,144 |
 
+The PHM08 score here is the canonical one-prediction-per-engine final-test metric.
 The same pattern holds: single-condition subsets (FD001, FD003) generalize well
 (~5 point val→test gap), while multi-condition subsets (FD002, FD004) show a larger
 gap (~9–11 points).

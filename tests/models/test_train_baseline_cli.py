@@ -134,7 +134,8 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert "validation" in metrics
     assert "official_test" in metrics
-    assert set(metrics["validation"]) == {"rmse", "mae", "phm08_score"}
+    assert set(metrics["validation"]) == {"rmse", "mae"}
+    assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
 
     estimator = joblib.load(run_dir / "model.joblib")
     dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]

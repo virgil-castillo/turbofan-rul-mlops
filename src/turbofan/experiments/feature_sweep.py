@@ -59,15 +59,23 @@ class ExperimentSpec(NamedTuple):
 
 
 def _format_tuple(values: tuple[int, ...]) -> str:
-    """Format an integer tuple as a comma-separated string.
+    """Format an integer tuple as a parenthesised tuple string.
+
+    The output mirrors Python's built-in ``repr`` for tuples and is
+    round-trippable through CSV via :func:`_parse_tuple_cell`.
 
     Args:
         values: Integer tuple to format.
 
     Returns:
-        Comma-separated string, or empty string for an empty tuple.
+        Parenthesised tuple string, e.g. ``"()"`` or ``"(15,)"`` or
+        ``"(10, 20)"``.
     """
-    return ",".join(str(v) for v in values)
+    if not values:
+        return "()"
+    if len(values) == 1:
+        return f"({values[0]},)"
+    return "(" + ", ".join(str(v) for v in values) + ")"
 
 
 def _build_experiment_specs(
@@ -264,6 +272,12 @@ def _evaluate_gru_spec(
         feature_cols=feature_cols,
         window_size=cfg.sequence.window_size,
     )
+    val_metadata = val_windows.metadata
+    n_engines_total = int(val_metadata["engine_id"].nunique())
+    padded_engines = val_metadata.loc[val_metadata["padded"], "engine_id"].unique()
+    n_engines_padded = int(len(padded_engines))
+    n_engines_full = n_engines_total - n_engines_padded
+
     train_loader = build_sequence_loader(
         train_windows, batch_size=cfg.sequence.batch_size, shuffle=True
     )
@@ -320,6 +334,9 @@ def _evaluate_gru_spec(
             "feature_set": spec.feature_set,
             "windows": _format_tuple(spec.windows),
             "lag_steps": _format_tuple(spec.lag_steps),
+            "n_engines_total": n_engines_total,
+            "n_engines_padded": n_engines_padded,
+            "n_engines_full": n_engines_full,
         },
     )
     append_training_log(log_entry)
@@ -331,6 +348,9 @@ def _evaluate_gru_spec(
         "lag_steps": _format_tuple(spec.lag_steps),
         "n_features": len(feature_cols),
         "best_epoch": result.best_epoch,
+        "n_engines_total": n_engines_total,
+        "n_engines_padded": n_engines_padded,
+        "n_engines_full": n_engines_full,
         **metrics,
     }
 
@@ -358,7 +378,7 @@ def run_feature_sweep(
         output_path: Optional CSV path for sweep results.
 
     Returns:
-        Results sorted ascending by validation PHM08 score.
+        Results sorted ascending by validation RMSE.
 
     Raises:
         ValueError: If any sweep input is invalid.
@@ -415,10 +435,10 @@ def run_feature_sweep(
                 f"feature_set={spec.feature_set} "
                 f"windows={_format_tuple(spec.windows)} "
                 f"lag_steps={_format_tuple(spec.lag_steps)} "
-                f"phm08_score={row['phm08_score']:.6f}"
+                f"rmse={row['rmse']:.6f}"
             )
 
-    results = pd.DataFrame(rows).sort_values("phm08_score").reset_index(drop=True)
+    results = pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
     if output_path is None:
         output_path = Path(
             f"results/feature_sweep_{model}_{cfg.data.fd_subset.lower()}.csv"

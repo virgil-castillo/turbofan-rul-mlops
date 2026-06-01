@@ -17,12 +17,17 @@ class WindowedSequences:
     Args:
         X: Window features with shape ``(n_windows, window_size, n_features)``.
         y: Labels with shape ``(n_windows,)``.
-        metadata: Final-timestep metadata for each window.
+        metadata: Final-timestep metadata for each window. Includes a
+            ``padded`` boolean column flagging windows that were right-zero
+            padded because the engine was shorter than ``window_size``.
+        lengths: Actual (un-padded) timestep counts per window, dtype
+            ``int64``. Full-length windows carry ``length == window_size``.
     """
 
     X: npt.NDArray[np.float32]
     y: npt.NDArray[np.float32]
     metadata: pd.DataFrame
+    lengths: npt.NDArray[np.int64]
 
 
 def build_sliding_windows(
@@ -103,49 +108,70 @@ def _build_windows(
     feature_list = list(feature_cols)
     _validate_columns(df, feature_list, target_col)
 
-    sorted_df = df.sort_values(["engine_id", "cycle"])
-    windows: list[npt.NDArray[np.float32]] = []
-    labels: list[float] = []
-    metadata_rows: list[dict[str, int]] = []
+    n_features = len(feature_list)
 
-    for _, group in sorted_df.groupby("engine_id", sort=True):
-        if len(group) < window_size:
+    X_chunks: list[npt.NDArray[np.float32]] = []
+    y_chunks: list[npt.NDArray[np.float32]] = []
+    meta_rows: list[pd.DataFrame] = []
+    length_chunks: list[npt.NDArray[np.int64]] = []
+
+    for engine_id, group in df.groupby("engine_id", sort=True):
+        group = group.sort_values("cycle").reset_index(drop=True)
+        n_rows = len(group)
+        features = group[feature_list].to_numpy(dtype=np.float32)
+
+        if target_col is None:
+            # Unlabeled: use NaN for all labels
+            targets = np.full(n_rows, float("nan"), dtype=np.float32)
+        else:
+            targets = group[target_col].to_numpy(dtype=np.float32)
+
+        if n_rows < window_size:
+            # Right-zero-pad the short engine (real data at start, zeros at end)
+            padded_features = np.zeros((window_size, n_features), dtype=np.float32)
+            padded_features[:n_rows, :] = features
+            X_chunks.append(padded_features[np.newaxis, ...])
+            y_chunks.append(np.asarray([targets[-1]], dtype=np.float32))
+            length_chunks.append(np.asarray([n_rows], dtype=np.int64))
+            meta_rows.append(
+                pd.DataFrame(
+                    {
+                        "engine_id": [int(cast(int, engine_id))],
+                        "cycle": [int(group["cycle"].iloc[-1])],
+                        "padded": [True],
+                    }
+                )
+            )
             continue
 
-        starts: range | list[int]
         if final_only:
-            starts = [len(group) - window_size]
+            start_indices: range = range(n_rows - window_size, n_rows - window_size + 1)
         else:
-            starts = range(0, len(group) - window_size + 1)
+            start_indices = range(0, n_rows - window_size + 1)
 
-        for start in starts:
+        for start in start_indices:
             end = start + window_size
-            window = group.iloc[start:end]
-            features = cast(
-                npt.NDArray[np.float32],
-                window.loc[:, feature_list].to_numpy(dtype=np.float32),
-            )
-            final_row = window.iloc[-1]
-
-            windows.append(features)
-            if target_col is None:
-                labels.append(float("nan"))
-            else:
-                labels.append(float(final_row[target_col]))
-            metadata_rows.append(
-                {
-                    "engine_id": int(final_row["engine_id"]),
-                    "cycle": int(final_row["cycle"]),
-                }
+            X_chunks.append(features[start:end][np.newaxis, ...])
+            y_chunks.append(np.asarray([targets[end - 1]], dtype=np.float32))
+            length_chunks.append(np.asarray([window_size], dtype=np.int64))
+            meta_rows.append(
+                pd.DataFrame(
+                    {
+                        "engine_id": [int(cast(int, engine_id))],
+                        "cycle": [int(group["cycle"].iloc[end - 1])],
+                        "padded": [False],
+                    }
+                )
             )
 
-    if not windows:
+    if not X_chunks:
         raise ValueError("No eligible sequence windows could be built.")
 
     return WindowedSequences(
-        X=np.stack(windows).astype(np.float32),
-        y=np.array(labels, dtype=np.float32),
-        metadata=pd.DataFrame(metadata_rows).reset_index(drop=True),
+        X=np.concatenate(X_chunks, axis=0),
+        y=np.concatenate(y_chunks, axis=0),
+        metadata=pd.concat(meta_rows, ignore_index=True),
+        lengths=np.concatenate(length_chunks, axis=0),
     )
 
 
@@ -154,6 +180,16 @@ def _validate_columns(
     feature_cols: Sequence[str],
     target_col: str | None,
 ) -> None:
+    """Raise ``KeyError`` if required columns are absent from ``df``.
+
+    Args:
+        df: DataFrame to validate.
+        feature_cols: Feature column names that must be present.
+        target_col: Target column name, or ``None`` if labels are not needed.
+
+    Raises:
+        KeyError: If any required column is missing from ``df``.
+    """
     required_cols = ["engine_id", "cycle", *feature_cols]
     if target_col is not None:
         required_cols.append(target_col)

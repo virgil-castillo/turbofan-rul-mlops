@@ -44,6 +44,8 @@ turbofan-compare-baseline-features = "turbofan.experiments.baseline_feature_comp
 turbofan-sweep-gru = "turbofan.experiments.sequence_gru_sweep:main"
 turbofan-sweep-feature-gru = "turbofan.experiments.feature_gru_sweep:main"
 turbofan-sweep-features = "turbofan.experiments.feature_sweep:main"
+turbofan-sweep-gru-temporal = "turbofan.experiments.gru_temporal_sweep:main"
+turbofan-sweep-gru-capacity = "turbofan.experiments.gru_capacity_sweep:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

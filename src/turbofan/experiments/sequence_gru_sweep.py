@@ -34,7 +34,6 @@ RESULT_COLUMNS = [
     "best_epoch",
     "rmse",
     "mae",
-    "phm08_score",
     "training_duration_seconds",
 ]
 
@@ -169,7 +168,7 @@ def run_gru_sweep(
         output_path: Optional CSV path for incremental and final results.
 
     Returns:
-        Results sorted by validation PHM08 score.
+        Results sorted by validation RMSE.
 
     Raises:
         ValueError: If sweep inputs are invalid.
@@ -292,7 +291,6 @@ def run_gru_sweep(
             "best_epoch": result.best_epoch,
             "rmse": metrics["rmse"],
             "mae": metrics["mae"],
-            "phm08_score": metrics["phm08_score"],
             "training_duration_seconds": training_duration_seconds,
         }
         rows.append(row)
@@ -327,11 +325,11 @@ def run_gru_sweep(
             f"run {run_idx}/{total_runs}: "
             f"window_size={window_size} hidden_size={hidden_size} "
             f"learning_rate={learning_rate:g} "
-            f"phm08_score={metrics['phm08_score']:.6f}"
+            f"rmse={metrics['rmse']:.6f}"
         )
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)
-    return results.sort_values("phm08_score").reset_index(drop=True)
+    return results.sort_values("rmse").reset_index(drop=True)
 
 
 def main() -> None:

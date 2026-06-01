@@ -359,10 +359,10 @@ def test_gru_predictor_strict_mode_fails_for_short_engines(tmp_path: Path) -> No
         predictor.predict(records)
 
 
-def test_gru_predictor_partial_mode_warns_and_skips_short_engines(
+def test_gru_predictor_partial_mode_warns_and_pads_short_engines(
     tmp_path: Path,
 ) -> None:
-    """GRU partial mode skips short engines and warns about each skip."""
+    """GRU partial mode pads short engines, warns about each, and predicts all."""
     from turbofan.inference.predictors import load_predictor
 
     predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
@@ -375,24 +375,31 @@ def test_gru_predictor_partial_mode_warns_and_skips_short_engines(
 
     result = predictor.predict(records, allow_partial=True)
 
-    assert [(row.engine_id, row.cycle) for row in result.predictions] == [(1, 3)]
+    engine_ids = [row.engine_id for row in result.predictions]
+    assert 1 in engine_ids
+    assert 2 in engine_ids
     assert len(result.metadata.warnings) == 1
-    assert "engine 2" in result.metadata.warnings[0]
+    assert "2" in result.metadata.warnings[0]
+    assert "padded" in result.metadata.warnings[0].lower()
     assert result.metadata.input_rows == 5
-    assert result.metadata.prediction_rows == 1
+    assert result.metadata.prediction_rows == 2
 
 
-def test_gru_predictor_partial_mode_fails_when_no_predictions_remain(
+def test_gru_predictor_partial_mode_pads_sole_short_engine(
     tmp_path: Path,
 ) -> None:
-    """GRU partial mode still fails when every engine is too short."""
+    """GRU partial mode pads a sole short engine and returns one prediction."""
     from turbofan.inference.predictors import load_predictor
 
     predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
     records = pd.DataFrame(_records_for_engine(1, 2))
 
-    with pytest.raises(SchemaValidationError, match="No eligible sequence windows"):
-        predictor.predict(records, allow_partial=True)
+    result = predictor.predict(records, allow_partial=True)
+
+    assert len(result.predictions) == 1
+    assert result.predictions[0].engine_id == 1
+    assert len(result.metadata.warnings) == 1
+    assert "padded" in result.metadata.warnings[0].lower()
 
 
 def test_gru_predictor_rescales_output_by_max_rul(tmp_path: Path) -> None:
@@ -534,6 +541,49 @@ def test_gru_predictor_rejects_legacy_flat_stat_checkpoint(tmp_path: Path) -> No
 
     with pytest.raises(ValueError, match="[Rr]etrain"):
         load_predictor(artifact_dir / "model_manifest.json")
+
+
+def test_gru_predictor_allow_partial_pads_short_engine(
+    tmp_path: Path,
+) -> None:
+    """GRU allow-partial mode pads short engines and returns predictions for all."""
+    from turbofan.inference.predictors import load_predictor
+
+    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
+    records = pd.DataFrame(
+        [
+            *_records_for_engine(1, 2),  # short engine (2 < window_size=3)
+            *_records_for_engine(2, 4),  # full-length engine
+        ]
+    )
+
+    result = predictor.predict(records, allow_partial=True)
+
+    engine_ids = [row.engine_id for row in result.predictions]
+    assert 1 in engine_ids, "Short engine should still get a prediction (padded)"
+    assert 2 in engine_ids, "Full engine should still get a prediction"
+    assert len(result.predictions) == 2
+    assert any("padded" in w.lower() for w in result.metadata.warnings), (
+        "Expected at least one warning mentioning 'padded'"
+    )
+
+
+def test_gru_predictor_strict_still_errors_on_short_engine(
+    tmp_path: Path,
+) -> None:
+    """GRU strict mode still raises SchemaValidationError for short engines."""
+    from turbofan.inference.predictors import load_predictor
+
+    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
+    records = pd.DataFrame(
+        [
+            *_records_for_engine(1, 3),  # full-length engine
+            *_records_for_engine(2, 2),  # short engine (2 < window_size=3)
+        ]
+    )
+
+    with pytest.raises(SchemaValidationError, match="shorter than window_size"):
+        predictor.predict(records, allow_partial=False)
 
 
 def test_ridge_predictor_partial_mode_returns_validation_warnings(

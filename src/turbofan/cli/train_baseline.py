@@ -24,7 +24,7 @@ from turbofan.models.evaluate import (
     select_last_cycle_per_engine,
     split_features_target,
 )
-from turbofan.models.metrics import regression_metrics
+from turbofan.models.metrics import official_test_metrics, regression_metrics
 from turbofan.models.split import split_by_engine
 
 
@@ -174,7 +174,7 @@ def _evaluate_official_test(
     pred_rows["prediction"] = all_pred
     last_pred_rows = select_last_cycle_per_engine(pred_rows)
     y_pred = last_pred_rows["prediction"].to_numpy(dtype=np.float64)
-    metrics = regression_metrics(y_true, y_pred)
+    metrics = official_test_metrics(y_true, y_pred)
     predictions = _prediction_frame(last_rows, y_true, y_pred)
     return metrics, predictions
 
@@ -242,7 +242,6 @@ def main() -> None:
     print(f"run_dir: {run_dir}")
     print(f"validation rmse: {val_metrics['rmse']:.6f}")
     print(f"validation mae: {val_metrics['mae']:.6f}")
-    print(f"validation phm08_score: {val_metrics['phm08_score']:.6f}")
 
 
 if __name__ == "__main__":
