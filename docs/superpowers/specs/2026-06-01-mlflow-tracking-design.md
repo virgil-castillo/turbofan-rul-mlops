@@ -17,10 +17,12 @@ the source of truth and are unchanged.
 
 | Decision | Choice |
 |---|---|
-| Scope | Local file store at `./mlruns`; log params + metrics (+ curves); disk stays artifact source of truth |
+| Scope | Local MLflow store; log params + metrics (+ curves for production); disk stays artifact source of truth |
+| Backend store | SQLite (`sqlite:///mlflow.db`) — one DB file, HPC/inode-friendly; location overridable via `MLFLOW_TRACKING_URI` |
 | Fate of `training_log.jsonl` | Replace entirely — stop writing it across all paths |
 | Code paths affected | All five: 2 production train CLIs + 3 experiment sweeps |
-| Logging style | MLflow-native (Approach B): log params, per-epoch curves (GRU), and final metrics inline within a run context |
+| Logging style | MLflow-native (Approach B): log params + final metrics inline within a run context |
+| Curve scope | Per-epoch curves logged for **production GRU runs only**; sweep trials log params + final metrics only |
 | Sweep run grouping | Nested parent/child — one parent run per sweep, one nested child run per trial |
 | Experiment organization | Two experiments: `turbofan-training` (production) and `turbofan-sweeps` |
 | Old JSONL file | Frozen on disk (235 historical rows kept); writer code removed; file no longer written |
@@ -43,8 +45,9 @@ A thin, testable wrapper over MLflow containing no training logic. Public API
 - `TRAINING_EXPERIMENT: str = "turbofan-training"`
 - `SWEEP_EXPERIMENT: str = "turbofan-sweeps"`
 - `configure_mlflow(tracking_uri: str | None = None) -> None`
-  Point MLflow at the local file store (default `./mlruns`; honors the
-  `MLFLOW_TRACKING_URI` env var when set). Idempotent.
+  Point MLflow at the local SQLite store (default `sqlite:///mlflow.db`; honors
+  the `MLFLOW_TRACKING_URI` env var when set, e.g. an HPC scratch path).
+  Idempotent.
 - `log_params(params: Mapping[str, object]) -> None`
   Stringify and log a flat param mapping.
 - `log_metrics(metrics: Mapping[str, float], step: int | None = None) -> None`
@@ -60,7 +63,8 @@ A thin, testable wrapper over MLflow containing no training logic. Public API
 - Validation metrics: `val_rmse`, `val_mae`.
 - Official-test metrics (when files present): `official_rmse`, `official_mae`,
   `official_phm08`.
-- Per-epoch curve metrics: `train_loss`, `val_loss` (with `step=epoch`).
+- Per-epoch curve metrics: `train_loss`, `val_loss` (with `step=epoch`) —
+  **production GRU runs only**, not sweep trials.
 - Tags: `model_type` (`ridge`/`gru`), `run_type` (`production`/`sweep`),
   `run_dir` (production only), `best_epoch` (GRU), plus sweep feature tags
   (`feature_set`, `windows`, `lag_steps`) where applicable.
@@ -76,9 +80,9 @@ only thing being swapped.
 |---|---|---|---|
 | `cli/train_baseline.py` (Ridge) | training | single | params (alpha, feature_set, windows, lag_steps, seed), `val_*` + `official_*`, tags (`model_type=ridge`, `run_type=production`, `run_dir`). No curve. |
 | `cli/train_sequence_gru.py` | training | single | params (sequence hyperparams + feature cfg + seed), curve from `result.history`, `val_*` + `official_*`, tags (`model_type=gru`, `best_epoch`, `run_dir`). |
-| `experiments/sequence_gru_sweep.py` | sweeps | parent + nested child per trial | per-trial params, curve, `val_*`, sweep tags |
+| `experiments/sequence_gru_sweep.py` | sweeps | parent + nested child per trial | per-trial params, `val_*`, sweep tags. No curve. |
 | `experiments/feature_sweep.py` (Ridge) | sweeps | parent + nested child per trial | per-trial params, `val_*`, feature tags. No curve. |
-| `experiments/feature_gru_sweep.py` | sweeps | parent + nested child per trial | per-trial params, curve, `val_*`, feature tags |
+| `experiments/feature_gru_sweep.py` | sweeps | parent + nested child per trial | per-trial params, `val_*`, feature tags. No curve. |
 
 ### Removal of the JSONL system
 
@@ -93,7 +97,8 @@ only thing being swapped.
 
 - Add `mlflow` to core `dependencies` in `pyproject.toml`. CI already installs
   core deps via `pip install -e ".[dev]"`, so the CI contract picks it up.
-- Add `mlruns/` to `.gitignore` (local run store, not committed).
+- Add `mlflow.db` and `mlruns/`/`mlartifacts/` to `.gitignore` (local run store,
+  not committed).
 - mypy: add an override for `mlflow.*` (`ignore_missing_imports = true`) if it
   ships no stubs, matching the existing pattern for `sklearn.*`/`scipy.*`.
 
@@ -116,6 +121,25 @@ only thing being swapped.
 - **Leave historical sweep reports unchanged** — they cite past
   `training_log.jsonl`-era data; per project convention, historical numbers are
   not rewritten.
+
+## HPC / operations notes
+
+- **Where it writes:** by default, the SQLite DB is created relative to the
+  working directory the script runs in. On HPC, override the location with the
+  `MLFLOW_TRACKING_URI` env var (e.g. point it at a scratch/project path):
+  `export MLFLOW_TRACKING_URI=sqlite:////scratch/$USER/turbofan/mlflow.db`.
+  Nothing is sent off-node — the store stays on whatever filesystem you choose.
+- **Footprint:** SQLite keeps the whole run history in a single DB file (avoids
+  the thousands-of-small-files / inode pressure a file store causes on parallel
+  filesystems). Bytes are modest (curves are production-only and small).
+- **Viewing runs:** `mlflow ui --backend-store-uri sqlite:///<path>/mlflow.db`,
+  either on HPC with SSH port-forwarding or after copying the single `.db` file
+  back to a workstation.
+- **Concurrency caveat:** sweeps log trials sequentially within one process, so a
+  single sweep is safe. Launching **parallel array-job sweeps that all write the
+  same DB** is not recommended; give each job its own `MLFLOW_TRACKING_URI` (e.g.
+  per-job DB) and merge later if needed. (Multi-writer consolidation is out of
+  scope for this step.)
 
 ## Out of scope (deferred)
 
