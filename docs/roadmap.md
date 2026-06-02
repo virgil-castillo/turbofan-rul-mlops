@@ -155,6 +155,40 @@ no engine is dropped from any window size.
 The post-run analysis report and any selected-config updates are deferred until the
 cluster sweeps complete.
 
+## Completed — Model Registry (2026-06-02)
+
+Formal model versioning and promotion via MLflow's Model Registry on the local
+SQLite store, replacing path-based resolution of timestamped artifact
+directories. The MLflow artifact store is now the authoritative home for model
+bytes.
+
+- [x] `turbofan.registry` seam over MLflow's registry: `model_name`,
+  `log_and_register`, `promote`, `resolve_uri`, `load`, `list_registered`, and
+  `RegisteredModelInfo`
+- [x] Ridge and GRU packaged as `mlflow.pyfunc` wrappers that reuse the existing
+  inference compute (`ridge_engine_predictions`, `gru_final_window_predictions`);
+  the wrappers return an `engine_id`/`cycle`/`prediction` frame so callers
+  reconstruct the per-row prediction contract through the pyfunc boundary
+- [x] Production training auto-registers a new version of
+  `turbofan-<model_type>-<subset>` linked to its run; promotion is manual
+- [x] `turbofan-promote` (alias repointing / rollback) and `turbofan-models`
+  (listing with `@production`, `val_rmse`, run link) CLIs
+- [x] `turbofan-predict` resolves `--model <name>` (`--alias`, default
+  `production`) or an explicit `models:/<name>@<alias>` URI; the serving API
+  resolves `models:/<name>@production` from `TURBOFAN_MODEL_NAME` / `--model`
+
+**Retired (full retirement, by user decision):** `inference/manifest.py` and the
+path-based `load_predictor` resolution; writing `model_manifest.json`; the
+`artifacts/models/<ts>/` directory as the model home. Training run directories
+are kept only for lightweight run records (metrics, config, prediction CSVs);
+model bytes (`model.joblib`/`model.pt`) and manifests are no longer written
+there. The Dockerfile/compose now mount the MLflow store and resolve by name
+instead of mounting a run directory.
+
+**Contract change:** the pyfunc boundary validates strictly, so the
+`--allow-partial` per-row-skipping warnings are no longer surfaced; the flag is
+accepted for CLI compatibility but does not change validation.
+
 ## Future — Additional Models
 
 The original plan included Random Forest, XGBoost, LSTM, and Transformer models. Current priority is depth on the existing models before breadth.
@@ -186,7 +220,8 @@ Deliberately deferred until the modeling contract stabilizes:
   surviving entrypoints (`--log-level`, `LOG_LEVEL` env fallback); genuine
   results stay on stdout. The two production training CLIs capture a per-run
   `run.log` attached as an MLflow artifact under `logs/`.
-- [ ] Model registry / formal versioning beyond timestamp directories
+- [x] Model registry / formal versioning beyond timestamp directories (see
+  "Completed — Model Registry" below)
 - [ ] Speed up the test suite (~3 min). The subprocess-based CLI/sweep tests
   cold-start a fresh interpreter and re-import torch + mlflow on every run, which
   dominates wall time; `import mlflow` and per-test SQLite setup added overhead in
@@ -199,7 +234,7 @@ Deliberately deferred until the modeling contract stabilizes:
 
 **Operating-mode normalization is config-driven, not auto-derived.** `n_modes` lives in `FeatureConfig` (default `1`). Setting it to `6` in config enables KMeans-based per-mode normalization for FD002/FD004. The original approach of auto-deriving from `fd_subset` via a lookup table was removed in favor of explicit config so the user can override the count when needed.
 
-**GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error.
+**GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error. After the model-registry step the checkpoint payload is carried inside the MLflow GRU pyfunc model rather than a run-dir `model.pt`.
 
 
 

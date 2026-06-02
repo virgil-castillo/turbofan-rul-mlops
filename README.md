@@ -94,14 +94,28 @@ Train the GRU sequence model:
 turbofan-train-sequence-gru --config configs/subsets/fd001.yaml
 ```
 
-Model training creates a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`. Each run directory is self-contained and includes the model checkpoint, config snapshot, manifest, metrics, training history, and prediction CSVs.
+Model training logs and registers the fitted model in the local MLflow store and
+writes a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`
+holding lightweight run records (config snapshot, metrics, training history, and
+prediction CSVs). The MLflow registry — not the run directory — is the
+authoritative model store: each production run auto-registers a new version of
+`turbofan-<model_type>-<subset>` (e.g. `turbofan-gru-fd001`) linked to its run.
+Model bytes are no longer written to the run directory.
 
 Cross-run experiment summaries (sweep result CSVs) are written to `results/`. Run
-metadata — params, metrics, and per-epoch GRU training curves — is logged to a
-local MLflow store (`mlflow.db`, SQLite) under two experiments,
+metadata — params, metrics, and per-epoch GRU training curves — is logged to the
+same local MLflow store (`mlflow.db`, SQLite) under two experiments,
 `turbofan-training` (production runs) and `turbofan-sweeps` (hyperparameter
-sweeps). On-disk artifacts remain the source of truth; MLflow only records run
-metadata. Browse runs with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+sweeps). Browse runs and registered models with
+`mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+
+Promote a registered version to production (immediate, no approval gate), and
+list registered models with their production alias and key metric:
+
+```bash
+turbofan-promote turbofan-gru-fd001 3 --to production   # roll back by promoting an earlier version
+turbofan-models
+```
 
 The CLIs keep diagnostics separate from results: progress and lifecycle
 diagnostics go to **stderr** via leveled `logging` (control verbosity with
@@ -120,8 +134,8 @@ data/                                 # Raw, interim, and processed dataset file
 docs/                                 # Analysis reports and documentation
 notebooks/                            # Exploratory analysis notebooks
 results/                              # Cross-run experiment summary CSVs (sweep results)
-mlflow.db                             # Local MLflow run store (SQLite, git-ignored)
-artifacts/                            # Per-run model artifacts, metrics, configs, manifests, histories, and predictions (git-ignored)
+mlflow.db                             # Local MLflow run + registry store (SQLite, git-ignored)
+artifacts/                            # Per-run records: metrics, configs, histories, and prediction CSVs (model bytes live in MLflow; git-ignored)
 src/turbofan/
   cli/                                # Command-line entrypoints
   config/                             # Pydantic configuration schema
@@ -146,8 +160,10 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files exist |
 | `turbofan-train-baseline` | Train Ridge regression baseline |
 | `turbofan-train-sequence-gru` | Train GRU sequence model |
-| `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
+| `turbofan-predict` | Batch prediction and optional official-label evaluation, resolving the production model by name |
 | `turbofan-serve-api` | FastAPI inference server |
+| `turbofan-promote` | Promote a registered model version to an alias (e.g. `@production`); rollback by promoting an earlier version |
+| `turbofan-models` | List registered models, versions, the `@production` alias, key metric, and run link |
 
 ## Configuration
 
@@ -231,26 +247,31 @@ Per-run metrics and prediction CSVs are saved in the run directory under `artifa
 
 ## Inference and Serving
 
-Batch prediction, FastAPI serving, and Docker serving have been validated end-to-end against trained model artifacts.
+Batch prediction, FastAPI serving, and Docker serving resolve the production
+model **by name** from the MLflow registry — there is no path-based artifact or
+manifest to point at.
 
-Run batch prediction with a saved model artifact:
+Run batch prediction against a registered model (resolves `@production` by
+default):
 
 ```bash
 turbofan-predict \
-  --artifact artifacts/models/baseline/<timestamp>/model_manifest.json \
+  --model turbofan-gru-fd001 \
   --input data.csv \
   --output predictions.csv \
   --metadata-output metadata.json
 ```
 
-When `--data-dir data/raw --subset FD001` are provided and the matching
-`RUL_FD001.txt` labels align with the prediction count, the CLI also reports
-RMSE, MAE, and PHM08 score and writes them to the metadata JSON.
+Pass `--alias <alias>` to resolve a non-production alias, or pass an explicit
+`models:/<name>@<alias>` URI to `--model`. When `--data-dir data/raw --subset
+FD001` are provided and the matching `RUL_FD001.txt` labels align with the
+prediction count, the CLI also reports RMSE, MAE, and PHM08 score and writes them
+to the metadata JSON.
 
-Start the FastAPI server locally:
+Start the FastAPI server locally (resolving `models:/<name>@production`):
 
 ```bash
-turbofan-serve-api --host 127.0.0.1 --port 8000
+turbofan-serve-api --model turbofan-gru-fd001 --host 127.0.0.1 --port 8000
 ```
 
 The server exposes two endpoints:
@@ -260,11 +281,15 @@ The server exposes two endpoints:
 | `/health` | GET | Returns loaded model metadata and status |
 | `/predict` | POST | Accepts engine sensor records and returns RUL predictions |
 
-The model artifact is configured via the `TURBOFAN_MODEL_ARTIFACT` environment variable or passed at app creation time.
+The served model is selected by `--model`/`--alias`, or by the
+`TURBOFAN_MODEL_NAME` (and optional `TURBOFAN_MODEL_ALIAS`, default `production`)
+environment variables. Point `MLFLOW_TRACKING_URI` at the registry store.
 
 ### Docker
 
-A `docker-compose.yml` is included for containerized deployment. It mounts the model run directory into the container at `/models/`, where the server expects `model_manifest.json`.
+A `docker-compose.yml` is included for containerized deployment. It mounts the
+MLflow registry store (the SQLite db and its artifacts) into the container at
+`/models/` and resolves the model by name.
 
 Build and start the server:
 
@@ -272,10 +297,12 @@ Build and start the server:
 docker compose up --build
 ```
 
-By default this mounts the most recently trained GRU run. To point at a different run:
+By default this serves `turbofan-gru-fd001@production`. To point at a different
+model or store:
 
 ```bash
-MODEL_RUN_DIR=./artifacts/models/sequence_gru/<timestamp> docker compose up
+TURBOFAN_MODEL_NAME=turbofan-ridge-fd001 \
+MLFLOW_STORE_DIR=./mlflow_store docker compose up
 ```
 
 Verify the container is healthy and the model loaded:
@@ -293,8 +320,6 @@ python scripts/query_api.py --subset FD002         # other subsets
 
 This reads `data/raw/test_FD001.txt`, POSTs all engine records to `/predict`, and prints a per-engine prediction table with RMSE and MAE. The reported RMSE should match `official_test rmse` from the training run.
 
-The container expects a model manifest at `/models/model_manifest.json`.
-
 ## Reproducibility
 
 The project is designed to make experiments reproducible through:
@@ -302,7 +327,7 @@ The project is designed to make experiments reproducible through:
 - Scripted data download
 - Configuration-driven training
 - Deterministic random seeds
-- Saved model artifacts with manifests
+- Versioned models in the MLflow registry, each linked to its run
 - Saved evaluation outputs
 - Documented command-line workflows
 
