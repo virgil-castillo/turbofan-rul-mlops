@@ -114,10 +114,9 @@ Existing GRU checkpoints trained before this refactor are incompatible: `feature
 A single sweep harness now evaluates Ridge and GRU on identical feature inputs
 through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 
-- [x] `turbofan-sweep-features --model ridge|gru` (`src/turbofan/experiments/feature_sweep.py`) — one CLI routing both models through the same preprocessing contract; results carry a `model` column so separate runs stack and compare
+- [x] Unified feature-engineering sweep CLI — one entrypoint routing both Ridge and GRU through the same preprocessing contract; results carry a `model` column so separate runs stack and compare
 - [x] `raw_plus_lag` feature set added as the lag-family companion to `raw_plus_rolling_mean`
 - [x] `lag` semantics corrected to a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)` (previously returned the raw historical value `x[t-N]`)
-- [x] Multi-dataset runner scripts: `scripts/sweep_ridge_all_datasets.ps1` and `jobs/slurm/run_feature_sweep_gru_all_datasets.sh`
 - [x] Default output path `results/feature_sweep_{model}_{subset}.csv`; sweeps run for all four subsets across both models
 - [x] Cross-model analysis reports grounded solely in the sweep data and EDA, with methodology citations: `docs/feature_sweep_ridge_report.md`, `docs/archive/feature_sweep_gru_report.md` (archived 2026-06-01), `docs/feature_sweep_ridge_vs_gru.md`
 - [x] Removed the superseded `baseline_feature_comparison` job/results and stale pre-refactor reports
@@ -151,9 +150,7 @@ Two-stage sweep harness that disentangles how much temporal context the GRU need
 no engine is dropped from any window size.
 
 - [x] Left-zero-pad short engines: `_build_windows` pads engines with fewer cycles than `window_size` (instead of skipping them) and records a `padded` flag and per-window `lengths`; `SequenceDataset`/`build_sequence_loader` yield 3-tuples; `GRURULRegressor.forward` accepts optional `lengths` and uses `pack_padded_sequence`; training, eval, and predict loops thread lengths through; `GRUPredictor` pads in `allow_partial` mode (strict mode unchanged); GRU sweep rows record `n_engines_total`, `n_engines_padded`, `n_engines_full`
-- [x] Stage 1 temporal-context sweep CLI (`turbofan-sweep-gru-temporal`, `src/turbofan/experiments/gru_temporal_sweep.py`) — crosses `sequence_window_size` × the rolling-feature grid (plus a raw control) per subset
-- [x] Stage 2 capacity sweep CLI (`turbofan-sweep-gru-capacity`, `src/turbofan/experiments/gru_capacity_sweep.py`) — consumes the Stage 1 output CSV and crosses `hidden_size` × `learning_rate` on the top-K configs
-- [x] SLURM drivers: `jobs/slurm/run_gru_temporal_sweep_stage1.sh`, `jobs/slurm/run_gru_capacity_sweep_stage2.sh`, `jobs/slurm/run_gru_selected_retrain.sh`
+- [x] SLURM retrain driver: `jobs/slurm/run_gru_selected_retrain.sh`
 
 The post-run analysis report and any selected-config updates are deferred until the
 cluster sweeps complete.

@@ -139,13 +139,6 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files exist |
 | `turbofan-train-baseline` | Train Ridge regression baseline |
 | `turbofan-train-sequence-gru` | Train GRU sequence model |
-| `turbofan-sweep-baseline-alpha` | Sweep Ridge regularization strength |
-| `turbofan-compare-baseline-features` | Compare feature sets (raw, rolling, engineered) |
-| `turbofan-sweep-gru` | Sweep GRU hyperparameters |
-| `turbofan-sweep-feature-gru` | Sweep GRU with feature selection variants |
-| `turbofan-sweep-features` | Unified Ridge/GRU feature-engineering sweep through the shared preprocessing pipeline |
-| `turbofan-sweep-gru-temporal` | Stage 1: cross GRU sequence window size with the rolling-feature grid per subset |
-| `turbofan-sweep-gru-capacity` | Stage 2: cross GRU hidden size and learning rate on the top Stage 1 configs |
 | `turbofan-predict` | Batch prediction and optional official-label evaluation from a saved artifact |
 | `turbofan-serve-api` | FastAPI inference server |
 
@@ -342,11 +335,11 @@ mypy src/turbofan               # strict type checking
 - [x] EDA notebooks for all four subsets with correlation-based sensor filter
 - [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
 - [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
-- [x] Unified feature-engineering sweep CLI (`turbofan-sweep-features`) with Ridge vs GRU analysis across all four subsets
+- [x] Unified feature-engineering sweep with Ridge vs GRU analysis across all four subsets
 - [x] Train and persist baseline and GRU production artifacts on FD002–FD004
 - [x] Cross-dataset benchmark table from persisted models
 - [x] Left-zero-pad short engines in GRU windowing (packed sequences; no engine skipped)
-- [x] Two-stage GRU temporal-context and capacity sweep CLIs (`turbofan-sweep-gru-temporal`, `turbofan-sweep-gru-capacity`) with SLURM drivers
+- [x] Two-stage GRU temporal-context and capacity sweep (sequence window vs. hidden-size/LR cross); short engines left-zero-padded
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
 - [x] MLOps infrastructure — CI/CD (GitHub Actions) and MLflow experiment tracking (local SQLite store)
