@@ -7,6 +7,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
@@ -122,6 +123,12 @@ def _fitted_ridge_pipeline() -> Pipeline:
 def _gru_payload(*, window_size: int = 3, max_rul: int = 125) -> dict[str, object]:
     """Build a tiny GRU checkpoint payload mirroring the production format.
 
+    The torch RNG is seeded deterministically so the GRU weights are fixed
+    across runs. Seed ``0`` empirically yields positive, per-engine-distinct
+    predictions for the parity test's synthetic records, so clipping to
+    non-negative can never collapse both engines to zero and let the parity
+    assertion pass trivially.
+
     Args:
         window_size: Sequence window size.
         max_rul: Maximum-RUL cap applied during rescaling.
@@ -130,6 +137,7 @@ def _gru_payload(*, window_size: int = 3, max_rul: int = 125) -> dict[str, objec
         Checkpoint payload dict with model_state_dict, feature_cols,
         normalizer_payload, sequence_config, and max_rul.
     """
+    torch.manual_seed(0)
     model = GRURULRegressor(
         input_size=len(FEATURE_COLUMNS),
         hidden_size=4,
@@ -321,6 +329,33 @@ def test_list_registered_handles_missing_production_alias() -> None:
     assert entry.run_id is None
 
 
+def test_list_registered_reports_none_val_rmse_when_run_lacks_metric() -> None:
+    """val_rmse is None when the production run logged no val_rmse metric."""
+    from turbofan.registry import (
+        list_registered,
+        log_and_register,
+        model_name,
+        promote,
+    )
+
+    name = model_name("ridge", "FD001")
+    pipeline = _fitted_ridge_pipeline()
+    with mlflow.start_run() as run:
+        # Deliberately log no val_rmse metric on this run.
+        version = log_and_register(pipeline, model_type="ridge", subset="FD001")
+        run_id = run.info.run_id
+    promote(name, version)
+
+    entries = list_registered()
+
+    matching = [entry for entry in entries if entry.name == name]
+    assert len(matching) == 1
+    entry = matching[0]
+    assert entry.production_version == version
+    assert entry.run_id == run_id
+    assert entry.val_rmse is None
+
+
 # ---------------------------------------------------------------------------
 # Wrapper parity — the critical guard
 # ---------------------------------------------------------------------------
@@ -346,6 +381,8 @@ def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
     validated = validate_raw_records(records)
     _, expected = ridge_engine_predictions(pipeline, validated.records)
 
+    # Insurance against a silently all-zero (degenerate) round trip.
+    assert not np.allclose(roundtrip, 0.0)
     assert np.allclose(roundtrip, expected)
 
 
@@ -376,4 +413,8 @@ def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
     validated = validate_raw_records(records)
     _, expected = gru_final_window_predictions(payload, validated.records)
 
+    # Guard against the clipped-to-zero degenerate case where both sides are all
+    # zeros and the parity assertion would pass with no real signal.
+    assert not np.allclose(roundtrip, 0.0)
+    assert roundtrip[0] != roundtrip[1]
     assert np.allclose(roundtrip, expected)
