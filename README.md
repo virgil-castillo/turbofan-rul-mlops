@@ -96,7 +96,12 @@ turbofan-train-sequence-gru --config configs/subsets/fd001.yaml
 
 Model training creates a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`. Each run directory is self-contained and includes the model checkpoint, config snapshot, manifest, metrics, training history, and prediction CSVs.
 
-Cross-run experiment summaries and the global append-only training log are written to `results/`.
+Cross-run experiment summaries (sweep result CSVs) are written to `results/`. Run
+metadata — params, metrics, and per-epoch GRU training curves — is logged to a
+local MLflow store (`mlflow.db`, SQLite) under two experiments,
+`turbofan-training` (production runs) and `turbofan-sweeps` (hyperparameter
+sweeps). On-disk artifacts remain the source of truth; MLflow only records run
+metadata. Browse runs with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
 ## Project Structure
 
@@ -107,7 +112,8 @@ configs/
 data/                                 # Raw, interim, and processed dataset files
 docs/                                 # Analysis reports and documentation
 notebooks/                            # Exploratory analysis notebooks
-results/                              # Cross-run experiment summaries and global training logs
+results/                              # Cross-run experiment summary CSVs (sweep results)
+mlflow.db                             # Local MLflow run store (SQLite, git-ignored)
 artifacts/                            # Per-run model artifacts, metrics, configs, manifests, histories, and predictions (git-ignored)
 src/turbofan/
   cli/                                # Command-line entrypoints
@@ -343,7 +349,7 @@ mypy src/turbofan               # strict type checking
 - [x] Two-stage GRU temporal-context and capacity sweep CLIs (`turbofan-sweep-gru-temporal`, `turbofan-sweep-gru-capacity`) with SLURM drivers
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
-- [ ] MLOps infrastructure (experiment tracking, CI/CD)
+- [x] MLOps infrastructure — CI/CD (GitHub Actions) and MLflow experiment tracking (local SQLite store)
 
 See [docs/roadmap.md](docs/roadmap.md) for detailed priorities and design decisions.
 

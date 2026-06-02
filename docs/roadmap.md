@@ -181,8 +181,10 @@ These are lower priority — the current feature set already supports meaningful
 
 Deliberately deferred until the modeling contract stabilizes:
 
-- [ ] Experiment tracking (MLflow or similar)
-- [ ] CI/CD (GitHub Actions for lint, type-check, tests)
+- [x] Experiment tracking — MLflow with a local SQLite store (`mlflow.db`); Ridge
+  and GRU runs log under the `turbofan-training` and `turbofan-sweeps`
+  experiments. Replaced the GRU-only `results/training_log.jsonl` audit log.
+- [x] CI/CD (GitHub Actions for lint, type-check, tests)
 - [ ] Structured logging (replace print statements with proper logging)
 - [ ] Model registry / formal versioning beyond timestamp directories
 
