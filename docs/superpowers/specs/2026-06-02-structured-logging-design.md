@@ -6,13 +6,20 @@
 
 ## Goal
 
-Replace the project's ~45 ad-hoc `print()` diagnostics with leveled standard-
-library `logging`, using the existing (currently unused) `turbofan.utils.logging`
-helper. Adopt a clean **logs → stderr, results → stdout** split, add a
-verbosity switch, and capture a per-run `run.log` for production training runs.
-On-disk result artifacts (`metrics.json`, `config.json`, `model_manifest.json`,
-prediction/sweep CSVs, `training_history.csv`) are **results, not logs** and are
-unchanged.
+Replace the ad-hoc `print()` diagnostics in the project's surviving entrypoints
+with leveled standard-library `logging`, using the existing (currently unused)
+`turbofan.utils.logging` helper. Adopt a clean **logs → stderr, results →
+stdout** split, add a verbosity switch, and capture a per-run `run.log` for
+production training runs. On-disk result artifacts (`metrics.json`,
+`config.json`, `model_manifest.json`, prediction/sweep CSVs,
+`training_history.csv`) are **results, not logs** and are unchanged.
+
+**Prerequisite — exploration scripts are retired first.** The project is moving
+from the exploration phase into operationalization; the one-shot sweep/comparison
+scripts have deposited their conclusions into `configs/subsets/fd00*.yaml` and the
+reports, so they are deleted (see *Prerequisite Cleanup* below) **before** this
+step. Logging is therefore applied only to the surviving production entrypoints —
+no effort is spent log-polishing code that is about to be removed.
 
 ## Decisions (settled during brainstorming)
 
@@ -20,12 +27,44 @@ unchanged.
 |---|---|
 | Logging style | Human-readable, leveled stdlib `logging` (not JSON / structured-for-aggregation) |
 | stdout vs stderr | **Clean split**: diagnostics → `logging` (stderr); genuine result output → `print` (stdout) |
-| Scope | **All 11 entrypoints** that currently `print()`, not just the 5 touched by MLflow |
+| Prerequisite | **Retire 7 exploration scripts** (all sweeps + baseline comparisons) before logging; their decisions live in configs/reports |
+| Scope | The **4 surviving entrypoints** that `print()`: `train_baseline`, `train_sequence_gru`, `predict`, `download_data` |
 | Verbosity | `--log-level` CLI arg (default `INFO`) with `LOG_LEVEL` env-var fallback |
 | Per-run `run.log` | **Included**, for the **2 production training CLIs only** (the only entrypoints with a run dir) |
 | `run.log` capture timing | **Option A** — create the run dir at the start of the run and attach the file handler immediately, so `run.log` captures the whole run (data load → train → eval → save) |
 | Progress (`run i/N`) | Stays as `INFO` log lines; **tqdm not adopted** (would corrupt non-TTY/HPC logs) |
 | Result artifacts | Unchanged — untouched by this step |
+
+## Prerequisite Cleanup — retire exploration scripts
+
+Done as a **separate change before this step** (ideally a follow-up branch after
+the MLflow-tracking branch merges, so one branch does not both add and delete the
+step-2 sweep logging). All seven are one-shot exploration scaffolding whose
+conclusions are already frozen in `configs/subsets/fd00*.yaml` and the reports; a
+single purpose-built sweep will be written later when the model lineup is settled.
+
+**Delete (source + tests + console entrypoint):**
+`experiments/baseline_alpha.py`, `experiments/baseline_feature_comparison.py`,
+`experiments/gru_temporal_sweep.py`, `experiments/gru_capacity_sweep.py`,
+`experiments/feature_gru_sweep.py`, `experiments/sequence_gru_sweep.py`,
+`experiments/feature_sweep.py`.
+
+Footprint to clean up alongside:
+- **Tests:** the matching `tests/**` files for each script.
+- **`pyproject.toml`:** remove the 7 `turbofan-sweep-*` / `turbofan-compare-*`
+  console-script entrypoints.
+- **SLURM drivers:** `jobs/slurm/run_gru_temporal_sweep_stage1.sh`,
+  `jobs/slurm/run_gru_capacity_sweep_stage2.sh`.
+- **Docs:** drop README/roadmap mentions (e.g. the "two-stage GRU … SLURM
+  drivers" line).
+
+**Keep, do not touch:** the historical reports (`docs/gru_capacity_sweep_report.md`,
+`docs/feature_sweep_ridge_vs_gru.md`, `docs/archive/*`) — per the "historical
+numbers are not rewritten" convention, they remain as a record even though they
+reference now-deleted scripts.
+
+Note: the step-2 MLflow nested-run logging added to the three sweeps is removed
+with them. Production-training tracking is unaffected.
 
 ## Architecture
 
@@ -104,26 +143,19 @@ as the `run_dir` tag as before.
 |---|---|---|---|
 | `cli/train_baseline.py` | 5 | ✅ | Create run dir early; wrap in `run_file_logging`. Keep `run_dir`/final metrics on stdout. |
 | `cli/train_sequence_gru.py` | 7 | ✅ | Same; per-epoch/eval narration to stderr + `run.log`. |
-| `cli/download_data.py` | 12 | — | Diagnostics → logging; any final "downloaded to …" summary may stay stdout. |
+| `cli/download_data.py` | 12 | — | Diagnostics → logging; any final "downloaded to …" summary may stay stdout. Kaggle's own progress bar is left alone. |
 | `cli/predict.py` | 9 | — | Diagnostics → logging; predicted-value result stays stdout. |
-| `experiments/feature_sweep.py` | 2 | — | `run i/N` → INFO; results table stays stdout. |
-| `experiments/feature_gru_sweep.py` | 2 | — | As above. |
-| `experiments/sequence_gru_sweep.py` | 2 | — | As above. |
-| `experiments/baseline_alpha.py` | 1 | — | Diagnostics → logging; result table stdout. |
-| `experiments/baseline_feature_comparison.py` | 1 | — | As above. |
-| `experiments/gru_temporal_sweep.py` | 2 | — | As above. |
-| `experiments/gru_capacity_sweep.py` | 2 | — | As above. |
 
-Sweeps and `predict`/`download_data` have no per-run artifact folder, so they log
-to stderr only (no `run.log`).
+`predict`/`download_data` have no per-run artifact folder, so they log to stderr
+only (no `run.log`). (~33 `print()`s across these 4 files; the other ~12 lived in
+the retired exploration scripts.)
 
 ## Testing
 
-- **Split assertions:** tests that currently assert diagnostics on
-  `result.stdout` (e.g. `"run 1/1"`, `"official test … skipped"`,
-  `validation/sweep progress`) move those assertions to `result.stderr`; genuine
-  result assertions (`"validation rmse"`, the results table) **stay** on
-  `result.stdout`.
+- **Split assertions:** tests that currently assert *diagnostics* on
+  `result.stdout` (e.g. `"official test … skipped"`) move those assertions to
+  `result.stderr`; genuine *result* assertions (`"validation rmse"`, the
+  `run_dir` line, predicted values) **stay** on `result.stdout`.
 - **Verbosity:** a focused test that `--log-level DEBUG` surfaces a debug line
   and `--log-level WARNING` suppresses INFO lines (assert via `caplog` for
   in-process or `result.stderr` for subprocess).
@@ -145,8 +177,8 @@ to stderr only (no `run.log`).
 
 - **JSON / structured-for-aggregation logs** (Design B) — no log aggregator in
   use; no payoff for a single-user laptop + HPC workflow.
-- **`run.log` for sweeps / `predict` / `download_data`** — these have no per-run
-  folder; out of scope.
+- **`run.log` for `predict` / `download_data`** — these have no per-run folder;
+  out of scope.
 - **tqdm progress bars** — an interactive-only convenience. If adopted later, do
   it as an optional `--progress` flag using
   `tqdm(..., disable=not sys.stderr.isatty())` (auto-disable on non-TTY so it
