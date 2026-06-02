@@ -51,6 +51,28 @@ _GRU_ARTIFACT_KEY = "checkpoint"
 _GRU_CHECKPOINT_FILENAME = "model.pt"
 _VAL_RMSE_METRIC = "val_rmse"
 
+#: Pinned pip requirements for the logged pyfunc models. Declaring these
+#: explicitly is the recommended MLflow practice for reproducible model
+#: environments and, as a side effect, skips MLflow's automatic environment
+#: inference at log time (which scans the active environment and costs several
+#: seconds per model). Both wrappers import the shared inference compute from
+#: the ``turbofan`` package, so it is pinned alongside the framework deps.
+_RIDGE_PIP_REQUIREMENTS = [
+    "mlflow",
+    "scikit-learn",
+    "joblib",
+    "pandas",
+    "numpy",
+    "turbofan",
+]
+_GRU_PIP_REQUIREMENTS = [
+    "mlflow",
+    "torch",
+    "pandas",
+    "numpy",
+    "turbofan",
+]
+
 #: Output columns produced by both pyfunc wrappers' ``predict`` methods.
 PREDICTION_OUTPUT_COLUMNS = ["engine_id", "cycle", "prediction"]
 
@@ -236,6 +258,7 @@ def _log_ridge_model(model: object, name: str) -> None:
             artifacts={_RIDGE_ARTIFACT_KEY: str(artifact_path)},
             signature=signature,
             registered_model_name=name,
+            pip_requirements=_RIDGE_PIP_REQUIREMENTS,
         )
 
 
@@ -260,6 +283,7 @@ def _log_gru_model(payload: object, name: str) -> None:
             artifacts={_GRU_ARTIFACT_KEY: str(artifact_path)},
             signature=signature,
             registered_model_name=name,
+            pip_requirements=_GRU_PIP_REQUIREMENTS,
         )
 
 
