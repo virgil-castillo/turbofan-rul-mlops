@@ -103,6 +103,7 @@ def train_gru_model(
             {
                 "epoch": epoch,
                 "train_loss": train_loss,
+                "val_loss": window_metrics["loss"],
                 "validation_windows_rmse": window_metrics["rmse"],
                 "validation_windows_mae": window_metrics["mae"],
             }
@@ -230,7 +231,31 @@ def _evaluate_loader(
     device: torch.device,
     max_rul: int,
 ) -> dict[str, float]:
+    """Evaluate a loader, returning reporting metrics plus the validation loss.
+
+    The returned ``loss`` is the MSE on the normalized [0, 1] target scale
+    (predictions vs ``targets / max_rul``), unclipped — matching the training
+    criterion so ``train_loss`` and ``val_loss`` are directly comparable.
+    ``rmse``/``mae`` remain on the rescaled, clipped RUL (cycle) scale for
+    human-readable reporting.
+
+    Args:
+        model: Model to evaluate.
+        loader: Evaluation loader yielding feature/target/length batches.
+        device: Torch device used for inference.
+        max_rul: Maximum RUL used to normalize targets and rescale predictions.
+
+    Returns:
+        Mapping with ``rmse``, ``mae`` (cycle scale) and ``loss`` (normalized
+        MSE).
+    """
     predictions, targets = _predict_windows_and_targets(model, loader, device)
-    predictions = predictions * max_rul
-    predictions = np.clip(predictions, 0.0, None)
-    return regression_metrics(targets, predictions)
+    if predictions.size:
+        normalized_targets = targets / max_rul
+        loss = float(np.mean((predictions - normalized_targets) ** 2))
+    else:
+        loss = 0.0
+    rescaled = np.clip(predictions * max_rul, 0.0, None)
+    metrics = regression_metrics(targets, rescaled)
+    metrics["loss"] = loss
+    return metrics
