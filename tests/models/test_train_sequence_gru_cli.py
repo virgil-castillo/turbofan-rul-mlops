@@ -463,50 +463,18 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     assert row["metrics.val_mae"] == 2.0
 
 
-def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
+def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     tmp_path: Path,
 ) -> None:
-    """CLI trains a tiny GRU and writes validation plus official artifacts."""
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
-    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
-    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+    """One CLI run: disk run records, a registered checkpoint, and run artifacts.
 
-    artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
-
-    result = _run_cli(cfg_path)
-
-    assert "validation_windows rmse" in result.stdout
-    run_dirs = list((artifact_dir / "sequence_gru").iterdir())
-    assert len(run_dirs) == 1
-    run_dir = run_dirs[0]
-    # Model bytes and the manifest are retired; MLflow's registry is now the
-    # sole model store. The run dir keeps only lightweight run records.
-    assert not (run_dir / "model.pt").exists()
-    assert not (run_dir / "model_manifest.json").exists()
-    assert (run_dir / "metrics.json").exists()
-    assert (run_dir / "config.json").exists()
-    assert (run_dir / "training_history.csv").exists()
-    assert (run_dir / "validation_window_predictions.csv").exists()
-    assert (run_dir / "official_test_predictions.csv").exists()
-
-    metrics = json.loads((run_dir / "metrics.json").read_text())
-    assert set(metrics) == {
-        "validation_windows",
-        "official_test",
-    }
-    _assert_metric_keys(metrics, "validation_windows")
-    _assert_metric_keys(metrics, "official_test")
-
-
-def test_train_sequence_gru_cli_registers_model_and_logs_predictions(
-    tmp_path: Path,
-) -> None:
-    """CLI registers a GRU model version linked to the run and logs predictions."""
+    Consolidates the run-dir artifact, model-registration, prediction-artifact,
+    and checkpoint-payload facets into a single training run instead of spawning
+    a separate ~12s training subprocess per facet, all of which exercised the
+    same standard-data run.
+    """
     import mlflow
+    import torch as _torch
     from mlflow.tracking import MlflowClient
 
     from turbofan import registry, tracking
@@ -521,8 +489,27 @@ def test_train_sequence_gru_cli_registers_model_and_logs_predictions(
     cfg_path = tmp_path / "config.yaml"
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
 
-    _run_cli(cfg_path)
+    result = _run_cli(cfg_path)
 
+    # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
+    assert "validation_windows rmse" in result.stdout
+    run_dirs = list((artifact_dir / "sequence_gru").iterdir())
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    assert not (run_dir / "model.pt").exists()
+    assert not (run_dir / "model_manifest.json").exists()
+    assert (run_dir / "metrics.json").exists()
+    assert (run_dir / "config.json").exists()
+    assert (run_dir / "training_history.csv").exists()
+    assert (run_dir / "validation_window_predictions.csv").exists()
+    assert (run_dir / "official_test_predictions.csv").exists()
+
+    metrics = json.loads((run_dir / "metrics.json").read_text())
+    assert set(metrics) == {"validation_windows", "official_test"}
+    _assert_metric_keys(metrics, "validation_windows")
+    _assert_metric_keys(metrics, "official_test")
+
+    # --- registered model version linked to the run + prediction artifacts ---
     tracking.configure_mlflow()
     runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
     assert len(runs) == 1
@@ -535,10 +522,21 @@ def test_train_sequence_gru_cli_registers_model_and_logs_predictions(
     assert len(versions) >= 1
     assert any(version.run_id == run_id for version in versions)
 
-    prediction_artifacts = client.list_artifacts(run_id, "predictions")
-    artifact_paths = {artifact.path for artifact in prediction_artifacts}
+    artifact_paths = {
+        artifact.path for artifact in client.list_artifacts(run_id, "predictions")
+    }
     assert "predictions/validation_window_predictions.csv" in artifact_paths
     assert "predictions/official_test_predictions.csv" in artifact_paths
+
+    # --- the registered checkpoint carries the operating-mode normalizer payload ---
+    local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
+    checkpoint = next(local_dir.rglob("model.pt"))
+    payload = _torch.load(checkpoint, map_location="cpu")
+    assert payload["normalizer_type"] == "operating_mode"
+    assert "normalizer_payload" in payload
+    assert payload["normalizer_payload"]["schema_version"] == 1
+    assert "normalizer_means" not in payload
+    assert "normalizer_stds" not in payload
 
 
 def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
@@ -595,38 +593,6 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation_windows"}
     _assert_metric_keys(metrics, "validation_windows")
-
-
-def test_train_sequence_gru_cli_checkpoint_uses_normalizer_payload(
-    tmp_path: Path,
-) -> None:
-    """Registered checkpoint contains normalizer_type and normalizer_payload."""
-    import mlflow
-    import torch as _torch
-
-    from turbofan import registry, tracking
-
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
-
-    artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
-
-    _run_cli(cfg_path)
-
-    # The checkpoint now lives in MLflow's registered model, not on disk.
-    tracking.configure_mlflow()
-    name = registry.model_name("gru", "FD001")
-    local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
-    checkpoint = next(local_dir.rglob("model.pt"))
-    payload = _torch.load(checkpoint, map_location="cpu")
-    assert payload["normalizer_type"] == "operating_mode"
-    assert "normalizer_payload" in payload
-    assert payload["normalizer_payload"]["schema_version"] == 1
-    assert "normalizer_means" not in payload
-    assert "normalizer_stds" not in payload
 
 
 def test_train_sequence_gru_cli_uses_subset_derived_mode_count(

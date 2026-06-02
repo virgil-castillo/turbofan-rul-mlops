@@ -55,66 +55,31 @@ def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
     path.write_text("\n".join(lines))
 
 
-def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
-    """CLI trains on synthetic files and writes model artifacts."""
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
-    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
-    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+def test_train_baseline_cli_writes_records_logs_run_and_registers(
+    tmp_path: Path,
+) -> None:
+    """One CLI run: disk run records, MLflow run + registration, and run.log.
 
+    Consolidates the run-dir artifact, MLflow params/metrics/tags +
+    registration, and run.log-artifact facets into a single training run
+    instead of spawning a separate ~10s training subprocess per facet, all of
+    which exercised the same standard run.
+    """
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    from turbofan import registry, tracking
+
+    cfg_path = _write_minimal_baseline_config(tmp_path)
     artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        "\n".join(
-            [
-                "project_name: test",
-                "data:",
-                f"  raw_dir: {raw_dir.as_posix()}",
-                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
-                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
-                "  fd_subset: FD001",
-                "  max_rul: 30",
-                "  test_size: 0.25",
-                "  random_seed: 42",
-                "model:",
-                "  name: ridge",
-                "  alpha: 1.0",
-                f"  artifact_dir: {artifact_dir.as_posix()}",
-                "features:",
-                "  sensor_cols_to_drop:",
-                "    - s_2",
-                "  feature_set: raw_plus_rolling_mean",
-                "  windows:",
-                "    - 5",
-            ]
-        )
-    )
 
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_baseline",
-            "--config",
-            str(cfg_path),
-        ],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    result = _run_baseline_cli(cfg_path)
 
+    # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
     assert "validation rmse" in result.stdout
     run_dirs = list((artifact_dir / "baseline").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    # Model bytes and the manifest are retired; MLflow's registry is now the
-    # sole model store. The run dir keeps only lightweight run records.
     assert not (run_dir / "model.joblib").exists()
     assert not (run_dir / "model_manifest.json").exists()
     assert (run_dir / "metrics.json").exists()
@@ -123,67 +88,11 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "official_test_predictions.csv").exists()
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
-    assert "validation" in metrics
-    assert "official_test" in metrics
+    assert set(metrics) == {"validation", "official_test"}
     assert set(metrics["validation"]) == {"rmse", "mae"}
     assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
 
-
-def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
-    """CLI logs one production MLflow training run with params, metrics, tags."""
-    import mlflow
-    from mlflow.tracking import MlflowClient
-
-    from turbofan import registry, tracking
-
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
-    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
-    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
-
-    artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        "\n".join(
-            [
-                "project_name: test",
-                "data:",
-                f"  raw_dir: {raw_dir.as_posix()}",
-                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
-                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
-                "  fd_subset: FD001",
-                "  max_rul: 30",
-                "  test_size: 0.25",
-                "  random_seed: 42",
-                "model:",
-                "  name: ridge",
-                "  alpha: 1.0",
-                f"  artifact_dir: {artifact_dir.as_posix()}",
-                "features:",
-                "  feature_set: raw",
-            ]
-        )
-    )
-
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_baseline",
-            "--config",
-            str(cfg_path),
-        ],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
+    # --- the production MLflow run: params, metrics, tags ---
     tracking.configure_mlflow()
     runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
     assert len(runs) == 1
@@ -197,6 +106,7 @@ def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
     assert row["metrics.val_mae"] >= 0.0
     assert row["metrics.official_rmse"] >= 0.0
 
+    # --- a registered model version linked to the run + prediction artifacts ---
     run_id = row["run_id"]
     client = MlflowClient()
     name = registry.model_name("ridge", "FD001")
@@ -205,9 +115,21 @@ def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
     assert len(versions) >= 1
     assert any(version.run_id == run_id for version in versions)
 
-    prediction_artifacts = client.list_artifacts(run_id, "predictions")
-    artifact_paths = {artifact.path for artifact in prediction_artifacts}
+    artifact_paths = {
+        artifact.path for artifact in client.list_artifacts(run_id, "predictions")
+    }
     assert "predictions/validation_predictions.csv" in artifact_paths
+
+    # --- the run.log diagnostic artifact with training narration ---
+    log_paths = {artifact.path for artifact in client.list_artifacts(run_id, "logs")}
+    assert "logs/run.log" in log_paths
+    local_path = mlflow.artifacts.download_artifacts(
+        run_id=run_id,
+        artifact_path="logs/run.log",
+    )
+    contents = Path(local_path).read_text()
+    assert "loading training data for FD001" in contents
+    assert "saved baseline run to" in contents
 
 
 def test_train_baseline_cli_skips_missing_official_test(
@@ -359,35 +281,6 @@ def test_predict_with_clipping_debug_line_respects_log_level(
     setup_logging("WARNING")
     module._predict_with_clipping(estimator, rows, rul_cap=125, label="validation")
     assert "raw prediction min/max" not in capsys.readouterr().err
-
-
-def test_train_baseline_cli_attaches_run_log_artifact(tmp_path: Path) -> None:
-    """The production run attaches a logs/run.log MLflow artifact with narration."""
-    import mlflow
-    from mlflow.tracking import MlflowClient
-
-    from turbofan import tracking
-
-    cfg_path = _write_minimal_baseline_config(tmp_path)
-    _run_baseline_cli(cfg_path)
-
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
-    assert len(runs) == 1
-    run_id = runs.iloc[0]["run_id"]
-
-    client = MlflowClient()
-    log_artifacts = client.list_artifacts(run_id, "logs")
-    artifact_paths = {artifact.path for artifact in log_artifacts}
-    assert "logs/run.log" in artifact_paths
-
-    local_path = mlflow.artifacts.download_artifacts(
-        run_id=run_id,
-        artifact_path="logs/run.log",
-    )
-    contents = Path(local_path).read_text()
-    assert "loading training data for FD001" in contents
-    assert "saved baseline run to" in contents
 
 
 def test_official_eval_predicts_full_trajectory_before_final_selection(
