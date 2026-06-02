@@ -13,7 +13,7 @@ import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from turbofan import tracking
+from turbofan import registry, tracking
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import (
@@ -293,6 +293,24 @@ def main() -> None:
                     }
                 )
                 mlflow.log_artifact(str(tmp_run_log), artifact_path="logs")
+
+                version = registry.log_and_register(
+                    estimator, model_type="ridge", subset=cfg.data.fd_subset
+                )
+                mlflow.log_artifact(
+                    str(run_dir / "validation_predictions.csv"),
+                    artifact_path="predictions",
+                )
+                if official is not None:
+                    mlflow.log_artifact(
+                        str(run_dir / "official_test_predictions.csv"),
+                        artifact_path="predictions",
+                    )
+                logger.info(
+                    "registered %s version %d",
+                    registry.model_name("ridge", cfg.data.fd_subset),
+                    version,
+                )
 
                 print(f"run_dir: {run_dir}")
                 print(f"validation rmse: {val_metrics['rmse']:.6f}")

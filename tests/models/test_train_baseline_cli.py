@@ -155,8 +155,9 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
 def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
     """CLI logs one production MLflow training run with params, metrics, tags."""
     import mlflow
+    from mlflow.tracking import MlflowClient
 
-    from turbofan import tracking
+    from turbofan import registry, tracking
 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -218,6 +219,18 @@ def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
     assert row["metrics.val_rmse"] >= 0.0
     assert row["metrics.val_mae"] >= 0.0
     assert row["metrics.official_rmse"] >= 0.0
+
+    run_id = row["run_id"]
+    client = MlflowClient()
+    name = registry.model_name("ridge", "FD001")
+    assert name == "turbofan-ridge-fd001"
+    versions = client.search_model_versions(f"name = '{name}'")
+    assert len(versions) >= 1
+    assert any(version.run_id == run_id for version in versions)
+
+    prediction_artifacts = client.list_artifacts(run_id, "predictions")
+    artifact_paths = {artifact.path for artifact in prediction_artifacts}
+    assert "predictions/validation_predictions.csv" in artifact_paths
 
 
 def test_train_baseline_cli_skips_missing_official_test(

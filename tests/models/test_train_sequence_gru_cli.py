@@ -309,6 +309,12 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
+    monkeypatch.setattr(
+        module.registry, "log_and_register", lambda *a, **k: 1
+    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     torch.manual_seed(999)
     module.main()
@@ -431,6 +437,12 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
+    monkeypatch.setattr(
+        module.registry, "log_and_register", lambda *a, **k: 1
+    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     module.main()
 
@@ -497,6 +509,45 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     }
     _assert_metric_keys(metrics, "validation_windows")
     _assert_metric_keys(metrics, "official_test")
+
+
+def test_train_sequence_gru_cli_registers_model_and_logs_predictions(
+    tmp_path: Path,
+) -> None:
+    """CLI registers a GRU model version linked to the run and logs predictions."""
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    from turbofan import registry, tracking
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
+    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
+
+    _run_cli(cfg_path)
+
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    run_id = runs.iloc[0]["run_id"]
+
+    client = MlflowClient()
+    name = registry.model_name("gru", "FD001")
+    assert name == "turbofan-gru-fd001"
+    versions = client.search_model_versions(f"name = '{name}'")
+    assert len(versions) >= 1
+    assert any(version.run_id == run_id for version in versions)
+
+    prediction_artifacts = client.list_artifacts(run_id, "predictions")
+    artifact_paths = {artifact.path for artifact in prediction_artifacts}
+    assert "predictions/validation_window_predictions.csv" in artifact_paths
+    assert "predictions/official_test_predictions.csv" in artifact_paths
 
 
 def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
@@ -667,6 +718,12 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
+    monkeypatch.setattr(
+        module.registry, "log_and_register", lambda *a, **k: 1
+    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     module.main()
 
