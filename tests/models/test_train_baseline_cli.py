@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -113,43 +112,20 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     run_dirs = list((artifact_dir / "baseline").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "model.joblib").exists()
+    # Model bytes and the manifest are retired; MLflow's registry is now the
+    # sole model store. The run dir keeps only lightweight run records.
+    assert not (run_dir / "model.joblib").exists()
+    assert not (run_dir / "model_manifest.json").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
-    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "validation_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
-
-    manifest = json.loads((run_dir / "model_manifest.json").read_text())
-    assert manifest == {
-        "schema_version": 1,
-        "model_type": "ridge",
-        "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "engine",
-        "model_path": "model.joblib",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert "validation" in metrics
     assert "official_test" in metrics
     assert set(metrics["validation"]) == {"rmse", "mae"}
     assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
-
-    estimator = joblib.load(run_dir / "model.joblib")
-    dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]
-    assert dropper.drop == ["s_2"]
-    feature_engineer = estimator.named_steps["features"].named_steps["feature_engineer"]
-    assert feature_engineer.feature_set == "raw_plus_rolling_mean"
-    assert feature_engineer.windows == [5]
-
-    from turbofan.preprocessing.normalization import OperatingModeNormalizer
-
-    normalizer = estimator.named_steps["features"].named_steps["normalizer"]
-    assert isinstance(normalizer, OperatingModeNormalizer)
-    assert normalizer.n_modes == 1  # config default
-    assert normalizer.random_state == 42
 
 
 def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:

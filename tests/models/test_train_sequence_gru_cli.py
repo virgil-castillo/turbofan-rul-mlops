@@ -483,24 +483,15 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
     run_dirs = list((artifact_dir / "sequence_gru").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "model.pt").exists()
+    # Model bytes and the manifest are retired; MLflow's registry is now the
+    # sole model store. The run dir keeps only lightweight run records.
+    assert not (run_dir / "model.pt").exists()
+    assert not (run_dir / "model_manifest.json").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
-    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "training_history.csv").exists()
     assert (run_dir / "validation_window_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
-
-    manifest = json.loads((run_dir / "model_manifest.json").read_text())
-    assert manifest == {
-        "schema_version": 1,
-        "model_type": "gru",
-        "artifact_id": f"sequence_gru/{run_dir.name}",
-        "prediction_scope": "final_window",
-        "model_path": "model.pt",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
 
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {
@@ -609,7 +600,12 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
 def test_train_sequence_gru_cli_checkpoint_uses_normalizer_payload(
     tmp_path: Path,
 ) -> None:
-    """Saved checkpoint contains normalizer_type and normalizer_payload."""
+    """Registered checkpoint contains normalizer_type and normalizer_payload."""
+    import mlflow
+    import torch as _torch
+
+    from turbofan import registry, tracking
+
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
@@ -620,9 +616,12 @@ def test_train_sequence_gru_cli_checkpoint_uses_normalizer_payload(
 
     _run_cli(cfg_path)
 
-    run_dir = next((artifact_dir / "sequence_gru").iterdir())
-    import torch as _torch
-    payload = _torch.load(run_dir / "model.pt", map_location="cpu")
+    # The checkpoint now lives in MLflow's registered model, not on disk.
+    tracking.configure_mlflow()
+    name = registry.model_name("gru", "FD001")
+    local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
+    checkpoint = next(local_dir.rglob("model.pt"))
+    payload = _torch.load(checkpoint, map_location="cpu")
     assert payload["normalizer_type"] == "operating_mode"
     assert "normalizer_payload" in payload
     assert payload["normalizer_payload"]["schema_version"] == 1

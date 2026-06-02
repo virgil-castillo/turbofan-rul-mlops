@@ -75,26 +75,6 @@ def _config_to_dict(cfg: ProjectConfig) -> dict[str, object]:
     return cfg.model_dump(mode="json")
 
 
-def _manifest_payload(run_dir: Path) -> dict[str, object]:
-    """Build a schema-version-1 GRU model manifest payload.
-
-    Args:
-        run_dir: Created training run directory.
-
-    Returns:
-        JSON-serializable model manifest.
-    """
-    return {
-        "schema_version": 1,
-        "model_type": "gru",
-        "artifact_id": f"sequence_gru/{run_dir.name}",
-        "prediction_scope": "final_window",
-        "model_path": "model.pt",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
-
-
 def _prediction_frame(
     windows: WindowedSequences,
     y_true: npt.NDArray[np.float64] | pd.Series,
@@ -375,12 +355,8 @@ def main() -> None:
                 payload = _model_payload(
                     result.model, cfg, feature_cols, pipeline
                 )
-                torch.save(payload, run_dir / "model.pt")
                 save_json(metrics_payload, run_dir / "metrics.json")
                 save_json(_config_to_dict(cfg), run_dir / "config.json")
-                save_json(
-                    _manifest_payload(run_dir), run_dir / "model_manifest.json"
-                )
                 result.history.to_csv(
                     run_dir / "training_history.csv", index=False
                 )

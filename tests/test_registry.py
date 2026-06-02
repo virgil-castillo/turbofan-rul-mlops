@@ -362,7 +362,7 @@ def test_list_registered_reports_none_val_rmse_when_run_lacks_metric() -> None:
 
 
 def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
-    """A logged+loaded Ridge model predicts identically to RidgePredictor logic."""
+    """A logged+loaded Ridge model predicts identically to the shared compute."""
     from turbofan.inference.predictors import ridge_engine_predictions
     from turbofan.inference.schemas import validate_raw_records
     from turbofan.registry import load, log_and_register, model_name, promote
@@ -376,18 +376,22 @@ def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
     promote(name, version)
 
     loaded = load(name)
-    roundtrip = np.asarray(loaded.predict(records), dtype=np.float64).reshape(-1)
+    output = loaded.predict(records)
 
     validated = validate_raw_records(records)
-    _, expected = ridge_engine_predictions(pipeline, validated.records)
+    expected_meta, expected = ridge_engine_predictions(pipeline, validated.records)
 
+    assert list(output.columns) == ["engine_id", "cycle", "prediction"]
+    roundtrip = output["prediction"].to_numpy(dtype=np.float64)
     # Insurance against a silently all-zero (degenerate) round trip.
     assert not np.allclose(roundtrip, 0.0)
     assert np.allclose(roundtrip, expected)
+    assert output["engine_id"].tolist() == expected_meta["engine_id"].tolist()
+    assert output["cycle"].tolist() == expected_meta["cycle"].tolist()
 
 
 def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
-    """A logged+loaded GRU model predicts identically to GRUPredictor logic."""
+    """A logged+loaded GRU model predicts identically to the shared compute."""
     from turbofan.inference.predictors import gru_final_window_predictions
     from turbofan.inference.schemas import validate_raw_records
     from turbofan.registry import load, log_and_register, model_name, promote
@@ -408,13 +412,17 @@ def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
     promote(name, version)
 
     loaded = load(name)
-    roundtrip = np.asarray(loaded.predict(records), dtype=np.float64).reshape(-1)
+    output = loaded.predict(records)
 
     validated = validate_raw_records(records)
-    _, expected = gru_final_window_predictions(payload, validated.records)
+    expected_meta, expected = gru_final_window_predictions(payload, validated.records)
 
+    assert list(output.columns) == ["engine_id", "cycle", "prediction"]
+    roundtrip = output["prediction"].to_numpy(dtype=np.float64)
     # Guard against the clipped-to-zero degenerate case where both sides are all
     # zeros and the parity assertion would pass with no real signal.
     assert not np.allclose(roundtrip, 0.0)
     assert roundtrip[0] != roundtrip[1]
     assert np.allclose(roundtrip, expected)
+    assert output["engine_id"].tolist() == expected_meta["engine_id"].tolist()
+    assert output["cycle"].tolist() == expected_meta["cycle"].tolist()

@@ -9,11 +9,13 @@ Model-packaging contract for both pyfunc wrappers:
 
 - **Input:** a pandas ``DataFrame`` of canonical raw inference records with
   columns ``engine_id``, ``cycle``, ``op_1``..``op_3``, and ``s_1``..``s_21``.
-- **Output:** a one-dimensional ``numpy`` ``float64`` array of non-negative RUL
-  predictions, one per engine. The Ridge wrapper returns the last-cycle
-  prediction per engine (``engine`` scope); the GRU wrapper returns the
-  final-window prediction per engine (``final_window`` scope). Rows are ordered
-  by ``engine_id``.
+- **Output:** a pandas ``DataFrame`` with columns ``engine_id`` (int64),
+  ``cycle`` (int64), and ``prediction`` (float64) carrying one non-negative RUL
+  prediction per engine, ordered by ``engine_id``. The Ridge wrapper returns the
+  last-cycle prediction per engine (``engine`` scope); the GRU wrapper returns
+  the final-window prediction per engine (``final_window`` scope). The metadata
+  columns let downstream callers reconstruct the per-row prediction contract
+  through the pyfunc boundary.
 """
 from __future__ import annotations
 
@@ -35,15 +37,48 @@ from mlflow.pyfunc.model import PythonModel, PythonModelContext
 from mlflow.tracking import MlflowClient
 
 from turbofan.inference.predictors import (
+    PyfuncPredictor,
     gru_final_window_predictions,
     ridge_engine_predictions,
 )
-from turbofan.inference.schemas import CANONICAL_COLUMNS, validate_raw_records
+from turbofan.inference.schemas import (
+    CANONICAL_COLUMNS,
+    ModelType,
+    validate_raw_records,
+)
 
 _RIDGE_ARTIFACT_KEY = "pipeline"
 _GRU_ARTIFACT_KEY = "checkpoint"
 _GRU_CHECKPOINT_FILENAME = "model.pt"
 _VAL_RMSE_METRIC = "val_rmse"
+
+#: Output columns produced by both pyfunc wrappers' ``predict`` methods.
+PREDICTION_OUTPUT_COLUMNS = ["engine_id", "cycle", "prediction"]
+
+
+def _prediction_frame(
+    metadata: pd.DataFrame,
+    predictions: npt.NDArray[np.float64],
+) -> pd.DataFrame:
+    """Combine per-row metadata and predictions into the output contract frame.
+
+    Args:
+        metadata: Per-row ``engine_id``/``cycle`` metadata, ordered by
+            ``engine_id``.
+        predictions: Non-negative predictions aligned to ``metadata`` rows.
+
+    Returns:
+        DataFrame with ``engine_id`` (int64), ``cycle`` (int64), and
+        ``prediction`` (float64) columns.
+    """
+    return pd.DataFrame(
+        {
+            "engine_id": metadata["engine_id"].to_numpy(dtype=np.int64),
+            "cycle": metadata["cycle"].to_numpy(dtype=np.int64),
+            "prediction": np.asarray(predictions, dtype=np.float64),
+        },
+        columns=PREDICTION_OUTPUT_COLUMNS,
+    )
 
 
 def model_name(model_type: str, subset: str) -> str:
@@ -65,7 +100,7 @@ class RidgeEngineModel(PythonModel):
     Loads a fitted sklearn ``Pipeline`` from the logged artifact and, on
     ``predict``, validates the raw records and returns the last-cycle
     prediction per engine, clipped to be non-negative. The selection and
-    clipping logic is shared with ``inference.predictors.RidgePredictor`` via
+    clipping logic is shared with the in-process Ridge compute via
     ``ridge_engine_predictions``.
     """
 
@@ -87,7 +122,7 @@ class RidgeEngineModel(PythonModel):
         context: PythonModelContext,
         model_input: pd.DataFrame,
         params: dict[str, object] | None = None,
-    ) -> npt.NDArray[np.float64]:
+    ) -> pd.DataFrame:
         """Predict one non-negative RUL value per engine (last-cycle prediction).
 
         Args:
@@ -96,13 +131,15 @@ class RidgeEngineModel(PythonModel):
             params: Optional inference params (unused).
 
         Returns:
-            One-dimensional array of per-engine predictions, ordered by
-            ``engine_id``.
+            DataFrame with ``engine_id``, ``cycle``, and ``prediction`` columns,
+            one row per engine, ordered by ``engine_id``.
         """
         del context, params
         validation = validate_raw_records(model_input)
-        _, predictions = ridge_engine_predictions(self._pipeline, validation.records)
-        return predictions
+        metadata, predictions = ridge_engine_predictions(
+            self._pipeline, validation.records
+        )
+        return _prediction_frame(metadata, predictions)
 
 
 class GRUFinalWindowModel(PythonModel):
@@ -111,8 +148,8 @@ class GRUFinalWindowModel(PythonModel):
     Loads a GRU checkpoint payload (the same shape as the training ``model.pt``)
     from the logged artifact and, on ``predict``, validates the raw records and
     returns the final-window prediction per engine (normalize, window, forward,
-    rescale by ``max_rul``, clip). The compute is shared with
-    ``inference.predictors.GRUPredictor`` via ``gru_final_window_predictions``.
+    rescale by ``max_rul``, clip). The compute is shared with the in-process GRU
+    compute via ``gru_final_window_predictions``.
     """
 
     def load_context(self, context: PythonModelContext) -> None:
@@ -133,7 +170,7 @@ class GRUFinalWindowModel(PythonModel):
         context: PythonModelContext,
         model_input: pd.DataFrame,
         params: dict[str, object] | None = None,
-    ) -> npt.NDArray[np.float64]:
+    ) -> pd.DataFrame:
         """Predict one non-negative RUL value per engine final window.
 
         Args:
@@ -143,25 +180,23 @@ class GRUFinalWindowModel(PythonModel):
             params: Optional inference params (unused).
 
         Returns:
-            One-dimensional array of per-engine final-window predictions, ordered
-            by ``engine_id``.
+            DataFrame with ``engine_id``, ``cycle``, and ``prediction`` columns,
+            one row per engine final window, ordered by ``engine_id``.
         """
         del context, params
         validation = validate_raw_records(model_input)
-        _, predictions = gru_final_window_predictions(
+        metadata, predictions = gru_final_window_predictions(
             self._payload, validation.records
         )
-        return predictions
+        return _prediction_frame(metadata, predictions)
 
 
-def _signature(predictions: npt.NDArray[np.float64]) -> ModelSignature:
-    """Infer a pyfunc signature from canonical raw records and predictions.
-
-    Args:
-        predictions: Sample prediction array used to infer the output schema.
+def _signature() -> ModelSignature:
+    """Infer the pyfunc signature for the canonical-records prediction contract.
 
     Returns:
-        Model signature mapping canonical raw records to a prediction array.
+        Model signature mapping canonical raw records to the
+        ``engine_id``/``cycle``/``prediction`` output frame.
     """
     sample_input = pd.DataFrame(
         [[0.0] * len(CANONICAL_COLUMNS)],
@@ -169,7 +204,15 @@ def _signature(predictions: npt.NDArray[np.float64]) -> ModelSignature:
     )
     sample_input["engine_id"] = sample_input["engine_id"].astype("int64")
     sample_input["cycle"] = sample_input["cycle"].astype("int64")
-    return infer_signature(sample_input, predictions)
+    sample_output = pd.DataFrame(
+        {
+            "engine_id": np.zeros(1, dtype=np.int64),
+            "cycle": np.zeros(1, dtype=np.int64),
+            "prediction": np.zeros(1, dtype=np.float64),
+        },
+        columns=PREDICTION_OUTPUT_COLUMNS,
+    )
+    return infer_signature(sample_input, sample_output)
 
 
 def _log_ridge_model(model: object, name: str) -> None:
@@ -187,7 +230,7 @@ def _log_ridge_model(model: object, name: str) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / "pipeline.joblib"
         joblib.dump(model, artifact_path)
-        signature = _signature(np.zeros(1, dtype=np.float64))
+        signature = _signature()
         mlflow.pyfunc.log_model(
             name="model",
             python_model=RidgeEngineModel(),
@@ -211,7 +254,7 @@ def _log_gru_model(payload: object, name: str) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / _GRU_CHECKPOINT_FILENAME
         torch.save(payload, artifact_path)
-        signature = _signature(np.zeros(1, dtype=np.float64))
+        signature = _signature()
         mlflow.pyfunc.log_model(
             name="model",
             python_model=GRUFinalWindowModel(),
@@ -317,6 +360,99 @@ def load(name: str, alias: str = "production") -> PyFuncModel:
         Loaded pyfunc model resolved from ``models:/<name>@<alias>``.
     """
     return cast(PyFuncModel, mlflow.pyfunc.load_model(resolve_uri(name, alias)))
+
+
+def model_type_from_name(name: str) -> ModelType:
+    """Infer the model family from a canonical registered-model name.
+
+    Args:
+        name: Registered-model name of the form ``turbofan-{type}-{subset}``.
+
+    Returns:
+        The model family, ``"ridge"`` or ``"gru"``.
+
+    Raises:
+        ValueError: If the name does not encode a supported model family.
+    """
+    parts = name.split("-")
+    if len(parts) >= 2 and parts[0] == "turbofan":
+        candidate = parts[1]
+        if candidate in ("ridge", "gru"):
+            return cast(ModelType, candidate)
+    raise ValueError(
+        f"Cannot infer model type from registered-model name {name!r}; "
+        "expected the form 'turbofan-{ridge,gru}-{subset}'."
+    )
+
+
+def load_predictor(name: str, alias: str = "production") -> PyfuncPredictor:
+    """Load an aliased registry model wrapped in the predictor adapter.
+
+    Args:
+        name: Registered-model name.
+        alias: Alias to load. Defaults to ``"production"``.
+
+    Returns:
+        A :class:`PyfuncPredictor` exposing the inference predictor contract.
+
+    Raises:
+        ValueError: If the model family cannot be inferred from ``name``.
+    """
+    model = load(name, alias)
+    model_type = model_type_from_name(name)
+    version = MlflowClient().get_model_version_by_alias(name, alias).version
+    artifact_id = f"{name}/{version}"
+    return PyfuncPredictor(model, model_type=model_type, artifact_id=artifact_id)
+
+
+def load_predictor_from_uri(uri: str) -> PyfuncPredictor:
+    """Load a ``models:`` URI model wrapped in the predictor adapter.
+
+    Supports both alias URIs (``models:/<name>@<alias>``) and version URIs
+    (``models:/<name>/<version>``).
+
+    Args:
+        uri: Model URI of the form ``models:/<name>@<alias>`` or
+            ``models:/<name>/<version>``.
+
+    Returns:
+        A :class:`PyfuncPredictor` exposing the inference predictor contract.
+
+    Raises:
+        ValueError: If the URI is not a supported ``models:`` URI or the model
+            family cannot be inferred.
+    """
+    name, reference = _parse_models_uri(uri)
+    model = cast(PyFuncModel, mlflow.pyfunc.load_model(uri))
+    model_type = model_type_from_name(name)
+    artifact_id = f"{name}/{reference}"
+    return PyfuncPredictor(model, model_type=model_type, artifact_id=artifact_id)
+
+
+def _parse_models_uri(uri: str) -> tuple[str, str]:
+    """Parse a ``models:`` URI into its name and version/alias reference.
+
+    Args:
+        uri: Model URI of the form ``models:/<name>@<alias>`` or
+            ``models:/<name>/<version>``.
+
+    Returns:
+        Tuple of the registered-model name and the version or alias reference.
+
+    Raises:
+        ValueError: If the URI is not a ``models:`` URI.
+    """
+    prefix = "models:/"
+    if not uri.startswith(prefix):
+        raise ValueError(f"Expected a 'models:/' URI, got {uri!r}.")
+    remainder = uri[len(prefix) :]
+    if "@" in remainder:
+        name, alias = remainder.split("@", 1)
+        return name, alias
+    name, _, version = remainder.rpartition("/")
+    if not name:
+        raise ValueError(f"Malformed 'models:/' URI: {uri!r}.")
+    return name, version
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,6 @@ from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import (
     create_run_dir,
     save_json,
-    save_model,
     save_predictions,
 )
 from turbofan.models.baseline import build_baseline_pipeline
@@ -68,27 +67,6 @@ def _config_to_dict(cfg: ProjectConfig) -> dict[str, object]:
         Dictionary with JSON-friendly values.
     """
     return cfg.model_dump(mode="json")
-
-
-def _manifest_payload(run_dir: Path, model_type: str) -> dict[str, object]:
-    """Build a schema-version-1 model manifest payload.
-
-    Args:
-        run_dir: Created training run directory.
-        model_type: Persisted baseline model type.
-
-    Returns:
-        JSON-serializable model manifest.
-    """
-    return {
-        "schema_version": 1,
-        "model_type": model_type,
-        "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "engine",
-        "model_path": "model.joblib",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
 
 
 def _prediction_frame(
@@ -263,13 +241,8 @@ def main() -> None:
                         "test or RUL files not found"
                     )
 
-                save_model(estimator, run_dir / "model.joblib")
                 save_json(metrics_payload, run_dir / "metrics.json")
                 save_json(_config_to_dict(cfg), run_dir / "config.json")
-                save_json(
-                    _manifest_payload(run_dir, cfg.model.name),
-                    run_dir / "model_manifest.json",
-                )
                 save_predictions(
                     val_predictions, run_dir / "validation_predictions.csv"
                 )

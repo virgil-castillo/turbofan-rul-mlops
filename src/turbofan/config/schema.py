@@ -176,7 +176,10 @@ class InferenceConfig(BaseModel):
     """Configuration for local inference serving.
 
     Args:
-        artifact_path: Optional model artifact manifest or run directory.
+        artifact_path: Deprecated. The serving API now resolves the production
+            model by name from the MLflow registry (``TURBOFAN_MODEL_NAME`` or
+            the ``--model`` flag), so this field is retained only for backward
+            config compatibility and is not consulted by ``create_app``.
         host: Host interface for the API server.
         port: Port for the API server.
         allow_partial: Whether serving clients may skip invalid records.

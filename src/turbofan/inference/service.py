@@ -6,13 +6,52 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from turbofan.inference.predictors import Predictor, load_predictor
-from turbofan.inference.schemas import PredictionResult, SchemaValidationError
+from turbofan.inference.schemas import (
+    PredictionMetadata,
+    PredictionResult,
+    RawRecords,
+    SchemaValidationError,
+)
+
+#: Environment variable naming the registered model to resolve at startup.
+MODEL_NAME_ENV = "TURBOFAN_MODEL_NAME"
+#: Environment variable selecting the alias to resolve (defaults to production).
+MODEL_ALIAS_ENV = "TURBOFAN_MODEL_ALIAS"
+
+
+class _Predictor(Protocol):
+    """Predictor interface the service routes depend on."""
+
+    @property
+    def metadata(self) -> PredictionMetadata:
+        """Return descriptive metadata for the loaded model.
+
+        Returns:
+            Response-level model metadata.
+        """
+        ...
+
+    def predict(
+        self,
+        records: RawRecords,
+        *,
+        allow_partial: bool = False,
+    ) -> PredictionResult:
+        """Predict remaining useful life for request records.
+
+        Args:
+            records: Raw canonical inference records.
+            allow_partial: Whether invalid or short inputs may be skipped.
+
+        Returns:
+            Prediction response with rows and metadata.
+        """
+        ...
 
 
 class PredictRequest(BaseModel):
@@ -31,24 +70,33 @@ class PredictRequest(BaseModel):
 
 def create_app(
     *,
-    artifact_path: Path | str | None = None,
-    predictor: Predictor | None = None,
+    model_name: str | None = None,
+    alias: str | None = None,
+    predictor: _Predictor | None = None,
 ) -> FastAPI:
-    """Create a FastAPI app with one loaded predictor.
+    """Create a FastAPI app resolving one registered model by name.
+
+    The model is resolved from ``models:/<name>@<alias>`` via the registry. When
+    ``model_name`` is omitted, the ``TURBOFAN_MODEL_NAME`` environment variable
+    is used; when ``alias`` is omitted, the ``TURBOFAN_MODEL_ALIAS`` environment
+    variable is used, defaulting to ``"production"``.
 
     Args:
-        artifact_path: Optional artifact manifest or directory path. If omitted,
-            ``TURBOFAN_MODEL_ARTIFACT`` is used.
+        model_name: Registered-model name to resolve. Falls back to
+            ``TURBOFAN_MODEL_NAME``.
+        alias: Alias to resolve. Falls back to ``TURBOFAN_MODEL_ALIAS`` then
+            ``"production"``.
         predictor: Optional pre-loaded predictor, primarily for tests.
 
     Returns:
         Configured FastAPI application.
 
     Raises:
-        ValueError: If no artifact is configured or the artifact cannot be loaded.
+        ValueError: If no model name is configured or the model cannot be loaded.
     """
     loaded_predictor = _resolve_predictor(
-        artifact_path=artifact_path,
+        model_name=model_name,
+        alias=alias,
         predictor=predictor,
     )
     app = FastAPI(title="Turbofan Inference API")
@@ -111,20 +159,23 @@ def prediction_result_to_dict(result: PredictionResult) -> dict[str, object]:
 
 def _resolve_predictor(
     *,
-    artifact_path: Path | str | None,
-    predictor: Predictor | None,
-) -> Predictor:
+    model_name: str | None,
+    alias: str | None,
+    predictor: _Predictor | None,
+) -> _Predictor:
     if predictor is not None:
         return predictor
-    raw_artifact_path = artifact_path
-    if raw_artifact_path is None:
-        raw_artifact_path = os.environ.get("TURBOFAN_MODEL_ARTIFACT")
-    if raw_artifact_path is None:
+    from turbofan import registry, tracking
+
+    name = model_name or os.environ.get(MODEL_NAME_ENV)
+    if not name:
         raise ValueError(
-            "Model artifact is required via artifact_path or "
-            "TURBOFAN_MODEL_ARTIFACT."
+            "Registered model name is required via model_name or "
+            f"the {MODEL_NAME_ENV} environment variable."
         )
-    return load_predictor(Path(raw_artifact_path))
+    resolved_alias = alias or os.environ.get(MODEL_ALIAS_ENV) or "production"
+    tracking.configure_mlflow()
+    return registry.load_predictor(name, resolved_alias)
 
 
 def _jsonable(value: object) -> object:
