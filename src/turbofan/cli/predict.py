@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -15,6 +15,9 @@ from turbofan.inference.predictors import load_predictor
 from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.inference.service import prediction_result_to_dict
 from turbofan.models.metrics import official_test_metrics
+from turbofan.utils.logging import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -28,6 +31,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    setup_logging(args.log_level)
     evaluation: dict[str, float] | None = None
     try:
         records = _read_records(args.input)
@@ -45,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 meta["evaluation"] = evaluation
         _write_metadata(args.metadata_output, payload)
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        logger.error(str(exc))
         return 1
 
     metadata = result.metadata
@@ -105,6 +109,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--subset", type=str, default=None)
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=os.environ.get("LOG_LEVEL", "INFO"),
+        help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
+    )
     return parser
 
 

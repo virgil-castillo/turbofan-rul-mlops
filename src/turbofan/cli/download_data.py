@@ -7,10 +7,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from turbofan.utils.logging import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 EXPECTED_FILES: list[str] = [
     f"{split}_FD00{i}.txt"
@@ -37,9 +42,9 @@ def check(raw_dir: Path = RAW_DIR) -> bool:
         path = raw_dir / fname
         if path.exists():
             size_kb = path.stat().st_size // 1024
-            print(f"  [OK] {fname} ({size_kb} KB)")
+            logger.info("[OK] %s (%d KB)", fname, size_kb)
         else:
-            print(f"  [MISSING] {fname}")
+            logger.info("[MISSING] %s", fname)
             all_present = False
     return all_present
 
@@ -55,15 +60,15 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
     """
     kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
     if not kaggle_json.exists():
-        print("Kaggle API key not found at ~/.kaggle/kaggle.json")
-        print("\nManual download instructions:")
-        print(f"  1. Go to {MANUAL_URL}")
-        print("  2. Click 'Download' to get the dataset zip")
-        print(f"  3. Extract all .txt files into: {raw_dir}/")
+        logger.warning("Kaggle API key not found at ~/.kaggle/kaggle.json")
+        logger.warning("Manual download instructions:")
+        logger.warning("  1. Go to %s", MANUAL_URL)
+        logger.warning("  2. Click 'Download' to get the dataset zip")
+        logger.warning("  3. Extract all .txt files into: %s/", raw_dir)
         sys.exit(1)
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading {KAGGLE_DATASET} into {raw_dir} ...")
+    logger.info("Downloading %s into %s ...", KAGGLE_DATASET, raw_dir)
     result = subprocess.run(
         [
             "kaggle",
@@ -78,7 +83,9 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
         check=False,
     )
     if result.returncode != 0:
-        print("\nDownload failed. Check your Kaggle API credentials and connection.")
+        logger.error(
+            "Download failed. Check your Kaggle API credentials and connection."
+        )
         sys.exit(1)
 
     # Flatten directory structure if files extracted to subdirectory
@@ -88,7 +95,7 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
             shutil.move(str(txt_file), str(raw_dir / txt_file.name))
         shutil.rmtree(cmaps_dir)
 
-    print("Download complete.\n")
+    logger.info("Download complete.")
 
 
 def main() -> None:
@@ -108,16 +115,23 @@ def main() -> None:
         action="store_true",
         help="Verify all expected files are present",
     )
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=os.environ.get("LOG_LEVEL", "INFO"),
+        help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
+    )
     args = parser.parse_args()
+    setup_logging(args.log_level)
 
     if args.check:
-        print(f"Checking data files in {RAW_DIR} ...\n")
+        logger.info("Checking data files in %s ...", RAW_DIR)
         all_present = check(RAW_DIR)
         sys.exit(0 if all_present else 1)
 
     if args.kaggle:
         download_kaggle(RAW_DIR)
-        print("Verifying downloaded files ...\n")
+        logger.info("Verifying downloaded files ...")
         check(RAW_DIR)
 
 

@@ -547,7 +547,7 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     result = _run_cli(cfg_path)
 
     assert "validation_windows rmse" in result.stdout
-    assert "official test evaluation skipped" in result.stdout
+    assert "official test evaluation skipped" in result.stderr
     run_dir = next((artifact_dir / "sequence_gru").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())

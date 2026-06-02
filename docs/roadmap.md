@@ -182,7 +182,10 @@ Deliberately deferred until the modeling contract stabilizes:
   and GRU runs log under the `turbofan-training` and `turbofan-sweeps`
   experiments. Replaced the GRU-only `results/training_log.jsonl` audit log.
 - [x] CI/CD (GitHub Actions for lint, type-check, tests)
-- [ ] Structured logging (replace print statements with proper logging)
+- [x] Structured logging — leveled stdlib `logging` to stderr across the four
+  surviving entrypoints (`--log-level`, `LOG_LEVEL` env fallback); genuine
+  results stay on stdout. The two production training CLIs capture a per-run
+  `run.log` attached as an MLflow artifact under `logs/`.
 - [ ] Model registry / formal versioning beyond timestamp directories
 - [ ] Speed up the test suite (~3 min). The subprocess-based CLI/sweep tests
   cold-start a fresh interpreter and re-import torch + mlflow on every run, which

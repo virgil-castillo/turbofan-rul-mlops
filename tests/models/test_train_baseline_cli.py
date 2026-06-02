@@ -268,11 +268,127 @@ def test_train_baseline_cli_skips_missing_official_test(
         env=env,
     )
 
-    assert "official test evaluation skipped" in result.stdout
+    assert "official test evaluation skipped" in result.stderr
     run_dir = next((artifact_dir / "baseline").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation"}
+
+
+def _write_minimal_baseline_config(tmp_path: Path) -> Path:
+    """Write synthetic data and a minimal baseline config; return the config path.
+
+    Args:
+        tmp_path: Temporary test directory.
+
+    Returns:
+        Path to the written YAML config.
+    """
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
+    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "project_name: test",
+                "data:",
+                f"  raw_dir: {raw_dir.as_posix()}",
+                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
+                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
+                "  fd_subset: FD001",
+                "  max_rul: 30",
+                "  test_size: 0.25",
+                "  random_seed: 42",
+                "model:",
+                "  name: ridge",
+                "  alpha: 1.0",
+                f"  artifact_dir: {artifact_dir.as_posix()}",
+                "features:",
+                "  feature_set: raw",
+            ]
+        )
+    )
+    return cfg_path
+
+
+def _run_baseline_cli(
+    cfg_path: Path,
+    *extra_args: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run the baseline training CLI from the worktree source.
+
+    Args:
+        cfg_path: Path to the YAML config.
+        *extra_args: Additional CLI arguments.
+
+    Returns:
+        Completed subprocess result.
+    """
+    project_root = Path(__file__).parent.parent.parent
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "turbofan.cli.train_baseline",
+            "--config",
+            str(cfg_path),
+            *extra_args,
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def test_train_baseline_cli_debug_level_surfaces_debug_lines(
+    tmp_path: Path,
+) -> None:
+    """--log-level DEBUG surfaces raw prediction min/max on stderr."""
+    cfg_path = _write_minimal_baseline_config(tmp_path)
+
+    debug_result = _run_baseline_cli(cfg_path, "--log-level", "DEBUG")
+    assert "raw prediction min/max" in debug_result.stderr
+
+    warning_result = _run_baseline_cli(cfg_path, "--log-level", "WARNING")
+    assert "raw prediction min/max" not in warning_result.stderr
+
+
+def test_train_baseline_cli_attaches_run_log_artifact(tmp_path: Path) -> None:
+    """The production run attaches a logs/run.log MLflow artifact with narration."""
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    from turbofan import tracking
+
+    cfg_path = _write_minimal_baseline_config(tmp_path)
+    _run_baseline_cli(cfg_path)
+
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    run_id = runs.iloc[0]["run_id"]
+
+    client = MlflowClient()
+    log_artifacts = client.list_artifacts(run_id, "logs")
+    artifact_paths = {artifact.path for artifact in log_artifacts}
+    assert "logs/run.log" in artifact_paths
+
+    local_path = mlflow.artifacts.download_artifacts(
+        run_id=run_id,
+        artifact_path="logs/run.log",
+    )
+    contents = Path(local_path).read_text()
+    assert "loading training data for FD001" in contents
+    assert "saved baseline run to" in contents
 
 
 def test_official_eval_predicts_full_trajectory_before_final_selection(

@@ -103,6 +103,13 @@ local MLflow store (`mlflow.db`, SQLite) under two experiments,
 sweeps). On-disk artifacts remain the source of truth; MLflow only records run
 metadata. Browse runs with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
+The CLIs keep diagnostics separate from results: progress and lifecycle
+diagnostics go to **stderr** via leveled `logging` (control verbosity with
+`--log-level DEBUG|INFO|WARNING|ERROR`, or the `LOG_LEVEL` env var), while
+genuine results (run directory, validation metrics) print to **stdout**. The two
+production training CLIs additionally capture a per-run `run.log` and attach it
+as an MLflow artifact under `logs/run.log`.
+
 ## Project Structure
 
 ```text
