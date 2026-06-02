@@ -263,7 +263,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
     )
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(
@@ -396,7 +396,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
     )
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
@@ -625,7 +625,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
     )
     monkeypatch.setattr(module, "load_config", lambda p: cfg)
     monkeypatch.setattr(

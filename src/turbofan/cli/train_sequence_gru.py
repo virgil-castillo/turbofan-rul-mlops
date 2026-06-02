@@ -241,7 +241,7 @@ def _model_payload(
 def main() -> None:
     """Train, evaluate, and persist a GRU sequence model run."""
     args = _parse_args()
-    setup_logging(getattr(args, "log_level", "INFO"))
+    setup_logging(args.log_level)
     cfg = load_config(args.config)
     if cfg.sequence.architecture != "gru":
         raise ValueError("Sequence training CLI requires architecture='gru'.")
