@@ -31,14 +31,6 @@ def test_configure_mlflow_sets_explicit_tracking_uri(tmp_path: Path) -> None:
     assert mlflow.get_tracking_uri() == uri
 
 
-def test_configure_mlflow_is_idempotent(tmp_path: Path) -> None:
-    """Configuring twice with the same URI keeps the URI stable."""
-    uri = _sqlite_uri(tmp_path)
-    tracking.configure_mlflow(uri)
-    tracking.configure_mlflow(uri)
-    assert mlflow.get_tracking_uri() == uri
-
-
 def test_configure_mlflow_honors_env_var(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

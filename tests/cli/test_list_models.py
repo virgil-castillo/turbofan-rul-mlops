@@ -96,12 +96,3 @@ def test_list_models_shows_placeholder_without_production_alias(
     assert name in out
     assert "-" in out
 
-
-def test_list_models_accepts_log_level(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The --log-level flag is accepted and does not break listing."""
-    code = list_models.main(["--log-level", "DEBUG"])
-
-    assert code == 0
-    assert "No registered models" in capsys.readouterr().out

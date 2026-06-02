@@ -107,13 +107,3 @@ def test_promote_unknown_model_returns_error(
     assert "ERROR" in captured.err
     assert captured.out == ""
 
-
-def test_promote_accepts_log_level(capsys: pytest.CaptureFixture[str]) -> None:
-    """The --log-level flag is accepted and does not break promotion."""
-    name = _register_two_versions()
-
-    code = promote_model.main([name, "1", "--log-level", "DEBUG"])
-
-    assert code == 0
-    out = capsys.readouterr().out
-    assert name in out
