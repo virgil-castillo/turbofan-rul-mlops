@@ -30,8 +30,8 @@ no effort is spent log-polishing code that is about to be removed.
 | Prerequisite | **Retire 7 exploration scripts** (all sweeps + baseline comparisons) before logging; their decisions live in configs/reports |
 | Scope | The **4 surviving entrypoints** that `print()`: `train_baseline`, `train_sequence_gru`, `predict`, `download_data` |
 | Verbosity | `--log-level` CLI arg (default `INFO`) with `LOG_LEVEL` env-var fallback |
-| Per-run `run.log` | **Included**, for the **2 production training CLIs only** (the only entrypoints with a run dir) |
-| `run.log` capture timing | **Option A** — create the run dir at the start of the run and attach the file handler immediately, so `run.log` captures the whole run (data load → train → eval → save) |
+| Per-run `run.log` | **Included**, for the **2 production training CLIs only**; logged as an **MLflow artifact** on the run (not a run-dir file — the registry step retires run dirs) |
+| `run.log` capture timing | File handler attached at the **start** of `main()` writing to a temp file (captures data load → train → eval → save), logged as the `run.log` MLflow artifact before the run closes, then detached |
 | Progress (`run i/N`) | Stays as `INFO` log lines; **tqdm not adopted** (would corrupt non-TTY/HPC logs) |
 | Result artifacts | Unchanged — untouched by this step |
 
@@ -112,30 +112,31 @@ Each entrypoint's `main()`:
 2. calls `setup_logging(level)` once at startup;
 3. uses a module-level `logger = get_logger(__name__)`.
 
-### `run.log` capture (production training CLIs — Option A)
+### `run.log` capture (production training CLIs — MLflow artifact)
 
-For `cli/train_baseline.py` and `cli/train_sequence_gru.py`, restructure `main()`
-so the run directory is created **at the start of the run** (after config load
-and cheap validation, before data loading/training), then wrap the body in
-`run_file_logging(run_dir / "run.log")`:
+For `cli/train_baseline.py` and `cli/train_sequence_gru.py`, wrap `main()` in
+`run_file_logging(<temp path>)` from the start so the temp file captures the whole
+run (data load → train → eval → save). Before the production MLflow run closes,
+the temp file is logged as the `run.log` artifact:
 
 ```python
 def main() -> None:
     args = _parse_args()
     setup_logging(args.log_level)
     cfg = load_config(args.config)
-    # (cheap validation, e.g. GRU architecture check)
-    run_dir = create_run_dir(...)            # moved to the start of the run
-    with run_file_logging(run_dir / "run.log"):
-        ...                                   # data load, train, eval, MLflow, save
+    with run_file_logging(tmp_run_log) as run_log_path:
+        ...                                   # data load, train, eval
+        with mlflow.start_run():
+            ...                               # tracking (+ registry, later)
+            mlflow.log_artifact(str(run_log_path), artifact_path="logs")
 ```
 
-Consequence (accepted): a run that fails early now leaves a run folder
-containing only `run.log` (and no model). This is treated as a **feature** — a
-failed run leaves a diagnosable log behind — at the cost of the previous "every
-run folder has a model" invariant. The MLflow `start_run()` context is unchanged
-and still wraps the eval/save/log section; `run_dir` (already created) is logged
-as the `run_dir` tag as before.
+The file handler is detached on exit (essential so in-process test runs do not
+bleed one run's log into the next). `run.log` thus travels with the run in
+MLflow and is viewable in the UI — no run-dir dependency. Trade-off: a run that
+fails *before* the artifact is logged is not uploaded; its narration is still on
+stderr (and SLURM/`2>` capture). Resolving the production model URI is unrelated;
+this only concerns where the diagnostic log lands.
 
 ## Per-path integration
 
@@ -146,7 +147,7 @@ as the `run_dir` tag as before.
 | `cli/download_data.py` | 12 | — | Diagnostics → logging; any final "downloaded to …" summary may stay stdout. Kaggle's own progress bar is left alone. |
 | `cli/predict.py` | 9 | — | Diagnostics → logging; predicted-value result stays stdout. |
 
-`predict`/`download_data` have no per-run artifact folder, so they log to stderr
+`predict`/`download_data` have no production MLflow run, so they log to stderr
 only (no `run.log`). (~33 `print()`s across these 4 files; the other ~12 lived in
 the retired exploration scripts.)
 
@@ -177,8 +178,8 @@ the retired exploration scripts.)
 
 - **JSON / structured-for-aggregation logs** (Design B) — no log aggregator in
   use; no payoff for a single-user laptop + HPC workflow.
-- **`run.log` for `predict` / `download_data`** — these have no per-run folder;
-  out of scope.
+- **`run.log` for `predict` / `download_data`** — these have no production MLflow
+  run; out of scope.
 - **tqdm progress bars** — an interactive-only convenience. If adopted later, do
   it as an optional `--progress` flag using
   `tqdm(..., disable=not sys.stderr.isatty())` (auto-disable on non-TTY so it
