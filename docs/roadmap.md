@@ -187,6 +187,13 @@ Deliberately deferred until the modeling contract stabilizes:
 - [x] CI/CD (GitHub Actions for lint, type-check, tests)
 - [ ] Structured logging (replace print statements with proper logging)
 - [ ] Model registry / formal versioning beyond timestamp directories
+- [ ] Speed up the test suite (~3 min). The subprocess-based CLI/sweep tests
+  cold-start a fresh interpreter and re-import torch + mlflow on every run, which
+  dominates wall time; `import mlflow` and per-test SQLite setup added overhead in
+  the tracking migration. Options: `pytest-xdist` (`-n auto`) since these tests
+  parallelize well, mark the subprocess integration tests `slow` and run a fast
+  in-process subset by default, or convert subprocess CLI tests to in-process
+  `main()` calls.
 
 ## Design Decisions Worth Preserving
 
