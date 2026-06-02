@@ -6,16 +6,18 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import turbofan.models.training_log as _training_log_module
 from turbofan.config.schema import DataConfig
 
 
 @pytest.fixture(autouse=True)
-def _redirect_training_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect training log writes to tmp_path so tests never touch results/."""
-    monkeypatch.setattr(
-        _training_log_module, "_DEFAULT_LOG_PATH", tmp_path / "training_log.jsonl"
-    )
+def _redirect_mlflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect MLflow to a per-test SQLite store so runs never touch the repo.
+
+    Sets ``MLFLOW_TRACKING_URI`` so both in-process code and subprocess CLIs
+    (which copy ``os.environ``) log to an isolated ``tmp_path`` database.
+    """
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path.as_posix()}")
 
 
 def _write_cmapss_file(path: Path, n_engines: int, n_cycles: int) -> None:

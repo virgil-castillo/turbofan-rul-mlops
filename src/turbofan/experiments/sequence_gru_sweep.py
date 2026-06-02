@@ -7,9 +7,11 @@ from pathlib import Path
 from time import perf_counter
 from typing import Literal, cast
 
+import mlflow
 import numpy as np
 import pandas as pd
 
+from turbofan import tracking
 from turbofan.config.schema import load_config
 from turbofan.data.loader import load_raw_train
 from turbofan.features.pipeline import build_feature_pipeline
@@ -23,7 +25,6 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
-from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.windowing import build_sliding_windows
 
@@ -134,21 +135,6 @@ def _append_incremental_row(
     )
 
 
-def _device_name(device: object) -> str:
-    """Return a stable display name for a resolved training device.
-
-    Args:
-        device: Resolved device object.
-
-    Returns:
-        Device type string when available, otherwise ``str(device)``.
-    """
-    device_type = getattr(device, "type", None)
-    if isinstance(device_type, str):
-        return device_type
-    return str(device)
-
-
 def run_gru_sweep(
     config_path: Path,
     window_sizes: list[int],
@@ -222,111 +208,120 @@ def run_gru_sweep(
     specs = list(product(window_sizes, hidden_sizes, learning_rates))
     total_runs = len(specs)
 
-    for run_idx, (window_size, hidden_size, learning_rate) in enumerate(specs, 1):
-        spec_cfg = cfg.sequence.model_copy(
-            update={
-                "window_size": window_size,
-                "hidden_size": hidden_size,
-                "learning_rate": learning_rate,
-            }
-        )
-        train_windows = build_sliding_windows(
-            train_normalized,
-            feature_cols=feature_cols,
-            window_size=window_size,
-        )
-        validation_windows = build_sliding_windows(
-            val_normalized,
-            feature_cols=feature_cols,
-            window_size=window_size,
-        )
-        train_loader = build_sequence_loader(
-            train_windows,
-            batch_size=spec_cfg.batch_size,
-            shuffle=True,
-        )
-        validation_windows_loader = build_sequence_loader(
-            validation_windows,
-            batch_size=spec_cfg.batch_size,
-            shuffle=False,
-        )
-
-        seed_everything(cfg.data.random_seed)
-        model = GRURULRegressor(
-            input_size=len(feature_cols),
-            hidden_size=hidden_size,
-            num_layers=spec_cfg.num_layers,
-            dropout=spec_cfg.dropout,
-        )
-        training_start = perf_counter()
-        result = train_gru_model(
-            model=model,
-            train_loader=train_loader,
-            validation_windows_loader=validation_windows_loader,
-            config=spec_cfg,
-            device=torch_device,
-            random_seed=cfg.data.random_seed,
-            max_rul=cfg.data.max_rul,
-        )
-        training_duration_seconds = perf_counter() - training_start
-
-        predictions = np.clip(
-            predict_windows(
-                result.model,
-                validation_windows_loader,
-                torch_device,
-                max_rul=cfg.data.max_rul,
-            ),
-            0.0,
-            None,
-        )
-        metrics = regression_metrics(
-            validation_windows.y.astype(np.float64),
-            predictions,
-        )
-        row: dict[str, float | int] = {
-            "window_size": window_size,
-            "hidden_size": hidden_size,
-            "learning_rate": learning_rate,
-            "best_epoch": result.best_epoch,
-            "rmse": metrics["rmse"],
-            "mae": metrics["mae"],
-            "training_duration_seconds": training_duration_seconds,
-        }
-        rows.append(row)
-        if output_path is not None:
-            _append_incremental_row(
-                row,
-                output_path,
-                append=len(rows) > 1,
+    tracking.configure_mlflow()
+    mlflow.set_experiment(tracking.SWEEP_EXPERIMENT)
+    with mlflow.start_run():
+        tracking.set_tags({"model_type": "gru", "run_type": "sweep"})
+        for run_idx, (window_size, hidden_size, learning_rate) in enumerate(
+            specs, 1
+        ):
+            spec_cfg = cfg.sequence.model_copy(
+                update={
+                    "window_size": window_size,
+                    "hidden_size": hidden_size,
+                    "learning_rate": learning_rate,
+                }
             )
-        log_entry = build_log_entry(
-            model_type="gru",
-            dataset=cfg.data.fd_subset,
-            random_seed=cfg.data.random_seed,
-            hyperparameters={
+            train_windows = build_sliding_windows(
+                train_normalized,
+                feature_cols=feature_cols,
+                window_size=window_size,
+            )
+            validation_windows = build_sliding_windows(
+                val_normalized,
+                feature_cols=feature_cols,
+                window_size=window_size,
+            )
+            train_loader = build_sequence_loader(
+                train_windows,
+                batch_size=spec_cfg.batch_size,
+                shuffle=True,
+            )
+            validation_windows_loader = build_sequence_loader(
+                validation_windows,
+                batch_size=spec_cfg.batch_size,
+                shuffle=False,
+            )
+
+            seed_everything(cfg.data.random_seed)
+            model = GRURULRegressor(
+                input_size=len(feature_cols),
+                hidden_size=hidden_size,
+                num_layers=spec_cfg.num_layers,
+                dropout=spec_cfg.dropout,
+            )
+            training_start = perf_counter()
+            result = train_gru_model(
+                model=model,
+                train_loader=train_loader,
+                validation_windows_loader=validation_windows_loader,
+                config=spec_cfg,
+                device=torch_device,
+                random_seed=cfg.data.random_seed,
+                max_rul=cfg.data.max_rul,
+            )
+            training_duration_seconds = perf_counter() - training_start
+
+            predictions = np.clip(
+                predict_windows(
+                    result.model,
+                    validation_windows_loader,
+                    torch_device,
+                    max_rul=cfg.data.max_rul,
+                ),
+                0.0,
+                None,
+            )
+            metrics = regression_metrics(
+                validation_windows.y.astype(np.float64),
+                predictions,
+            )
+            row: dict[str, float | int] = {
                 "window_size": window_size,
                 "hidden_size": hidden_size,
                 "learning_rate": learning_rate,
-                "num_layers": spec_cfg.num_layers,
-                "dropout": spec_cfg.dropout,
-                "batch_size": spec_cfg.batch_size,
-                "epochs": spec_cfg.epochs,
-                "patience": spec_cfg.patience,
-            },
-            metrics=metrics,
-            training_duration_seconds=training_duration_seconds,
-            device=_device_name(torch_device),
-            run_dir=None,
-            best_epoch=result.best_epoch,
-        )
-        append_training_log(log_entry)
-        print(
-            f"run {run_idx}/{total_runs}: "
-            f"window_size={window_size} hidden_size={hidden_size} "
-            f"learning_rate={learning_rate:g} "
-            f"rmse={metrics['rmse']:.6f}"
-        )
+                "best_epoch": result.best_epoch,
+                "rmse": metrics["rmse"],
+                "mae": metrics["mae"],
+                "training_duration_seconds": training_duration_seconds,
+            }
+            rows.append(row)
+            if output_path is not None:
+                _append_incremental_row(
+                    row,
+                    output_path,
+                    append=len(rows) > 1,
+                )
+            with mlflow.start_run(nested=True):
+                tracking.log_params(
+                    {
+                        "window_size": window_size,
+                        "hidden_size": hidden_size,
+                        "learning_rate": learning_rate,
+                        "num_layers": spec_cfg.num_layers,
+                        "dropout": spec_cfg.dropout,
+                        "batch_size": spec_cfg.batch_size,
+                        "epochs": spec_cfg.epochs,
+                        "patience": spec_cfg.patience,
+                        "seed": cfg.data.random_seed,
+                    }
+                )
+                tracking.log_metrics(
+                    {"val_rmse": metrics["rmse"], "val_mae": metrics["mae"]}
+                )
+                tracking.set_tags(
+                    {
+                        "model_type": "gru",
+                        "run_type": "sweep",
+                        "best_epoch": result.best_epoch,
+                    }
+                )
+            print(
+                f"run {run_idx}/{total_runs}: "
+                f"window_size={window_size} hidden_size={hidden_size} "
+                f"learning_rate={learning_rate:g} "
+                f"rmse={metrics['rmse']:.6f}"
+            )
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)
     return results.sort_values("rmse").reset_index(drop=True)

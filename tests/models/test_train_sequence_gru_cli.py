@@ -309,7 +309,6 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     torch.manual_seed(999)
     module.main()
@@ -326,11 +325,15 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         assert torch.equal(captured_state[name], value)
 
 
-def test_train_sequence_gru_cli_appends_training_log_entry(
+def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """CLI appends a GRU training log entry after artifacts are saved."""
+    """CLI logs one production GRU MLflow run with params, metrics, and tags."""
+    import mlflow
+
+    from turbofan import tracking
+
     module = _load_train_sequence_gru_module()
     run_dir = tmp_path / "run"
     cfg = ProjectConfig(
@@ -356,9 +359,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         ),
     )
     window_metrics = {"rmse": 1.0, "mae": 2.0}
-    build_calls: list[dict[str, object]] = []
-    appended_entries: list[dict[str, object]] = []
-    timer_values = iter([10.0, 12.5])
 
     def fake_train_gru_model(**kwargs: object) -> TrainingResult:
         del kwargs
@@ -369,7 +369,12 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
                 num_layers=2,
                 dropout=0.1,
             ),
-            history=pd.DataFrame([{"epoch": 1}]),
+            history=pd.DataFrame(
+                [
+                    {"epoch": 1, "train_loss": 5.0, "validation_windows_rmse": 4.0},
+                    {"epoch": 2, "train_loss": 3.0, "validation_windows_rmse": 2.0},
+                ]
+            ),
             best_epoch=7,
             best_metric=0.0,
         )
@@ -381,10 +386,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         del args
         del kwargs
         return window_metrics, pd.DataFrame()
-
-    def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
-        build_calls.append(kwargs)
-        return {"entry": kwargs}
 
     def fake_create_run_dir(artifact_dir: Path, name: str) -> Path:
         del artifact_dir
@@ -430,45 +431,24 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
-    monkeypatch.setattr(
-        module,
-        "append_training_log",
-        lambda entry: appended_entries.append(entry),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        module,
-        "perf_counter",
-        lambda: next(timer_values),
-        raising=False,
-    )
 
     module.main()
 
-    assert build_calls == [
-        {
-            "model_type": "gru",
-            "dataset": "FD002",
-            "random_seed": 123,
-            "hyperparameters": {
-                "window_size": 5,
-                "hidden_size": 6,
-                "learning_rate": 0.002,
-                "num_layers": 2,
-                "dropout": 0.1,
-                "batch_size": 8,
-                "epochs": 3,
-                "patience": 2,
-            },
-            "metrics": window_metrics,
-            "training_duration_seconds": 2.5,
-            "device": "cpu",
-            "run_dir": str(run_dir),
-            "best_epoch": 7,
-        }
-    ]
-    assert appended_entries == [{"entry": build_calls[0]}]
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    row = runs.iloc[0]
+    assert row["tags.model_type"] == "gru"
+    assert row["tags.run_type"] == "production"
+    assert row["tags.best_epoch"] == "7"
+    assert row["tags.run_dir"] == str(run_dir)
+    assert row["params.window_size"] == "5"
+    assert row["params.hidden_size"] == "6"
+    assert row["params.learning_rate"] == "0.002"
+    assert row["params.seed"] == "123"
+    assert "params.feature_set" in row
+    assert row["metrics.val_rmse"] == 1.0
+    assert row["metrics.val_mae"] == 2.0
 
 
 def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
@@ -687,7 +667,6 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "append_training_log", lambda e: None)
 
     module.main()
 

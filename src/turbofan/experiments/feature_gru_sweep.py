@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from time import perf_counter
 from typing import Literal, cast
 
+import mlflow
 import numpy as np
 import pandas as pd
 
-from turbofan.config.schema import load_config
+from turbofan import tracking
+from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_train
 from turbofan.models.evaluate import add_rul_column
 from turbofan.models.gru import GRURULRegressor
@@ -21,7 +22,6 @@ from turbofan.models.sequence_training import (
     train_gru_model,
 )
 from turbofan.models.split import split_by_engine
-from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.feature_selection import select_correlated_sensors
@@ -217,19 +217,62 @@ def _append_incremental_row(
     )
 
 
-def _device_name(device: object) -> str:
-    """Return a stable display name for a resolved training device.
+def _log_sweep_trials(
+    rows: list[dict[str, object]],
+    cfg: ProjectConfig,
+    rolling_window: int,
+) -> None:
+    """Log completed feature-sweep trials as nested MLflow child runs.
+
+    Trials are logged sequentially under one parent run, so a single sweep
+    never writes the SQLite store from multiple processes at once.
 
     Args:
-        device: Resolved device object.
+        rows: Completed per-trial result rows.
+        cfg: Loaded project configuration.
+        rolling_window: Rolling window size used for rolling feature sets.
 
     Returns:
-        Device type string when available, otherwise ``str(device)``.
+        None.
     """
-    device_type = getattr(device, "type", None)
-    if isinstance(device_type, str):
-        return device_type
-    return str(device)
+    sequence = cfg.sequence
+    tracking.configure_mlflow()
+    mlflow.set_experiment(tracking.SWEEP_EXPERIMENT)
+    with mlflow.start_run():
+        tracking.set_tags({"model_type": "gru", "run_type": "sweep"})
+        for row in rows:
+            with mlflow.start_run(nested=True):
+                tracking.log_params(
+                    {
+                        "feature_set": row["feature_set"],
+                        "corr_threshold": row["corr_threshold"],
+                        "rolling_window": rolling_window,
+                        "n_features": row["n_features"],
+                        "window_size": sequence.window_size,
+                        "hidden_size": sequence.hidden_size,
+                        "learning_rate": sequence.learning_rate,
+                        "num_layers": sequence.num_layers,
+                        "dropout": sequence.dropout,
+                        "batch_size": sequence.batch_size,
+                        "epochs": sequence.epochs,
+                        "patience": sequence.patience,
+                        "seed": cfg.data.random_seed,
+                    }
+                )
+                tracking.log_metrics(
+                    {
+                        "val_rmse": cast(float, row["rmse"]),
+                        "val_mae": cast(float, row["mae"]),
+                    }
+                )
+                tracking.set_tags(
+                    {
+                        "model_type": "gru",
+                        "run_type": "sweep",
+                        "feature_set": row["feature_set"],
+                        "best_epoch": row["best_epoch"],
+                    }
+                )
 
 
 def run_feature_sweep(
@@ -350,7 +393,6 @@ def run_feature_sweep(
             num_layers=cfg.sequence.num_layers,
             dropout=cfg.sequence.dropout,
         )
-        training_start = perf_counter()
         result = train_gru_model(
             model=model,
             train_loader=train_loader,
@@ -360,7 +402,6 @@ def run_feature_sweep(
             random_seed=cfg.data.random_seed,
             max_rul=cfg.data.max_rul,
         )
-        training_duration_seconds = perf_counter() - training_start
 
         predictions = np.clip(
             predict_windows(
@@ -391,35 +432,6 @@ def run_feature_sweep(
         if output_path is not None:
             _append_incremental_row(row, output_path, append=len(rows) > 1)
 
-        extra_dict: dict[str, object] = {
-            "feature_set": feature_set,
-            "corr_threshold": threshold_val,
-            "n_features": len(feature_cols),
-            "rolling_window": rolling_window,
-        }
-
-        log_entry = build_log_entry(
-            model_type="gru",
-            dataset=cfg.data.fd_subset,
-            random_seed=cfg.data.random_seed,
-            hyperparameters={
-                "window_size": window_size,
-                "hidden_size": cfg.sequence.hidden_size,
-                "learning_rate": cfg.sequence.learning_rate,
-                "num_layers": cfg.sequence.num_layers,
-                "dropout": cfg.sequence.dropout,
-                "batch_size": cfg.sequence.batch_size,
-                "epochs": cfg.sequence.epochs,
-                "patience": cfg.sequence.patience,
-            },
-            metrics=metrics,
-            training_duration_seconds=training_duration_seconds,
-            device=_device_name(torch_device),
-            run_dir=None,
-            best_epoch=result.best_epoch,
-            extra=extra_dict,
-        )
-        append_training_log(log_entry)
         print(
             f"run {run_idx}/{total_runs}: "
             f"feature_set={feature_set} "
@@ -427,6 +439,8 @@ def run_feature_sweep(
             f"n_features={len(feature_cols)} "
             f"rmse={metrics['rmse']:.6f}"
         )
+
+    _log_sweep_trials(rows, cfg, rolling_window)
 
     results = pd.DataFrame(rows, columns=RESULT_COLUMNS)
     return results.sort_values("rmse").reset_index(drop=True)

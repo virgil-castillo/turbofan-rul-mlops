@@ -307,17 +307,14 @@ def test_run_feature_sweep_results_sorted_by_rmse(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_run_feature_sweep_gru_calls_training_log(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """GRU sweep calls append_training_log once per trained spec."""
+def test_run_feature_sweep_gru_logs_nested_mlflow_runs(tmp_path: Path) -> None:
+    """GRU sweep logs one nested child run per trained spec under a parent."""
+    import mlflow
+
+    from turbofan import tracking
+
     module = _load_module()
     cfg_path = _write_config(tmp_path)
-    log_calls: list[object] = []
-    monkeypatch.setattr(
-        module, "append_training_log", lambda entry: log_calls.append(entry)
-    )
     module.run_feature_sweep(
         config_path=cfg_path,
         model="gru",
@@ -327,7 +324,40 @@ def test_run_feature_sweep_gru_calls_training_log(
         device="cpu",
         output_path=tmp_path / "out.csv",
     )
-    assert len(log_calls) == 1
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.SWEEP_EXPERIMENT])
+    children = runs[runs["tags.mlflow.parentRunId"].notna()]
+    assert len(children) == 1
+    child = children.iloc[0]
+    assert child["tags.model_type"] == "gru"
+    assert child["tags.run_type"] == "sweep"
+    assert child["params.feature_set"] == "raw"
+    assert child["metrics.val_rmse"] >= 0.0
+
+
+def test_run_feature_sweep_ridge_logs_nested_mlflow_runs(tmp_path: Path) -> None:
+    """Ridge sweep logs one nested child run per spec under a parent run."""
+    import mlflow
+
+    from turbofan import tracking
+
+    module = _load_module()
+    cfg_path = _write_config(tmp_path)
+    module.run_feature_sweep(
+        config_path=cfg_path,
+        model="ridge",
+        feature_sets=["raw", "rolling_mean"],
+        windows=[5],
+        lag_steps=[1],
+        n_jobs=1,
+        output_path=tmp_path / "out.csv",
+    )
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.SWEEP_EXPERIMENT])
+    children = runs[runs["tags.mlflow.parentRunId"].notna()]
+    assert len(children) == 2
+    assert (children["tags.model_type"] == "ridge").all()
+    assert set(children["params.feature_set"]) == {"raw", "rolling_mean"}
 
 
 def test_run_feature_sweep_writes_default_output_path(

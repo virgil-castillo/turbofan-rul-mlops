@@ -136,15 +136,11 @@ def _write_config(tmp_path: Path) -> Path:
     return cfg_path
 
 
-def test_gru_sweep_returns_expected_rows(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_gru_sweep_returns_expected_rows(tmp_path: Path) -> None:
     """GRU sweep evaluates the Cartesian product of requested specs."""
     project_root = Path(__file__).parent.parent.parent
     module = _load_module(project_root)
     cfg_path = _write_config(tmp_path)
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     results = module.run_gru_sweep(
         config_path=cfg_path,
@@ -299,7 +295,6 @@ def test_gru_sweep_reports_validation_window_metrics(
         lambda **kwargs: type("Result", (), {"model": object(), "best_epoch": 1})(),
     )
     monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     results = module.run_gru_sweep(
         config_path=tmp_path / "config.yaml",
@@ -351,8 +346,6 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
             self.y = np.asarray(y, dtype=np.float64)
 
     validation_windows = FakeWindows([10.0, 20.0])
-    build_calls: list[dict[str, object]] = []
-    appended_entries: list[dict[str, object]] = []
     timer_values = iter([1.0, 1.5, 4.0, 6.25])
 
     _fake_train_df = pd.DataFrame(
@@ -404,10 +397,6 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
             return np.asarray([10.0, 20.0], dtype=np.float64)
         return np.asarray([0.0], dtype=np.float64)
 
-    def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
-        build_calls.append(kwargs)
-        return {"entry": kwargs}
-
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda device: "cpu")
     monkeypatch.setattr(module, "load_raw_train", lambda data_config: object())
@@ -434,13 +423,6 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         lambda **kwargs: type("Result", (), {"model": object(), "best_epoch": 9})(),
     )
     monkeypatch.setattr(module, "predict_windows", fake_predict_windows)
-    monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
-    monkeypatch.setattr(
-        module,
-        "append_training_log",
-        lambda entry: appended_entries.append(entry),
-        raising=False,
-    )
     monkeypatch.setattr(
         module,
         "perf_counter",
@@ -456,49 +438,19 @@ def test_gru_sweep_appends_training_log_entry_per_completed_config(
         device="cpu",
     )
 
-    assert build_calls == [
-        {
-            "model_type": "gru",
-            "dataset": "FD003",
-            "random_seed": 321,
-            "hyperparameters": {
-                "window_size": 3,
-                "hidden_size": 6,
-                "learning_rate": 0.002,
-                "num_layers": 2,
-                "dropout": 0.2,
-                "batch_size": 4,
-                "epochs": 5,
-                "patience": 3,
-            },
-            "metrics": {"rmse": 0.0, "mae": 0.0},
-            "training_duration_seconds": 0.5,
-            "device": "cpu",
-            "run_dir": None,
-            "best_epoch": 9,
-        },
-        {
-            "model_type": "gru",
-            "dataset": "FD003",
-            "random_seed": 321,
-            "hyperparameters": {
-                "window_size": 4,
-                "hidden_size": 6,
-                "learning_rate": 0.002,
-                "num_layers": 2,
-                "dropout": 0.2,
-                "batch_size": 4,
-                "epochs": 5,
-                "patience": 3,
-            },
-            "metrics": {"rmse": 0.0, "mae": 0.0},
-            "training_duration_seconds": 2.25,
-            "device": "cpu",
-            "run_dir": None,
-            "best_epoch": 9,
-        },
-    ]
-    assert appended_entries == [{"entry": call} for call in build_calls]
+    import mlflow
+
+    from turbofan import tracking
+
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.SWEEP_EXPERIMENT])
+    children = runs[runs["tags.mlflow.parentRunId"].notna()]
+    assert len(children) == 2
+    assert (children["tags.model_type"] == "gru").all()
+    assert (children["tags.run_type"] == "sweep").all()
+    assert (children["tags.best_epoch"] == "9").all()
+    assert set(children["params.window_size"]) == {"3", "4"}
+    assert (children["metrics.val_rmse"] == 0.0).all()
     assert list(results["training_duration_seconds"]) == [0.5, 2.25]
 
 

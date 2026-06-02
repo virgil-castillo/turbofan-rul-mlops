@@ -149,15 +149,11 @@ def test_feature_sweep_grid_produces_correct_number_of_runs() -> None:
     assert grid[7] == ("top_corr_rolling", 0.7)
 
 
-def test_feature_sweep_returns_expected_columns(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_feature_sweep_returns_expected_columns(tmp_path: Path) -> None:
     """Feature sweep returns a DataFrame with required columns."""
     project_root = Path(__file__).parent.parent.parent
     module = _load_module(project_root)
     cfg_path = _write_config(tmp_path)
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
 
     results = module.run_feature_sweep(
         config_path=cfg_path,
@@ -176,6 +172,33 @@ def test_feature_sweep_returns_expected_columns(
         "rmse",
         "mae",
     ]
+
+
+def test_feature_sweep_logs_nested_mlflow_runs(tmp_path: Path) -> None:
+    """Feature GRU sweep logs one nested child run per trial under a parent."""
+    import mlflow
+
+    from turbofan import tracking
+
+    project_root = Path(__file__).parent.parent.parent
+    module = _load_module(project_root)
+    cfg_path = _write_config(tmp_path)
+
+    module.run_feature_sweep(
+        config_path=cfg_path,
+        feature_sets=["raw", "raw_plus_rolling"],
+        corr_thresholds=[0.5],
+        rolling_window=3,
+        device="cpu",
+    )
+
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.SWEEP_EXPERIMENT])
+    children = runs[runs["tags.mlflow.parentRunId"].notna()]
+    assert len(children) == 2
+    assert (children["tags.model_type"] == "gru").all()
+    assert (children["tags.run_type"] == "sweep").all()
+    assert set(children["params.feature_set"]) == {"raw", "raw_plus_rolling"}
 
 
 def test_feature_sweep_cli_writes_csv(tmp_path: Path) -> None:

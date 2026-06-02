@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from time import perf_counter
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, cast
 
+import mlflow
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
+from turbofan import tracking
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_train
 from turbofan.features.engineering import FeatureSet
@@ -18,7 +19,6 @@ from turbofan.models.baseline import build_baseline_pipeline
 from turbofan.models.evaluate import add_rul_column, split_features_target
 from turbofan.models.metrics import regression_metrics
 from turbofan.models.split import split_by_engine
-from turbofan.models.training_log import append_training_log, build_log_entry
 
 SUPPORTED_FEATURE_SETS: frozenset[str] = frozenset(
     {
@@ -292,7 +292,6 @@ def _evaluate_gru_spec(
         num_layers=cfg.sequence.num_layers,
         dropout=cfg.sequence.dropout,
     )
-    t0 = perf_counter()
     result = train_gru_model(
         model=model,
         train_loader=train_loader,
@@ -302,7 +301,6 @@ def _evaluate_gru_spec(
         random_seed=cfg.data.random_seed,
         max_rul=cfg.data.max_rul,
     )
-    training_duration = perf_counter() - t0
 
     predictions = np.clip(
         predict_windows(result.model, val_loader, device, max_rul=cfg.data.max_rul),
@@ -310,36 +308,6 @@ def _evaluate_gru_spec(
         None,
     )
     metrics = regression_metrics(val_windows.y.astype(np.float64), predictions)
-
-    log_entry = build_log_entry(
-        model_type="gru",
-        dataset=cfg.data.fd_subset,
-        random_seed=cfg.data.random_seed,
-        hyperparameters={
-            "window_size": cfg.sequence.window_size,
-            "hidden_size": cfg.sequence.hidden_size,
-            "learning_rate": cfg.sequence.learning_rate,
-            "num_layers": cfg.sequence.num_layers,
-            "dropout": cfg.sequence.dropout,
-            "batch_size": cfg.sequence.batch_size,
-            "epochs": cfg.sequence.epochs,
-            "patience": cfg.sequence.patience,
-        },
-        metrics=metrics,
-        training_duration_seconds=training_duration,
-        device=device.type,
-        run_dir=None,
-        best_epoch=result.best_epoch,
-        extra={
-            "feature_set": spec.feature_set,
-            "windows": _format_tuple(spec.windows),
-            "lag_steps": _format_tuple(spec.lag_steps),
-            "n_engines_total": n_engines_total,
-            "n_engines_padded": n_engines_padded,
-            "n_engines_full": n_engines_full,
-        },
-    )
-    append_training_log(log_entry)
 
     return {
         "model": "gru",
@@ -353,6 +321,71 @@ def _evaluate_gru_spec(
         "n_engines_full": n_engines_full,
         **metrics,
     }
+
+
+def _log_sweep_trials(
+    rows: list[dict[str, object]],
+    cfg: ProjectConfig,
+    model: str,
+) -> None:
+    """Log completed sweep trials as nested MLflow child runs.
+
+    Trials are logged sequentially in the main process (after any parallel
+    Ridge evaluation completes), so a single sweep never writes the SQLite
+    store from multiple processes at once.
+
+    Args:
+        rows: Completed per-trial result rows.
+        cfg: Loaded project configuration.
+        model: Model family, either ``"ridge"`` or ``"gru"``.
+
+    Returns:
+        None.
+    """
+    tracking.configure_mlflow()
+    mlflow.set_experiment(tracking.SWEEP_EXPERIMENT)
+    with mlflow.start_run():
+        tracking.set_tags({"model_type": model, "run_type": "sweep"})
+        for row in rows:
+            with mlflow.start_run(nested=True):
+                params: dict[str, object] = {
+                    "feature_set": row["feature_set"],
+                    "windows": row["windows"],
+                    "lag_steps": row["lag_steps"],
+                    "n_features": row["n_features"],
+                    "seed": cfg.data.random_seed,
+                }
+                tags: dict[str, object] = {
+                    "model_type": model,
+                    "run_type": "sweep",
+                    "feature_set": row["feature_set"],
+                    "windows": row["windows"],
+                    "lag_steps": row["lag_steps"],
+                }
+                if model == "ridge":
+                    params["alpha"] = row["alpha"]
+                else:
+                    params.update(
+                        {
+                            "window_size": cfg.sequence.window_size,
+                            "hidden_size": cfg.sequence.hidden_size,
+                            "learning_rate": cfg.sequence.learning_rate,
+                            "num_layers": cfg.sequence.num_layers,
+                            "dropout": cfg.sequence.dropout,
+                            "batch_size": cfg.sequence.batch_size,
+                            "epochs": cfg.sequence.epochs,
+                            "patience": cfg.sequence.patience,
+                        }
+                    )
+                    tags["best_epoch"] = row["best_epoch"]
+                tracking.log_params(params)
+                tracking.log_metrics(
+                    {
+                        "val_rmse": cast(float, row["rmse"]),
+                        "val_mae": cast(float, row["mae"]),
+                    }
+                )
+                tracking.set_tags(tags)
 
 
 def run_feature_sweep(
@@ -437,6 +470,8 @@ def run_feature_sweep(
                 f"lag_steps={_format_tuple(spec.lag_steps)} "
                 f"rmse={row['rmse']:.6f}"
             )
+
+    _log_sweep_trials(rows, cfg, model)
 
     results = pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
     if output_path is None:

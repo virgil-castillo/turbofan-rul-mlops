@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from time import perf_counter
 
+import mlflow
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
 from sklearn.pipeline import Pipeline
 
+from turbofan import tracking
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.features.pipeline import build_feature_pipeline
@@ -26,7 +27,6 @@ from turbofan.models.sequence_training import (
 )
 from turbofan.models.split import split_by_engine
 from turbofan.models.test_evaluation import align_labels_to_eligible_engines
-from turbofan.models.training_log import append_training_log, build_log_entry
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.windowing import (
     WindowedSequences,
@@ -300,7 +300,6 @@ def main() -> None:
         num_layers=cfg.sequence.num_layers,
         dropout=cfg.sequence.dropout,
     )
-    training_start = perf_counter()
     result = train_gru_model(
         model=model,
         train_loader=train_loader,
@@ -310,7 +309,6 @@ def main() -> None:
         random_seed=cfg.data.random_seed,
         max_rul=cfg.data.max_rul,
     )
-    training_duration_seconds = perf_counter() - training_start
 
     window_metrics, window_predictions = _evaluate_windows(
         result.model,
@@ -320,70 +318,87 @@ def main() -> None:
         max_rul=cfg.data.max_rul,
     )
 
-    run_dir = create_run_dir(cfg.sequence.artifact_dir, "sequence_gru")
-    metrics_payload: dict[str, object] = {
-        "validation_windows": window_metrics,
-    }
+    tracking.configure_mlflow()
+    mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+    with mlflow.start_run():
+        run_dir = create_run_dir(cfg.sequence.artifact_dir, "sequence_gru")
+        metrics_payload: dict[str, object] = {
+            "validation_windows": window_metrics,
+        }
+        run_metrics: dict[str, float] = {
+            "val_rmse": window_metrics["rmse"],
+            "val_mae": window_metrics["mae"],
+        }
 
-    official = _evaluate_official_test(
-        cfg,
-        result.model,
-        pipeline,
-        feature_cols,
-        device,
-    )
-    if official is not None:
-        official_metrics, official_predictions = official
-        metrics_payload["official_test"] = official_metrics
-        save_predictions(
-            official_predictions,
-            run_dir / "official_test_predictions.csv",
+        official = _evaluate_official_test(
+            cfg,
+            result.model,
+            pipeline,
+            feature_cols,
+            device,
         )
-    else:
-        print("official test evaluation skipped: test or RUL files not found")
+        if official is not None:
+            official_metrics, official_predictions = official
+            metrics_payload["official_test"] = official_metrics
+            run_metrics["official_rmse"] = official_metrics["rmse"]
+            run_metrics["official_mae"] = official_metrics["mae"]
+            run_metrics["official_phm08"] = official_metrics["phm08_score"]
+            save_predictions(
+                official_predictions,
+                run_dir / "official_test_predictions.csv",
+            )
+        else:
+            print("official test evaluation skipped: test or RUL files not found")
 
-    torch.save(
-        _model_payload(result.model, cfg, feature_cols, pipeline),
-        run_dir / "model.pt",
-    )
-    save_json(metrics_payload, run_dir / "metrics.json")
-    save_json(_config_to_dict(cfg), run_dir / "config.json")
-    save_json(_manifest_payload(run_dir), run_dir / "model_manifest.json")
-    result.history.to_csv(run_dir / "training_history.csv", index=False)
-    save_predictions(
-        window_predictions,
-        run_dir / "validation_window_predictions.csv",
-    )
+        torch.save(
+            _model_payload(result.model, cfg, feature_cols, pipeline),
+            run_dir / "model.pt",
+        )
+        save_json(metrics_payload, run_dir / "metrics.json")
+        save_json(_config_to_dict(cfg), run_dir / "config.json")
+        save_json(_manifest_payload(run_dir), run_dir / "model_manifest.json")
+        result.history.to_csv(run_dir / "training_history.csv", index=False)
+        save_predictions(
+            window_predictions,
+            run_dir / "validation_window_predictions.csv",
+        )
 
-    log_entry = build_log_entry(
-        model_type="gru",
-        dataset=cfg.data.fd_subset,
-        random_seed=cfg.data.random_seed,
-        hyperparameters={
-            "window_size": cfg.sequence.window_size,
-            "hidden_size": cfg.sequence.hidden_size,
-            "learning_rate": cfg.sequence.learning_rate,
-            "num_layers": cfg.sequence.num_layers,
-            "dropout": cfg.sequence.dropout,
-            "batch_size": cfg.sequence.batch_size,
-            "epochs": cfg.sequence.epochs,
-            "patience": cfg.sequence.patience,
-        },
-        metrics=window_metrics,
-        training_duration_seconds=training_duration_seconds,
-        device=device.type,
-        run_dir=str(run_dir),
-        best_epoch=result.best_epoch,
-    )
-    append_training_log(log_entry)
+        tracking.log_params(
+            {
+                "window_size": cfg.sequence.window_size,
+                "hidden_size": cfg.sequence.hidden_size,
+                "learning_rate": cfg.sequence.learning_rate,
+                "num_layers": cfg.sequence.num_layers,
+                "dropout": cfg.sequence.dropout,
+                "batch_size": cfg.sequence.batch_size,
+                "epochs": cfg.sequence.epochs,
+                "patience": cfg.sequence.patience,
+                "feature_set": gf.feature_set,
+                "windows": gf.windows,
+                "lag_steps": gf.lag_steps,
+                "seed": cfg.data.random_seed,
+            }
+        )
+        tracking.log_metrics(run_metrics)
+        tracking.log_history(result.history)
+        tracking.set_tags(
+            {
+                "model_type": "gru",
+                "run_type": "production",
+                "best_epoch": result.best_epoch,
+                "run_dir": str(run_dir),
+            }
+        )
 
-    print(f"run_dir: {run_dir}")
-    print(f"validation_windows rmse: {window_metrics['rmse']:.6f}")
-    print(f"validation_windows mae: {window_metrics['mae']:.6f}")
-    if official is not None:
-        print(f"official_test rmse: {official_metrics['rmse']:.6f}")
-        print(f"official_test mae: {official_metrics['mae']:.6f}")
-        print(f"official_test phm08_score: {official_metrics['phm08_score']:.6f}")
+        print(f"run_dir: {run_dir}")
+        print(f"validation_windows rmse: {window_metrics['rmse']:.6f}")
+        print(f"validation_windows mae: {window_metrics['mae']:.6f}")
+        if official is not None:
+            print(f"official_test rmse: {official_metrics['rmse']:.6f}")
+            print(f"official_test mae: {official_metrics['mae']:.6f}")
+            print(
+                f"official_test phm08_score: {official_metrics['phm08_score']:.6f}"
+            )
 
 
 if __name__ == "__main__":

@@ -152,6 +152,74 @@ def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
     assert normalizer.random_state == 42
 
 
+def test_train_baseline_cli_logs_mlflow_run(tmp_path: Path) -> None:
+    """CLI logs one production MLflow training run with params, metrics, tags."""
+    import mlflow
+
+    from turbofan import tracking
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
+    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "project_name: test",
+                "data:",
+                f"  raw_dir: {raw_dir.as_posix()}",
+                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
+                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
+                "  fd_subset: FD001",
+                "  max_rul: 30",
+                "  test_size: 0.25",
+                "  random_seed: 42",
+                "model:",
+                "  name: ridge",
+                "  alpha: 1.0",
+                f"  artifact_dir: {artifact_dir.as_posix()}",
+                "features:",
+                "  feature_set: raw",
+            ]
+        )
+    )
+
+    project_root = Path(__file__).parent.parent.parent
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "turbofan.cli.train_baseline",
+            "--config",
+            str(cfg_path),
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    row = runs.iloc[0]
+    assert row["tags.model_type"] == "ridge"
+    assert row["tags.run_type"] == "production"
+    assert "tags.run_dir" in row
+    assert row["params.alpha"] == "1.0"
+    assert row["params.feature_set"] == "raw"
+    assert row["metrics.val_rmse"] >= 0.0
+    assert row["metrics.val_mae"] >= 0.0
+    assert row["metrics.official_rmse"] >= 0.0
+
+
 def test_train_baseline_cli_skips_missing_official_test(
     tmp_path: Path,
 ) -> None:

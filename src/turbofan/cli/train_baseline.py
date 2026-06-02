@@ -4,11 +4,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
+from turbofan import tracking
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import (
@@ -216,32 +218,60 @@ def main() -> None:
     val_metrics = regression_metrics(y_val, val_pred)
     val_predictions = _prediction_frame(X_val, y_val, val_pred)
 
-    run_dir = create_run_dir(cfg.model.artifact_dir, "baseline")
-    metrics_payload: dict[str, object] = {"validation": val_metrics}
+    tracking.configure_mlflow()
+    mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+    with mlflow.start_run():
+        run_dir = create_run_dir(cfg.model.artifact_dir, "baseline")
+        metrics_payload: dict[str, object] = {"validation": val_metrics}
+        run_metrics: dict[str, float] = {
+            "val_rmse": val_metrics["rmse"],
+            "val_mae": val_metrics["mae"],
+        }
 
-    official = _evaluate_official_test(cfg, estimator)
-    if official is not None:
-        official_metrics, official_predictions = official
-        metrics_payload["official_test"] = official_metrics
-        save_predictions(
-            official_predictions,
-            run_dir / "official_test_predictions.csv",
+        official = _evaluate_official_test(cfg, estimator)
+        if official is not None:
+            official_metrics, official_predictions = official
+            metrics_payload["official_test"] = official_metrics
+            run_metrics["official_rmse"] = official_metrics["rmse"]
+            run_metrics["official_mae"] = official_metrics["mae"]
+            run_metrics["official_phm08"] = official_metrics["phm08_score"]
+            save_predictions(
+                official_predictions,
+                run_dir / "official_test_predictions.csv",
+            )
+        else:
+            print("official test evaluation skipped: test or RUL files not found")
+
+        save_model(estimator, run_dir / "model.joblib")
+        save_json(metrics_payload, run_dir / "metrics.json")
+        save_json(_config_to_dict(cfg), run_dir / "config.json")
+        save_json(
+            _manifest_payload(run_dir, cfg.model.name),
+            run_dir / "model_manifest.json",
         )
-    else:
-        print("official test evaluation skipped: test or RUL files not found")
+        save_predictions(val_predictions, run_dir / "validation_predictions.csv")
 
-    save_model(estimator, run_dir / "model.joblib")
-    save_json(metrics_payload, run_dir / "metrics.json")
-    save_json(_config_to_dict(cfg), run_dir / "config.json")
-    save_json(
-        _manifest_payload(run_dir, cfg.model.name),
-        run_dir / "model_manifest.json",
-    )
-    save_predictions(val_predictions, run_dir / "validation_predictions.csv")
+        tracking.log_params(
+            {
+                "alpha": cfg.model.alpha,
+                "feature_set": rf.feature_set,
+                "windows": rf.windows,
+                "lag_steps": rf.lag_steps,
+                "seed": cfg.data.random_seed,
+            }
+        )
+        tracking.log_metrics(run_metrics)
+        tracking.set_tags(
+            {
+                "model_type": "ridge",
+                "run_type": "production",
+                "run_dir": str(run_dir),
+            }
+        )
 
-    print(f"run_dir: {run_dir}")
-    print(f"validation rmse: {val_metrics['rmse']:.6f}")
-    print(f"validation mae: {val_metrics['mae']:.6f}")
+        print(f"run_dir: {run_dir}")
+        print(f"validation rmse: {val_metrics['rmse']:.6f}")
+        print(f"validation mae: {val_metrics['mae']:.6f}")
 
 
 if __name__ == "__main__":
