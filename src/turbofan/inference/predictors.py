@@ -26,6 +26,137 @@ from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.windowing import build_final_windows
 
 
+def ridge_engine_predictions(
+    pipeline: object,
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Score validated rows with a Ridge pipeline and select per-engine outputs.
+
+    Scores every row, clips predictions to be non-negative, and keeps the
+    last-cycle prediction per engine (the ``engine`` prediction scope). This is
+    the pure compute shared by :class:`RidgePredictor` and the MLflow Ridge
+    pyfunc wrapper.
+
+    Args:
+        pipeline: Fitted sklearn-compatible pipeline exposing ``predict``.
+        frame: Validated canonical rows (``engine_id``, ``cycle``, features),
+            already sorted by engine and cycle.
+
+    Returns:
+        Tuple of the per-engine metadata rows (``engine_id``, ``cycle``, sorted
+        by ``engine_id``) and the aligned non-negative predictions.
+
+    Raises:
+        ValueError: If the pipeline returns a mismatched number of predictions.
+    """
+    raw_predictions = pipeline.predict(frame)  # type: ignore[attr-defined]
+    predictions = _clip_predictions(raw_predictions)
+    if len(predictions) != len(frame):
+        raise ValueError("Ridge pipeline returned an unexpected prediction count.")
+    scored = frame.copy()
+    scored["_prediction"] = predictions
+    last_cycle_idx = scored.groupby("engine_id")["cycle"].idxmax()
+    last_rows = scored.loc[last_cycle_idx].sort_values("engine_id")
+    metadata = last_rows[["engine_id", "cycle"]].reset_index(drop=True)
+    return metadata, last_rows["_prediction"].to_numpy(dtype=np.float64)
+
+
+def gru_final_window_predictions(
+    payload: Mapping[str, object],
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Run the GRU final-window inference path on validated rows.
+
+    Reconstructs the GRU model and normalizer from a checkpoint payload, then
+    normalizes, builds one final window per engine, runs the forward pass,
+    rescales by ``max_rul``, and clips to be non-negative (the ``final_window``
+    prediction scope). This is the pure compute shared by :class:`GRUPredictor`
+    and the MLflow GRU pyfunc wrapper.
+
+    Args:
+        payload: GRU checkpoint payload with ``model_state_dict``,
+            ``feature_cols``, ``sequence_config`` (``window_size``,
+            ``hidden_size``, ``num_layers``, ``dropout``), ``normalizer_payload``,
+            and ``max_rul``.
+        frame: Validated canonical rows (``engine_id``, ``cycle``, features),
+            each engine at least ``window_size`` cycles long.
+
+    Returns:
+        Tuple of the final-window metadata rows (``engine_id``, ``cycle``) and
+        the aligned non-negative predictions.
+
+    Raises:
+        ValueError: If the checkpoint payload is missing required fields or
+            carries invalid values.
+    """
+    feature_cols = _string_sequence(payload, "feature_cols")
+    sequence_config = _mapping(payload, "sequence_config")
+    window_size = _positive_int(sequence_config, "window_size")
+    model = GRURULRegressor(
+        input_size=len(feature_cols),
+        hidden_size=_positive_int(sequence_config, "hidden_size"),
+        num_layers=_positive_int(sequence_config, "num_layers"),
+        dropout=_non_negative_float(sequence_config, "dropout"),
+    )
+    model.load_state_dict(
+        cast(Mapping[str, torch.Tensor], payload["model_state_dict"])
+    )
+    model.to("cpu")
+    model.eval()
+    normalizer = _normalizer_from_payload(payload, feature_cols)
+    max_rul = _positive_int(payload, "max_rul")
+    return _gru_window_inference(
+        model=model,
+        normalizer=normalizer,
+        feature_cols=feature_cols,
+        window_size=window_size,
+        max_rul=max_rul,
+        frame=frame,
+    )
+
+
+def _gru_window_inference(
+    *,
+    model: GRURULRegressor,
+    normalizer: OperatingModeNormalizer,
+    feature_cols: Sequence[str],
+    window_size: int,
+    max_rul: int,
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Normalize, window, forward, rescale, and clip already-loaded GRU inputs.
+
+    Args:
+        model: Loaded, evaluation-mode GRU model.
+        normalizer: Fitted operating-mode normalizer.
+        feature_cols: Ordered feature column names.
+        window_size: Sequence window size.
+        max_rul: Maximum-RUL cap used to rescale raw model output.
+        frame: Validated canonical rows ready for windowing.
+
+    Returns:
+        Tuple of the final-window metadata rows (``engine_id``, ``cycle``) and
+        the aligned non-negative predictions.
+    """
+    normalized = normalizer.transform(frame)
+    windows = build_final_windows(
+        normalized,
+        feature_cols,
+        window_size,
+        target_col=None,
+    )
+    with torch.no_grad():
+        tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
+        lengths_tensor = torch.as_tensor(
+            windows.lengths, dtype=torch.int64, device="cpu"
+        )
+        raw_predictions = model(tensor, lengths_tensor).detach().cpu().numpy()
+    rescaled = np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * max_rul
+    predictions = _clip_predictions(rescaled)
+    metadata = windows.metadata[["engine_id", "cycle"]].reset_index(drop=True)
+    return metadata, predictions
+
+
 class Predictor(Protocol):
     """Common runtime interface for loaded inference predictors."""
 
@@ -111,19 +242,13 @@ class RidgePredictor:
         """
         input_rows = _input_row_count(records)
         validation = validate_raw_records(records, partial=allow_partial)
-        frame = validation.records
-        raw_predictions = self._pipeline.predict(frame)
-        predictions = _clip_predictions(raw_predictions)
-        if len(predictions) != len(frame):
-            raise ValueError("Ridge pipeline returned an unexpected prediction count.")
-        frame = frame.copy()
-        frame["_prediction"] = predictions
-        last_cycle_idx = frame.groupby("engine_id")["cycle"].idxmax()
-        last_rows = frame.loc[last_cycle_idx].sort_values("engine_id")
+        rows, predictions = ridge_engine_predictions(
+            self._pipeline, validation.records
+        )
         prediction_rows = _prediction_rows(
             metadata=self._metadata,
-            rows=last_rows[["engine_id", "cycle"]],
-            predictions=last_rows["_prediction"].to_numpy(),
+            rows=rows,
+            predictions=predictions,
         )
         return _prediction_result(
             metadata=self._metadata,
@@ -210,26 +335,17 @@ class GRUPredictor:
             allow_partial=allow_partial,
             warnings=warning_messages,
         )
-        normalized = self._normalizer.transform(frame)
-        windows = build_final_windows(
-            normalized,
-            self._feature_cols,
-            self._window_size,
-            target_col=None,
+        rows, predictions = _gru_window_inference(
+            model=self._model,
+            normalizer=self._normalizer,
+            feature_cols=self._feature_cols,
+            window_size=self._window_size,
+            max_rul=self._max_rul,
+            frame=frame,
         )
-        with torch.no_grad():
-            tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
-            lengths_tensor = torch.as_tensor(
-                windows.lengths, dtype=torch.int64, device="cpu"
-            )
-            raw_predictions = self._model(tensor, lengths_tensor).detach().cpu().numpy()
-        rescaled = (
-            np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * self._max_rul
-        )
-        predictions = _clip_predictions(rescaled)
         prediction_rows = _prediction_rows(
             metadata=self._metadata,
-            rows=windows.metadata,
+            rows=rows,
             predictions=predictions,
         )
         return _prediction_result(
