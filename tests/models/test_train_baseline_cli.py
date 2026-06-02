@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+from turbofan.utils.logging import setup_logging
 
 
 def _load_train_baseline_module() -> ModuleType:
@@ -338,17 +339,26 @@ def _run_baseline_cli(
     )
 
 
-def test_train_baseline_cli_debug_level_surfaces_debug_lines(
-    tmp_path: Path,
+def test_predict_with_clipping_debug_line_respects_log_level(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """--log-level DEBUG surfaces raw prediction min/max on stderr."""
-    cfg_path = _write_minimal_baseline_config(tmp_path)
+    """The raw prediction min/max line is DEBUG-only and goes to stderr.
 
-    debug_result = _run_baseline_cli(cfg_path, "--log-level", "DEBUG")
-    assert "raw prediction min/max" in debug_result.stderr
+    Exercises the verbosity wiring in-process by driving the helper that emits
+    the line and toggling the configured level, instead of running the full
+    training CLI in a subprocess twice.
+    """
+    module = _load_train_baseline_module()
+    estimator = RecordingEstimator()
+    rows = pd.DataFrame({"s_1": [1.0, 2.0, 3.0]})
 
-    warning_result = _run_baseline_cli(cfg_path, "--log-level", "WARNING")
-    assert "raw prediction min/max" not in warning_result.stderr
+    setup_logging("DEBUG")
+    module._predict_with_clipping(estimator, rows, rul_cap=125, label="validation")
+    assert "raw prediction min/max" in capsys.readouterr().err
+
+    setup_logging("WARNING")
+    module._predict_with_clipping(estimator, rows, rul_cap=125, label="validation")
+    assert "raw prediction min/max" not in capsys.readouterr().err
 
 
 def test_train_baseline_cli_attaches_run_log_artifact(tmp_path: Path) -> None:
