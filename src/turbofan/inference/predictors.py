@@ -242,7 +242,7 @@ class PyfuncPredictor:
             Prediction response with per-row predictions and response metadata.
         """
         del allow_partial
-        input_rows = _input_row_count(records)
+        input_rows = len(records)
         frame = _records_to_frame(records)
         output = self._model.predict(frame)  # type: ignore[attr-defined]
         prediction_rows = _prediction_rows_from_output(
@@ -322,12 +322,6 @@ def _prediction_rows_from_output(
         )
         for row in records
     ]
-
-
-def _input_row_count(records: RawRecords) -> int:
-    if isinstance(records, pd.DataFrame):
-        return len(records)
-    return len(records)
 
 
 def _clip_predictions(values: object) -> npt.NDArray[np.float64]:

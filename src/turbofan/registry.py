@@ -19,7 +19,6 @@ Model-packaging contract for both pyfunc wrappers:
 """
 from __future__ import annotations
 
-import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -548,14 +547,3 @@ def _run_val_rmse(client: MlflowClient, run_id: str | None) -> float | None:
         return None
     value = run.data.metrics.get(_VAL_RMSE_METRIC)
     return float(value) if value is not None else None
-
-
-def configure_from_env() -> None:
-    """Point MLflow at the tracking URI from the environment, if set.
-
-    Returns:
-        None.
-    """
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-    if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
