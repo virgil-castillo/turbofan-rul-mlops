@@ -189,11 +189,25 @@ instead of mounting a run directory.
 `--allow-partial` per-row-skipping warnings are no longer surfaced; the flag is
 accepted for CLI compatibility but does not change validation.
 
-## Future — Additional Models
+## Additional Models — LSTM done, others future
 
-The original plan included Random Forest, XGBoost, LSTM, and Transformer models. Current priority is depth on the existing models before breadth.
+The original plan included Random Forest, XGBoost, LSTM, and Transformer models. Current priority is depth on the existing models before breadth. LSTM is now supported; the rest remain future work.
 
-- [ ] LSTM (closest to GRU — reuses the sequence infrastructure)
+- [x] LSTM (2026-06-03) — added through a shared RNN architecture registry
+  (`SEQUENCE_ARCHITECTURES` / `build_sequence_model` in
+  `src/turbofan/models/sequence_models.py`) and a single `SequenceRULRegressor`
+  that owns the encoder, regression head, and packed-sequence path; the
+  recurrent layer (`nn.GRU` / `nn.LSTM`) is selected by `sequence.architecture`.
+  GRU and LSTM share the training (`train_sequence_model`), inference
+  (`sequence_final_window_predictions`), and registry pyfunc
+  (`SequenceFinalWindowModel`) paths; LSTM registers under its own
+  `turbofan-lstm-<subset>` name with an independent `@production` alias. New
+  `turbofan-train-sequence` CLI reads the architecture from config;
+  `turbofan-train-sequence-gru` is retained as a backward-compatible alias.
+  Per-subset `configs/subsets/fd00{1-4}_lstm.yaml` configs and a `features.lstm`
+  override block are committed. **Deferred:** training real LSTM artifacts and a
+  cross-model GRU-vs-LSTM benchmark report — no LSTM has been trained yet, and
+  the `features.lstm` blocks are seeded from the GRU-tuned values.
 - [ ] Transformer-based sequence model
 - [ ] Tree-based baselines (XGBoost, Random Forest) if they add value to the comparison
 
@@ -250,4 +264,4 @@ Deliberately deferred until the modeling contract stabilizes:
 
 **Short engines are left-zero-padded and processed with `pack_padded_sequence`.** The GRU pipeline pads engines shorter than the configured `window_size` and runs them as packed sequences so the final hidden state reflects only real timesteps.
 
-**Single-layer GRU by design.** Kept simple to avoid grid explosion. Multi-layer and alternative architectures (LSTM, TCN) are deferred.
+**Single-layer recurrent models by design.** Kept simple to avoid grid explosion. LSTM is now supported alongside GRU through the RNN architecture registry (`SEQUENCE_ARCHITECTURES` / `build_sequence_model`), selected by `sequence.architecture`. The registry contract is deliberately RNN-scoped — it will be widened only when a non-RNN architecture (the planned Transformer) lands with real requirements in hand. Multi-layer stacks and non-RNN architectures (TCN, Transformer) remain deferred.
