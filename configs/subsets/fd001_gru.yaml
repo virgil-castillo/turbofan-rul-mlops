@@ -1,0 +1,10 @@
+# GRU variant of the FD001 subset config. Inherits every data, feature, and
+# sequence setting from fd001.yaml and sets the architecture explicitly to GRU,
+# so GRU and LSTM training for FD001 are both selected by an explicit, named,
+# version-controlled config. The shared SequenceConfig hyperparameters apply
+# unchanged; GRU resolves its feature settings from the `features.gru` block in
+# the base config.
+_base_: fd001.yaml
+
+sequence:
+  architecture: gru
