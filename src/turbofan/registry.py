@@ -20,6 +20,9 @@ Model-packaging contract for both pyfunc wrappers:
 from __future__ import annotations
 
 import tempfile
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -212,6 +215,49 @@ class GRUFinalWindowModel(PythonModel):
         return _prediction_frame(metadata, predictions)
 
 
+@contextmanager
+def _suppress_integer_schema_hint() -> Iterator[None]:
+    """Silence MLflow's benign integer-column schema hint during model logging.
+
+    Our prediction contract genuinely carries ``engine_id`` and ``cycle`` as
+    int64 on both the input records and the output frame, and they are never
+    missing. MLflow's hint about integer columns being unable to represent
+    missing values therefore does not apply, and casting these columns to
+    float64 to silence it would corrupt the documented schema. Suppress only
+    that one message so it does not leak as noise, leaving every other warning
+    intact.
+
+    Yields:
+        None, with the integer-schema hint filtered for the duration.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Hint: Inferred schema contains integer column",
+            category=UserWarning,
+        )
+        yield
+
+
+def _sample_input() -> pd.DataFrame:
+    """Build a one-row canonical-records frame for signature and input example.
+
+    Returns:
+        A single canonical raw-records row with ``engine_id``/``cycle`` typed as
+        int64, matching the documented inference input contract.
+    """
+    sample_input = pd.DataFrame(
+        [[0.0] * len(CANONICAL_COLUMNS)],
+        columns=CANONICAL_COLUMNS,
+    )
+    # ``engine_id``/``cycle`` must be positive int64 to satisfy the model's own
+    # record validation, which MLflow exercises when validating the logged
+    # input example against the wrapper at log time.
+    sample_input["engine_id"] = np.ones(len(sample_input), dtype=np.int64)
+    sample_input["cycle"] = np.ones(len(sample_input), dtype=np.int64)
+    return sample_input
+
+
 def _signature() -> ModelSignature:
     """Infer the pyfunc signature for the canonical-records prediction contract.
 
@@ -219,12 +265,6 @@ def _signature() -> ModelSignature:
         Model signature mapping canonical raw records to the
         ``engine_id``/``cycle``/``prediction`` output frame.
     """
-    sample_input = pd.DataFrame(
-        [[0.0] * len(CANONICAL_COLUMNS)],
-        columns=CANONICAL_COLUMNS,
-    )
-    sample_input["engine_id"] = sample_input["engine_id"].astype("int64")
-    sample_input["cycle"] = sample_input["cycle"].astype("int64")
     sample_output = pd.DataFrame(
         {
             "engine_id": np.zeros(1, dtype=np.int64),
@@ -233,7 +273,8 @@ def _signature() -> ModelSignature:
         },
         columns=PREDICTION_OUTPUT_COLUMNS,
     )
-    return infer_signature(sample_input, sample_output)
+    with _suppress_integer_schema_hint():
+        return infer_signature(_sample_input(), sample_output)
 
 
 def _log_ridge_model(model: object, name: str) -> None:
@@ -252,14 +293,16 @@ def _log_ridge_model(model: object, name: str) -> None:
         artifact_path = Path(tmp_dir) / "pipeline.joblib"
         joblib.dump(model, artifact_path)
         signature = _signature()
-        mlflow.pyfunc.log_model(
-            name="model",
-            python_model=RidgeEngineModel(),
-            artifacts={_RIDGE_ARTIFACT_KEY: str(artifact_path)},
-            signature=signature,
-            registered_model_name=name,
-            pip_requirements=_RIDGE_PIP_REQUIREMENTS,
-        )
+        with _suppress_integer_schema_hint():
+            mlflow.pyfunc.log_model(
+                name="model",
+                python_model=RidgeEngineModel(),
+                artifacts={_RIDGE_ARTIFACT_KEY: str(artifact_path)},
+                signature=signature,
+                input_example=_sample_input(),
+                registered_model_name=name,
+                pip_requirements=_RIDGE_PIP_REQUIREMENTS,
+            )
 
 
 def _log_gru_model(payload: object, name: str) -> None:
@@ -277,14 +320,16 @@ def _log_gru_model(payload: object, name: str) -> None:
         artifact_path = Path(tmp_dir) / _GRU_CHECKPOINT_FILENAME
         torch.save(payload, artifact_path)
         signature = _signature()
-        mlflow.pyfunc.log_model(
-            name="model",
-            python_model=GRUFinalWindowModel(),
-            artifacts={_GRU_ARTIFACT_KEY: str(artifact_path)},
-            signature=signature,
-            registered_model_name=name,
-            pip_requirements=_GRU_PIP_REQUIREMENTS,
-        )
+        with _suppress_integer_schema_hint():
+            mlflow.pyfunc.log_model(
+                name="model",
+                python_model=GRUFinalWindowModel(),
+                artifacts={_GRU_ARTIFACT_KEY: str(artifact_path)},
+                signature=signature,
+                input_example=_sample_input(),
+                registered_model_name=name,
+                pip_requirements=_GRU_PIP_REQUIREMENTS,
+            )
 
 
 def log_and_register(

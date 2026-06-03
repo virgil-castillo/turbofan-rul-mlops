@@ -1,6 +1,7 @@
 """Tests for turbofan.registry MLflow wrapper and pyfunc model packaging."""
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 
 import mlflow
@@ -211,6 +212,58 @@ def test_log_and_register_gru_increments_version() -> None:
 
     assert first == 1
     assert second == 2
+
+
+# ---------------------------------------------------------------------------
+# model logging emits no benign MLflow signature hints
+# ---------------------------------------------------------------------------
+
+
+def _benign_log_warnings(records: list[warnings.WarningMessage]) -> list[str]:
+    """Filter captured warnings to the benign MLflow hints we suppress.
+
+    Args:
+        records: Warnings captured around a model-logging call.
+
+    Returns:
+        Messages matching the integer-schema hint or the missing-input-example
+        warning, both of which our registry logging path must not emit.
+    """
+    needles = (
+        "Inferred schema contains integer column",
+        "input example was not provided",
+    )
+    return [
+        str(record.message)
+        for record in records
+        if any(needle in str(record.message) for needle in needles)
+    ]
+
+
+def test_log_and_register_ridge_emits_no_signature_hints() -> None:
+    """Logging a Ridge model raises no integer-schema or input-example hint."""
+    from turbofan.registry import log_and_register
+
+    pipeline = _fitted_ridge_pipeline()
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        with mlflow.start_run():
+            log_and_register(pipeline, model_type="ridge", subset="FD001")
+
+    assert _benign_log_warnings(records) == []
+
+
+def test_log_and_register_gru_emits_no_signature_hints() -> None:
+    """Logging a GRU model raises no integer-schema or input-example hint."""
+    from turbofan.registry import log_and_register
+
+    payload = _gru_payload()
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        with mlflow.start_run():
+            log_and_register(payload, model_type="gru", subset="FD001")
+
+    assert _benign_log_warnings(records) == []
 
 
 # ---------------------------------------------------------------------------
