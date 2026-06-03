@@ -364,6 +364,113 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
     assert "evaluation" not in metadata
 
 
+def _make_normalizer_payload(feature_cols: list[str]) -> dict[str, object]:
+    """Fit a minimal ``OperatingModeNormalizer`` and return its payload dict.
+
+    Args:
+        feature_cols: Feature columns to include in the normalizer.
+
+    Returns:
+        Payload dictionary produced by ``OperatingModeNormalizer.to_payload``.
+    """
+    from turbofan.preprocessing.normalization import OperatingModeNormalizer
+
+    normalizer = OperatingModeNormalizer(feature_cols=list(feature_cols))
+    fit_df = pd.DataFrame({col: [0.0, 1.0] for col in feature_cols})
+    fit_df["op_1"] = [0.0, 0.0]
+    fit_df["op_2"] = [0.0, 0.0]
+    fit_df["op_3"] = [0.0, 0.0]
+    normalizer.fit(fit_df)
+    return normalizer.to_payload()
+
+
+def _register_lstm_model(subset: str = "FD001", *, window_size: int = 3) -> str:
+    """Register and promote a tiny LSTM model in the per-test MLflow store.
+
+    Args:
+        subset: C-MAPSS subset identifier for the registered-model name.
+        window_size: Sequence window size stored in the checkpoint payload.
+
+    Returns:
+        The registered-model name (e.g. ``turbofan-lstm-fd001``).
+    """
+    import torch
+
+    from turbofan.models.sequence_models import build_sequence_model
+
+    torch.manual_seed(0)
+    model = build_sequence_model(
+        "lstm",
+        input_size=len(FEATURE_COLUMNS),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    payload: dict[str, object] = {
+        "model_state_dict": model.state_dict(),
+        "feature_cols": list(FEATURE_COLUMNS),
+        "sequence_config": {
+            "architecture": "lstm",
+            "window_size": window_size,
+            "hidden_size": 4,
+            "num_layers": 1,
+            "dropout": 0.0,
+        },
+        "normalizer_type": "operating_mode",
+        "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
+        "max_rul": 125,
+    }
+    name = registry.model_name("lstm", subset)
+    with mlflow.start_run():
+        version = registry.log_and_register(payload, model_type="lstm", subset=subset)
+    registry.promote(name, version)
+    return name
+
+
+def test_predict_cli_serves_registered_lstm_model(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI resolves a turbofan-lstm-<subset> model and writes final-window preds.
+
+    Drives the real predict CLI end-to-end against a promoted LSTM registry model
+    (an engine with enough cycles for the window), asserting one final-window
+    prediction per engine and LSTM-typed metadata.
+    """
+    name = _register_lstm_model("FD001", window_size=3)
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "predictions.csv"
+    metadata_path = tmp_path / "metadata.json"
+    with input_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=list(_record().keys()))
+        writer.writeheader()
+        for cycle in range(1, 6):
+            writer.writerow(_record(engine_id=1, cycle=cycle))
+
+    result = _run_predict(
+        capsys,
+        "--model",
+        name,
+        "--input",
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--metadata-output",
+        str(metadata_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    with output_path.open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["engine_id"] == "1"
+    assert float(rows[0]["prediction"]) >= 0.0
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["model_type"] == "lstm"
+    assert metadata["prediction_scope"] == "final_window"
+    assert metadata["artifact_id"] == f"{name}/1"
+
+
 def test_predict_cli_exits_nonzero_for_unknown_model(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
