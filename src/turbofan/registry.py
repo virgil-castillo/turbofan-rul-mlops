@@ -1,4 +1,4 @@
-"""MLflow Model Registry wrapper for turbofan Ridge and GRU models.
+"""MLflow Model Registry wrapper for turbofan Ridge and sequence (GRU/LSTM) models.
 
 This module is a thin seam over MLflow's registry, mirroring ``tracking.py``.
 It packages the two model families into MLflow pyfunc models that honor the
@@ -12,8 +12,9 @@ Model-packaging contract for both pyfunc wrappers:
 - **Output:** a pandas ``DataFrame`` with columns ``engine_id`` (int64),
   ``cycle`` (int64), and ``prediction`` (float64) carrying one non-negative RUL
   prediction per engine, ordered by ``engine_id``. The Ridge wrapper returns the
-  last-cycle prediction per engine (``engine`` scope); the GRU wrapper returns
-  the final-window prediction per engine (``final_window`` scope). The metadata
+  last-cycle prediction per engine (``engine`` scope); the shared sequence
+  wrapper returns the final-window prediction per engine (``final_window``
+  scope) for both GRU and LSTM. The metadata
   columns let downstream callers reconstruct the per-row prediction contract
   through the pyfunc boundary.
 """
@@ -40,8 +41,8 @@ from mlflow.tracking import MlflowClient
 
 from turbofan.inference.predictors import (
     PyfuncPredictor,
-    gru_final_window_predictions,
     ridge_engine_predictions,
+    sequence_final_window_predictions,
 )
 from turbofan.inference.schemas import (
     CANONICAL_COLUMNS,
@@ -50,8 +51,8 @@ from turbofan.inference.schemas import (
 )
 
 _RIDGE_ARTIFACT_KEY = "pipeline"
-_GRU_ARTIFACT_KEY = "checkpoint"
-_GRU_CHECKPOINT_FILENAME = "model.pt"
+_SEQUENCE_ARTIFACT_KEY = "checkpoint"
+_SEQUENCE_CHECKPOINT_FILENAME = "model.pt"
 _VAL_RMSE_METRIC = "val_rmse"
 
 #: Pinned pip requirements for the logged pyfunc models. Declaring these
@@ -68,7 +69,7 @@ _RIDGE_PIP_REQUIREMENTS = [
     "numpy",
     "turbofan",
 ]
-_GRU_PIP_REQUIREMENTS = [
+_SEQUENCE_PIP_REQUIREMENTS = [
     "mlflow",
     "torch",
     "pandas",
@@ -166,18 +167,21 @@ class RidgeEngineModel(PythonModel):
         return _prediction_frame(metadata, predictions)
 
 
-class GRUFinalWindowModel(PythonModel):
-    """Pyfunc wrapper running the final-window-scope GRU inference contract.
+class SequenceFinalWindowModel(PythonModel):
+    """Pyfunc wrapper running the final-window-scope sequence inference contract.
 
-    Loads a GRU checkpoint payload (the same shape as the training ``model.pt``)
-    from the logged artifact and, on ``predict``, validates the raw records and
-    returns the final-window prediction per engine (normalize, window, forward,
-    rescale by ``max_rul``, clip). The compute is shared with the in-process GRU
-    compute via ``gru_final_window_predictions``.
+    Loads a sequence checkpoint payload (the same shape as the training
+    ``model.pt``) from the logged artifact and, on ``predict``, validates the
+    raw records and returns the final-window prediction per engine (normalize,
+    window, forward, rescale by ``max_rul``, clip). Because the architecture is
+    read from the payload's ``sequence_config``, this single wrapper serves every
+    recurrent architecture (GRU and LSTM) — no per-architecture wrapper class is
+    needed. The compute is shared with the in-process sequence path via
+    ``sequence_final_window_predictions``.
     """
 
     def load_context(self, context: PythonModelContext) -> None:
-        """Load the GRU checkpoint payload from the model artifacts.
+        """Load the sequence checkpoint payload from the model artifacts.
 
         Args:
             context: Pyfunc context exposing the logged artifact paths.
@@ -186,7 +190,7 @@ class GRUFinalWindowModel(PythonModel):
             None.
         """
         self._payload = torch.load(
-            context.artifacts[_GRU_ARTIFACT_KEY], map_location="cpu"
+            context.artifacts[_SEQUENCE_ARTIFACT_KEY], map_location="cpu"
         )
 
     def predict(
@@ -209,10 +213,15 @@ class GRUFinalWindowModel(PythonModel):
         """
         del context, params
         validation = validate_raw_records(model_input)
-        metadata, predictions = gru_final_window_predictions(
+        metadata, predictions = sequence_final_window_predictions(
             self._payload, validation.records
         )
         return _prediction_frame(metadata, predictions)
+
+
+#: Backward-compatible alias for the shared sequence pyfunc wrapper, retained so
+#: existing references to the GRU-specific name keep resolving.
+GRUFinalWindowModel = SequenceFinalWindowModel
 
 
 @contextmanager
@@ -305,30 +314,36 @@ def _log_ridge_model(model: object, name: str) -> None:
             )
 
 
-def _log_gru_model(payload: object, name: str) -> None:
-    """Log a GRU checkpoint payload as a final-window-scope pyfunc model.
+def _log_sequence_model(payload: object, name: str) -> None:
+    """Log a sequence checkpoint payload as a final-window-scope pyfunc model.
+
+    Serves every recurrent architecture (GRU and LSTM): the shared
+    ``SequenceFinalWindowModel`` reads the architecture from the payload's
+    ``sequence_config``, so a single logger and pinned requirement set cover all
+    RNNs.
 
     Args:
-        payload: GRU checkpoint payload (``model_state_dict``, ``feature_cols``,
-            ``sequence_config``, ``normalizer_payload``, ``max_rul``).
+        payload: Sequence checkpoint payload (``model_state_dict``,
+            ``feature_cols``, ``sequence_config``, ``normalizer_payload``,
+            ``max_rul``).
         name: Registered-model name to register the logged model under.
 
     Returns:
         None.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
-        artifact_path = Path(tmp_dir) / _GRU_CHECKPOINT_FILENAME
+        artifact_path = Path(tmp_dir) / _SEQUENCE_CHECKPOINT_FILENAME
         torch.save(payload, artifact_path)
         signature = _signature()
         with _suppress_integer_schema_hint():
             mlflow.pyfunc.log_model(
                 name="model",
-                python_model=GRUFinalWindowModel(),
-                artifacts={_GRU_ARTIFACT_KEY: str(artifact_path)},
+                python_model=SequenceFinalWindowModel(),
+                artifacts={_SEQUENCE_ARTIFACT_KEY: str(artifact_path)},
                 signature=signature,
                 input_example=_sample_input(),
                 registered_model_name=name,
-                pip_requirements=_GRU_PIP_REQUIREMENTS,
+                pip_requirements=_SEQUENCE_PIP_REQUIREMENTS,
             )
 
 
@@ -342,21 +357,23 @@ def log_and_register(
 
     The Ridge model is packaged so the logged model honors the full
     engine-scope inference contract (last-cycle-per-engine selection and
-    clipping); the GRU model is packaged as a custom pyfunc wrapper that carries
-    the checkpoint payload and runs the final-window path. Both reuse the
-    existing predictor inference logic.
+    clipping); sequence models (GRU and LSTM) are packaged as the shared pyfunc
+    wrapper that carries the checkpoint payload and runs the final-window path,
+    reading the architecture from the payload. Both reuse the existing predictor
+    inference logic.
 
     Args:
-        model: Fitted sklearn ``Pipeline`` (Ridge) or GRU checkpoint payload
-            mapping (GRU).
-        model_type: Model family, ``"ridge"`` or ``"gru"``.
+        model: Fitted sklearn ``Pipeline`` (Ridge) or sequence checkpoint
+            payload mapping (GRU/LSTM).
+        model_type: Model family, ``"ridge"``, ``"gru"``, or ``"lstm"``.
         subset: C-MAPSS subset identifier, e.g. ``"FD001"``.
 
     Returns:
         The newly registered model-version number.
 
     Raises:
-        ValueError: If ``model_type`` is not ``"ridge"`` or ``"gru"``.
+        ValueError: If ``model_type`` is not ``"ridge"``, ``"gru"``, or
+            ``"lstm"``.
         RuntimeError: If no MLflow run is active.
     """
     if mlflow.active_run() is None:
@@ -364,8 +381,8 @@ def log_and_register(
     name = model_name(model_type, subset)
     if model_type == "ridge":
         _log_ridge_model(model, name)
-    elif model_type == "gru":
-        _log_gru_model(model, name)
+    elif model_type in ("gru", "lstm"):
+        _log_sequence_model(model, name)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
     return _latest_version(name)
@@ -437,7 +454,7 @@ def model_type_from_name(name: str) -> ModelType:
         name: Registered-model name of the form ``turbofan-{type}-{subset}``.
 
     Returns:
-        The model family, ``"ridge"`` or ``"gru"``.
+        The model family, ``"ridge"``, ``"gru"``, or ``"lstm"``.
 
     Raises:
         ValueError: If the name does not encode a supported model family.
@@ -445,11 +462,11 @@ def model_type_from_name(name: str) -> ModelType:
     parts = name.split("-")
     if len(parts) >= 2 and parts[0] == "turbofan":
         candidate = parts[1]
-        if candidate in ("ridge", "gru"):
+        if candidate in ("ridge", "gru", "lstm"):
             return cast(ModelType, candidate)
     raise ValueError(
         f"Cannot infer model type from registered-model name {name!r}; "
-        "expected the form 'turbofan-{ridge,gru}-{subset}'."
+        "expected the form 'turbofan-{ridge,gru,lstm}-{subset}'."
     )
 
 

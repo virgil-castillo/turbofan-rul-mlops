@@ -1,4 +1,4 @@
-"""Training helpers for GRU sequence RUL models."""
+"""Training helpers for sequence RUL models (architecture-agnostic)."""
 from __future__ import annotations
 
 import random
@@ -13,7 +13,6 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from turbofan.config.schema import SequenceConfig
-from turbofan.models.gru import GRURULRegressor
 from turbofan.models.metrics import regression_metrics
 
 type SequenceBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -22,7 +21,7 @@ type SequenceLoader = DataLoader[SequenceBatch]
 
 @dataclass(frozen=True)
 class TrainingResult:
-    """Result from GRU sequence model training.
+    """Result from sequence model training.
 
     Args:
         model: Trained model restored to the best validation epoch.
@@ -31,7 +30,7 @@ class TrainingResult:
         best_metric: Best validation-window RMSE.
     """
 
-    model: GRURULRegressor
+    model: nn.Module
     history: pd.DataFrame
     best_epoch: int
     best_metric: float
@@ -56,8 +55,8 @@ def resolve_device(requested: Literal["cpu", "cuda"] = "cpu") -> torch.device:
     raise ValueError("CUDA requested but not available.")
 
 
-def train_gru_model(
-    model: GRURULRegressor,
+def train_sequence_model(
+    model: nn.Module,
     train_loader: SequenceLoader,
     validation_windows_loader: SequenceLoader,
     config: SequenceConfig,
@@ -65,10 +64,15 @@ def train_gru_model(
     random_seed: int,
     max_rul: int,
 ) -> TrainingResult:
-    """Train a GRU RUL regressor with validation metrics and early stopping.
+    """Train a sequence RUL regressor with validation metrics and early stopping.
+
+    The loop is architecture-agnostic: it depends only on the
+    ``(features, targets, lengths)`` batch contract and the model's
+    ``(batch_size,)`` forward output, so it trains any registered RNN (GRU or
+    LSTM) without change.
 
     Args:
-        model: Unfitted GRU model.
+        model: Unfitted sequence model (e.g. a :class:`SequenceRULRegressor`).
         train_loader: Mini-batch loader for training windows.
         validation_windows_loader: Evaluation loader for all validation windows.
         config: Sequence model training configuration.
@@ -82,7 +86,11 @@ def train_gru_model(
     """
     seed_everything(random_seed)
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
     criterion = nn.MSELoss()
     history: list[dict[str, float | int]] = []
     best_epoch = 0
@@ -128,8 +136,45 @@ def train_gru_model(
     )
 
 
+def train_gru_model(
+    model: nn.Module,
+    train_loader: SequenceLoader,
+    validation_windows_loader: SequenceLoader,
+    config: SequenceConfig,
+    device: torch.device,
+    random_seed: int,
+    max_rul: int,
+) -> TrainingResult:
+    """Backward-compatible alias for :func:`train_sequence_model`.
+
+    Retained so existing GRU call sites and imports keep working; delegates
+    unchanged to the generalized training entrypoint.
+
+    Args:
+        model: Unfitted sequence model.
+        train_loader: Mini-batch loader for training windows.
+        validation_windows_loader: Evaluation loader for all validation windows.
+        config: Sequence model training configuration.
+        device: Torch device used for training and evaluation.
+        random_seed: Seed for Python, NumPy, and torch random generators.
+        max_rul: Maximum RUL used to normalise targets and rescale predictions.
+
+    Returns:
+        Training result containing the best restored model and metric history.
+    """
+    return train_sequence_model(
+        model=model,
+        train_loader=train_loader,
+        validation_windows_loader=validation_windows_loader,
+        config=config,
+        device=device,
+        random_seed=random_seed,
+        max_rul=max_rul,
+    )
+
+
 def predict_windows(
-    model: GRURULRegressor,
+    model: nn.Module,
     loader: SequenceLoader,
     device: torch.device,
     max_rul: int,
@@ -137,7 +182,7 @@ def predict_windows(
     """Predict RUL values for sequence windows.
 
     Args:
-        model: Trained GRU model.
+        model: Trained sequence model.
         loader: Loader containing sequence feature batches.
         device: Torch device used for inference.
         max_rul: Maximum RUL used to rescale normalised model outputs back to
@@ -191,7 +236,7 @@ def seed_everything(random_seed: int) -> None:
         torch.cuda.manual_seed_all(random_seed)
 
 
-def _clone_state_dict(model: GRURULRegressor) -> dict[str, torch.Tensor]:
+def _clone_state_dict(model: nn.Module) -> dict[str, torch.Tensor]:
     return {
         name: value.detach().cpu().clone()
         for name, value in model.state_dict().items()
@@ -199,7 +244,7 @@ def _clone_state_dict(model: GRURULRegressor) -> dict[str, torch.Tensor]:
 
 
 def _train_one_epoch(
-    model: GRURULRegressor,
+    model: nn.Module,
     loader: SequenceLoader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,

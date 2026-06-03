@@ -11,7 +11,7 @@ from typing import Literal, cast
 import pandas as pd
 
 IdentifierColumn = Literal["engine_id", "cycle"]
-ModelType = Literal["ridge", "gru"]
+ModelType = Literal["ridge", "gru", "lstm"]
 PredictionScope = Literal["engine", "final_window"]
 
 FEATURE_COLUMNS: list[str] = [

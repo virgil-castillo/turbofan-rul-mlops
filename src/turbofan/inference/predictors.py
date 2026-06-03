@@ -1,7 +1,8 @@
 """Shared inference compute and a registry-backed pyfunc predictor adapter.
 
 The pure compute helpers (:func:`ridge_engine_predictions`,
-:func:`gru_final_window_predictions`) are reused by the MLflow pyfunc wrappers in
+:func:`sequence_final_window_predictions`) are reused by the MLflow pyfunc
+wrappers in
 :mod:`turbofan.registry`. The :class:`PyfuncPredictor` adapter wraps a loaded
 pyfunc model so batch prediction and the serving API can consume the registry
 model through the ``metadata`` + ``predict`` interface they already expect.
@@ -27,14 +28,16 @@ from turbofan.inference.schemas import (
     RawRecords,
     validate_raw_records,
 )
-from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.windowing import build_final_windows
 
-#: Inference prediction scope for each supported model family.
+#: Inference prediction scope for each supported model family. Both recurrent
+#: families (GRU and LSTM) share the final-window scope; Ridge is engine-scoped.
 _MODEL_SCOPES: dict[ModelType, PredictionScope] = {
     "ridge": "engine",
     "gru": "final_window",
+    "lstm": "final_window",
 }
 
 
@@ -73,23 +76,25 @@ def ridge_engine_predictions(
     return metadata, last_rows["_prediction"].to_numpy(dtype=np.float64)
 
 
-def gru_final_window_predictions(
+def sequence_final_window_predictions(
     payload: Mapping[str, object],
     frame: pd.DataFrame,
 ) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
-    """Run the GRU final-window inference path on validated rows.
+    """Run the final-window inference path for any sequence architecture.
 
-    Reconstructs the GRU model and normalizer from a checkpoint payload, then
+    Reads the architecture from the payload's ``sequence_config``, rebuilds the
+    matching recurrent module via the registry, restores the normalizer, then
     normalizes, builds one final window per engine, runs the forward pass,
     rescales by ``max_rul``, and clips to be non-negative (the ``final_window``
-    prediction scope). This is the pure compute shared by the in-process GRU
-    path and the MLflow GRU pyfunc wrapper.
+    prediction scope). The path is identical across RNNs, so this single
+    function serves both the in-process sequence path and the MLflow sequence
+    pyfunc wrapper.
 
     Args:
-        payload: GRU checkpoint payload with ``model_state_dict``,
-            ``feature_cols``, ``sequence_config`` (``window_size``,
-            ``hidden_size``, ``num_layers``, ``dropout``), ``normalizer_payload``,
-            and ``max_rul``.
+        payload: Sequence checkpoint payload with ``model_state_dict``,
+            ``feature_cols``, ``sequence_config`` (``architecture``,
+            ``window_size``, ``hidden_size``, ``num_layers``, ``dropout``),
+            ``normalizer_payload``, and ``max_rul``.
         frame: Validated canonical rows (``engine_id``, ``cycle``, features),
             each engine at least ``window_size`` cycles long.
 
@@ -98,13 +103,15 @@ def gru_final_window_predictions(
         the aligned non-negative predictions.
 
     Raises:
-        ValueError: If the checkpoint payload is missing required fields or
-            carries invalid values.
+        ValueError: If the checkpoint payload is missing required fields,
+            carries invalid values, or names an unsupported architecture.
     """
     feature_cols = _string_sequence(payload, "feature_cols")
     sequence_config = _mapping(payload, "sequence_config")
+    architecture = _string(sequence_config, "architecture")
     window_size = _positive_int(sequence_config, "window_size")
-    model = GRURULRegressor(
+    model = build_sequence_model(
+        architecture,
         input_size=len(feature_cols),
         hidden_size=_positive_int(sequence_config, "hidden_size"),
         num_layers=_positive_int(sequence_config, "num_layers"),
@@ -117,7 +124,7 @@ def gru_final_window_predictions(
     model.eval()
     normalizer = _normalizer_from_payload(payload, feature_cols)
     max_rul = _positive_int(payload, "max_rul")
-    return _gru_window_inference(
+    return _sequence_window_inference(
         model=model,
         normalizer=normalizer,
         feature_cols=feature_cols,
@@ -127,19 +134,45 @@ def gru_final_window_predictions(
     )
 
 
-def _gru_window_inference(
+def gru_final_window_predictions(
+    payload: Mapping[str, object],
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Backward-compatible alias for :func:`sequence_final_window_predictions`.
+
+    Retained so external callers depending on the GRU-specific name keep
+    working; delegates unchanged to the generalized sequence compute, which
+    reads the architecture from the payload.
+
+    Args:
+        payload: Sequence checkpoint payload (see
+            :func:`sequence_final_window_predictions`).
+        frame: Validated canonical rows ready for windowing.
+
+    Returns:
+        Tuple of the final-window metadata rows (``engine_id``, ``cycle``) and
+        the aligned non-negative predictions.
+
+    Raises:
+        ValueError: If the checkpoint payload is missing required fields or
+            carries invalid values.
+    """
+    return sequence_final_window_predictions(payload, frame)
+
+
+def _sequence_window_inference(
     *,
-    model: GRURULRegressor,
+    model: SequenceRULRegressor,
     normalizer: OperatingModeNormalizer,
     feature_cols: Sequence[str],
     window_size: int,
     max_rul: int,
     frame: pd.DataFrame,
 ) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
-    """Normalize, window, forward, rescale, and clip already-loaded GRU inputs.
+    """Normalize, window, forward, rescale, and clip already-loaded inputs.
 
     Args:
-        model: Loaded, evaluation-mode GRU model.
+        model: Loaded, evaluation-mode sequence model.
         normalizer: Fitted operating-mode normalizer.
         feature_cols: Ordered feature column names.
         window_size: Sequence window size.
@@ -332,31 +365,46 @@ def _clip_predictions(values: object) -> npt.NDArray[np.float64]:
 def _mapping(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
     value = payload[key]
     if not isinstance(value, Mapping):
-        raise ValueError(f"GRU checkpoint field {key!r} must be a mapping.")
+        raise ValueError(f"sequence checkpoint field {key!r} must be a mapping.")
     return cast(Mapping[str, object], value)
+
+
+def _string(payload: Mapping[str, object], key: str) -> str:
+    value = payload[key]
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"sequence checkpoint field {key!r} must be a non-empty string."
+        )
+    return value
 
 
 def _string_sequence(payload: Mapping[str, object], key: str) -> list[str]:
     value = payload[key]
     if not isinstance(value, Sequence) or isinstance(value, str):
-        raise ValueError(f"GRU checkpoint field {key!r} must be a string sequence.")
+        raise ValueError(
+            f"sequence checkpoint field {key!r} must be a string sequence."
+        )
     result = list(value)
     if not result or not all(isinstance(item, str) for item in result):
-        raise ValueError(f"GRU checkpoint field {key!r} must be a string sequence.")
+        raise ValueError(
+            f"sequence checkpoint field {key!r} must be a string sequence."
+        )
     return cast(list[str], result)
 
 
 def _positive_int(payload: Mapping[str, object], key: str) -> int:
     value = payload[key]
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError(f"GRU checkpoint field {key!r} must be a positive integer.")
+        raise ValueError(
+            f"sequence checkpoint field {key!r} must be a positive integer."
+        )
     return value
 
 
 def _non_negative_float(payload: Mapping[str, object], key: str) -> float:
     value = payload[key]
     if not isinstance(value, int | float) or isinstance(value, bool) or value < 0.0:
-        raise ValueError(f"GRU checkpoint field {key!r} must be non-negative.")
+        raise ValueError(f"sequence checkpoint field {key!r} must be non-negative.")
     return float(value)
 
 
@@ -364,7 +412,7 @@ def _normalizer_from_payload(
     payload: Mapping[str, object],
     feature_cols: Sequence[str],  # noqa: ARG001
 ) -> OperatingModeNormalizer:
-    """Reconstruct an ``OperatingModeNormalizer`` from a GRU checkpoint payload.
+    """Reconstruct an ``OperatingModeNormalizer`` from a sequence checkpoint.
 
     Args:
         payload: Full checkpoint payload mapping.
@@ -380,6 +428,6 @@ def _normalizer_from_payload(
     norm_payload = payload["normalizer_payload"]
     if not isinstance(norm_payload, Mapping):
         raise ValueError(
-            "GRU checkpoint field 'normalizer_payload' must be a mapping."
+            "sequence checkpoint field 'normalizer_payload' must be a mapping."
         )
     return OperatingModeNormalizer.from_payload(dict(norm_payload))

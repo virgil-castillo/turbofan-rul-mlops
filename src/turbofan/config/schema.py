@@ -90,6 +90,7 @@ class FeatureConfig(BaseModel):
         lag_steps: Shared lag offsets. Used by the lag feature set.
         ridge: Optional Ridge-specific feature overrides.
         gru: Optional GRU-specific feature overrides.
+        lstm: Optional LSTM-specific feature overrides.
     """
 
     sensor_cols_to_drop: list[str] = Field(default_factory=list)
@@ -99,8 +100,11 @@ class FeatureConfig(BaseModel):
     lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])
     ridge: ModelFeatureConfig | None = None
     gru: ModelFeatureConfig | None = None
+    lstm: ModelFeatureConfig | None = None
 
-    def for_model(self, model: Literal["ridge", "gru"]) -> ResolvedFeatureConfig:
+    def for_model(
+        self, model: Literal["ridge", "gru", "lstm"]
+    ) -> ResolvedFeatureConfig:
         """Resolve effective feature settings for a model.
 
         Applies the model-specific override block when present, falling back to
@@ -112,7 +116,12 @@ class FeatureConfig(BaseModel):
         Returns:
             Fully resolved feature settings for the model.
         """
-        override = self.ridge if model == "ridge" else self.gru
+        overrides: dict[str, ModelFeatureConfig | None] = {
+            "ridge": self.ridge,
+            "gru": self.gru,
+            "lstm": self.lstm,
+        }
+        override = overrides[model]
         feature_set = self.feature_set
         windows = self.windows
         lag_steps = self.lag_steps
@@ -143,29 +152,38 @@ class ModelConfig(BaseModel):
 
 
 class SequenceConfig(BaseModel):
-    """Configuration for GRU sequence model training.
+    """Configuration for sequence model training (GRU or LSTM).
+
+    GRU and LSTM share the same hyperparameter surface; the recurrent layer is
+    selected by ``architecture`` and every other field applies unchanged to
+    both.
 
     Args:
-        architecture: Sequence model architecture identifier.
+        architecture: Sequence model architecture identifier (``gru`` or
+            ``lstm``).
         window_size: Number of cycles per sequence window.
         batch_size: Training batch size.
-        hidden_size: GRU hidden state width.
-        num_layers: Number of stacked GRU layers.
-        dropout: Dropout probability between GRU layers.
+        hidden_size: Recurrent hidden state width.
+        num_layers: Number of stacked recurrent layers.
+        dropout: Dropout probability between recurrent layers.
         learning_rate: Adam optimizer learning rate.
+        weight_decay: Adam L2 weight-decay strength. Defaults to ``0.0`` (no
+            regularization), preserving prior behaviour; raise it to penalize
+            large weights and curb overfitting. Shared by GRU and LSTM.
         epochs: Maximum training epochs.
         patience: Early-stopping patience in epochs.
         device: Requested torch device.
         artifact_dir: Directory for local sequence run artifacts.
     """
 
-    architecture: Literal["gru"] = "gru"
+    architecture: Literal["gru", "lstm"] = "gru"
     window_size: int = Field(default=45, gt=0)
     batch_size: int = Field(default=64, gt=0)
     hidden_size: int = Field(default=64, gt=0)
     num_layers: int = Field(default=1, gt=0)
     dropout: float = Field(default=0.0, ge=0.0, lt=1.0)
     learning_rate: float = Field(default=1e-3, gt=0.0)
+    weight_decay: float = Field(default=0.0, ge=0.0)
     epochs: int = Field(default=50, gt=0)
     patience: int = Field(default=8, gt=0)
     device: Literal["cpu", "cuda"] = "cpu"
@@ -199,7 +217,7 @@ class ProjectConfig(BaseModel):
         data: Data layer configuration.
         features: Feature engineering configuration.
         model: Baseline model training configuration.
-        sequence: GRU sequence model training configuration.
+        sequence: Sequence model (GRU/LSTM) training configuration.
         inference: Local inference serving configuration.
     """
 
@@ -237,12 +255,45 @@ def _deep_merge(
     return result
 
 
+def _load_raw_config(path: Path) -> dict[str, object]:
+    """Load a YAML config and recursively resolve its ``_base_`` chain.
+
+    Each ``_base_`` reference is resolved relative to the file that declares it,
+    so a chain like ``fd001_lstm.yaml`` → ``fd001.yaml`` → ``default.yaml`` is
+    fully composed: every base in the chain is loaded and the more specific file
+    is deep-merged on top. The ``_base_`` key is consumed at each level and does
+    not appear in the returned mapping.
+
+    Args:
+        path: Path to the YAML configuration file.
+
+    Returns:
+        The fully merged raw config mapping.
+
+    Raises:
+        FileNotFoundError: If a config file in the chain does not exist.
+        yaml.YAMLError: If a file in the chain is not valid YAML.
+    """
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
+
+    if "_base_" in raw:
+        base_path = (path.parent / raw.pop("_base_")).resolve()
+        base = _load_raw_config(base_path)
+        raw = _deep_merge(base, raw)
+    return cast(dict[str, object], raw)
+
+
 def load_config(path: Path) -> ProjectConfig:
     """Load and validate project configuration from a YAML file.
 
-    If the file contains a ``_base_`` key, the referenced file is loaded
-    first and the current file is deep-merged on top, allowing subset
-    configs to override only the fields that differ from the base.
+    If the file contains a ``_base_`` key, the referenced file is loaded first
+    and the current file is deep-merged on top, allowing subset configs to
+    override only the fields that differ from the base. ``_base_`` references are
+    resolved recursively, so a config may extend another config that itself
+    extends a shared default.
 
     Args:
         path: Path to the YAML configuration file.
@@ -255,14 +306,5 @@ def load_config(path: Path) -> ProjectConfig:
         yaml.YAMLError: If the file is not valid YAML.
         pydantic.ValidationError: If the config structure is invalid.
     """
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except yaml.YAMLError as exc:
-        raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
-
-    if "_base_" in raw:
-        base_path = (path.parent / raw.pop("_base_")).resolve()
-        base = yaml.safe_load(base_path.read_text())
-        raw = _deep_merge(base, raw)
-
+    raw = _load_raw_config(path)
     return ProjectConfig.model_validate(raw)

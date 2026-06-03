@@ -22,6 +22,11 @@ features:
   gru:
     feature_set: rolling_mean
     windows: [20]
+  # LSTM: seeded from the GRU-tuned values; a dedicated LSTM feature sweep is a
+  # possible follow-up and may diverge these from GRU.
+  lstm:
+    feature_set: rolling_mean
+    windows: [20]
 
 # GRU sequence hyperparameters selected by the Stage 2 capacity sweep.
 # device inherits `cpu` from default.yaml.

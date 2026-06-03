@@ -406,7 +406,7 @@ def test_sequence_config_loads_custom_values(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("architecture", "lstm"),
+        ("architecture", "transformer"),
         ("window_size", 0),
         ("batch_size", 0),
         ("hidden_size", 0),
