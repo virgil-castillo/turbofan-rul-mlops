@@ -192,14 +192,18 @@ def _run_cli(
 
 
 def _load_train_sequence_gru_module() -> ModuleType:
-    """Load the GRU training CLI module.
+    """Load the generalized sequence training CLI module that ``main`` lives in.
+
+    The ``turbofan-train-sequence-gru`` console script now aliases the
+    generalized :mod:`turbofan.cli.train_sequence` entrypoint, so the
+    monkeypatch targets resolve against that module.
 
     Returns:
         Imported CLI module.
     """
-    from turbofan.cli import train_sequence_gru
+    from turbofan.cli import train_sequence
 
-    return train_sequence_gru
+    return train_sequence
 
 
 def test_train_sequence_gru_cli_seeds_model_initialization(
@@ -297,7 +301,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_gru_model", fake_train_gru_model)
+    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
@@ -432,7 +436,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_gru_model", fake_train_gru_model)
+    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
     monkeypatch.setattr(module, "_evaluate_windows", fake_evaluate_windows)
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "create_run_dir", fake_create_run_dir)
@@ -673,7 +677,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module, "build_sequence_loader", lambda *a, **k: object()
     )
-    monkeypatch.setattr(module, "train_gru_model", fake_train)
+    monkeypatch.setattr(module, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
