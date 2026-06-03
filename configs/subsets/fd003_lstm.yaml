@@ -1,0 +1,9 @@
+# LSTM variant of the FD003 subset config. Inherits every data, feature, and
+# sequence setting from fd003.yaml and flips only the architecture to LSTM, so
+# GRU and LSTM training for FD003 are both reproducible from version control.
+# The shared SequenceConfig hyperparameters apply unchanged; LSTM resolves its
+# feature settings from the `features.lstm` block in the base config.
+_base_: fd003.yaml
+
+sequence:
+  architecture: lstm
