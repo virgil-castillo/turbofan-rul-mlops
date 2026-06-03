@@ -1,6 +1,7 @@
 """Correlation-based feature selection for turbofan sensor columns."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 
@@ -27,7 +28,12 @@ def select_correlated_sensors(
         ValueError: If no sensors meet the correlation threshold.
     """
     sensor_cols = [col for col in df.columns if col.startswith("s_")]
-    abs_corr = df[sensor_cols].corrwith(df[target_col]).abs()
+    # A constant sensor column has zero variance, so its Pearson correlation is
+    # 0/0 -> NaN. That NaN is intentional: it fails the ``>= threshold``
+    # comparison below and is excluded. Silence the expected divide-by-zero so
+    # the well-defined NaN does not leak an uncontrolled RuntimeWarning.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        abs_corr = df[sensor_cols].corrwith(df[target_col]).abs()
     passing = abs_corr[abs_corr >= threshold].sort_values(ascending=False)
     if passing.empty:
         raise ValueError(

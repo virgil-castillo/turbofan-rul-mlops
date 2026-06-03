@@ -1,6 +1,8 @@
 """Tests for turbofan.sequences.feature_selection."""
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -75,3 +77,20 @@ def test_select_correlated_sensors_raises_when_none_pass() -> None:
 
     with pytest.raises(ValueError, match="No sensors"):
         select_correlated_sensors(df, threshold=1.0)
+
+
+def test_select_correlated_sensors_constant_column_emits_no_warning() -> None:
+    """A zero-variance sensor is excluded without leaking a RuntimeWarning."""
+    df = pd.DataFrame(
+        {
+            "rul": [4, 3, 2, 1, 0],
+            "s_1": [10, 8, 6, 4, 2],   # perfect correlation
+            "s_2": [5, 5, 5, 5, 5],    # constant -> 0/0 correlation
+        }
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = select_correlated_sensors(df, threshold=0.5)
+
+    assert result == ["s_1"]
