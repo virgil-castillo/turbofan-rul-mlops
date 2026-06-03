@@ -3,20 +3,26 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
 from csv import DictReader
 from pathlib import Path
 from types import ModuleType
+from typing import NamedTuple
 
 import pandas as pd
 import pytest
 import torch
 
+from turbofan.cli.train_sequence_gru import main as gru_main
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 from turbofan.models.gru import GRURULRegressor
 from turbofan.models.sequence_training import TrainingResult
+
+
+class _CliResult(NamedTuple):
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 class _FakePipeline:
@@ -160,32 +166,29 @@ def _assert_metric_keys(metrics: dict[str, object], section: str) -> None:
     assert set(metrics[section]) == expected
 
 
-def _run_cli(cfg_path: Path) -> subprocess.CompletedProcess[str]:
-    """Run the sequence GRU CLI with the worktree source path.
+def _run_cli(
+    cfg_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> _CliResult:
+    """Run the sequence GRU CLI in-process and return captured output.
 
     Args:
         cfg_path: YAML config path.
+        monkeypatch: pytest monkeypatch fixture for sys.argv injection.
+        capsys: pytest capsys fixture for stdout/stderr capture.
 
     Returns:
-        Completed subprocess result.
+        CLI result with returncode, stdout, and stderr.
     """
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    return subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_sequence_gru",
-            "--config",
-            str(cfg_path),
-        ],
-        cwd=cfg_path.parent,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["turbofan.cli.train_sequence_gru", "--config", str(cfg_path)],
     )
+    gru_main()
+    captured = capsys.readouterr()
+    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
 
 
 def _load_train_sequence_gru_module() -> ModuleType:
@@ -465,6 +468,8 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
 
 def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """One CLI run: disk run records, a registered checkpoint, and run artifacts.
 
@@ -489,7 +494,7 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     cfg_path = tmp_path / "config.yaml"
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
 
-    result = _run_cli(cfg_path)
+    result = _run_cli(cfg_path, monkeypatch, capsys)
 
     # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
     assert "validation_windows rmse" in result.stdout
@@ -541,6 +546,8 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
 
 def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Official test labels align to all test engines, including short padded ones."""
     raw_dir = tmp_path / "raw"
@@ -553,7 +560,7 @@ def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
     cfg_path = tmp_path / "config.yaml"
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
 
-    _run_cli(cfg_path)
+    _run_cli(cfg_path, monkeypatch, capsys)
 
     run_dir = next((artifact_dir / "sequence_gru").iterdir())
     with (run_dir / "official_test_predictions.csv").open(newline="") as csv_file:
@@ -574,6 +581,8 @@ def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
 
 def test_train_sequence_gru_cli_skips_missing_official_test(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI skips official evaluation when test or RUL files are absent."""
     raw_dir = tmp_path / "raw"
@@ -584,7 +593,7 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     cfg_path = tmp_path / "config.yaml"
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
 
-    result = _run_cli(cfg_path)
+    result = _run_cli(cfg_path, monkeypatch, capsys)
 
     assert "validation_windows rmse" in result.stdout
     assert "official test evaluation skipped" in result.stderr

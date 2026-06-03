@@ -2,19 +2,25 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import pytest
 
+from turbofan.cli.train_baseline import main as baseline_main
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
 from turbofan.utils.logging import setup_logging
+
+
+class _CliResult(NamedTuple):
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def _load_train_baseline_module() -> ModuleType:
@@ -57,6 +63,8 @@ def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
 
 def test_train_baseline_cli_writes_records_logs_run_and_registers(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """One CLI run: disk run records, MLflow run + registration, and run.log.
 
@@ -73,7 +81,7 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     cfg_path = _write_minimal_baseline_config(tmp_path)
     artifact_dir = tmp_path / "artifacts"
 
-    result = _run_baseline_cli(cfg_path)
+    result = _run_baseline_cli(cfg_path, monkeypatch, capsys)
 
     # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
     assert "validation rmse" in result.stdout
@@ -134,6 +142,8 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
 
 def test_train_baseline_cli_skips_missing_official_test(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI trains validation model when official test files are absent."""
     raw_dir = tmp_path / "raw"
@@ -162,23 +172,7 @@ def test_train_baseline_cli_skips_missing_official_test(
         )
     )
 
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_baseline",
-            "--config",
-            str(cfg_path),
-        ],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    result = _run_baseline_cli(cfg_path, monkeypatch, capsys)
 
     assert "official test evaluation skipped" in result.stderr
     run_dir = next((artifact_dir / "baseline").iterdir())
@@ -230,35 +224,29 @@ def _write_minimal_baseline_config(tmp_path: Path) -> Path:
 
 def _run_baseline_cli(
     cfg_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
     *extra_args: str,
-) -> subprocess.CompletedProcess[str]:
-    """Run the baseline training CLI from the worktree source.
+) -> _CliResult:
+    """Run the baseline training CLI in-process and return captured output.
 
     Args:
         cfg_path: Path to the YAML config.
+        monkeypatch: pytest monkeypatch fixture for sys.argv injection.
+        capsys: pytest capsys fixture for stdout/stderr capture.
         *extra_args: Additional CLI arguments.
 
     Returns:
-        Completed subprocess result.
+        CLI result with returncode, stdout, and stderr.
     """
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    return subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_baseline",
-            "--config",
-            str(cfg_path),
-            *extra_args,
-        ],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["turbofan.cli.train_baseline", "--config", str(cfg_path), *extra_args],
     )
+    baseline_main()
+    captured = capsys.readouterr()
+    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
 
 
 def test_predict_with_clipping_debug_line_respects_log_level(

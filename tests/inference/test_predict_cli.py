@@ -3,19 +3,25 @@ from __future__ import annotations
 
 import csv
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import mlflow
 import pandas as pd
+import pytest
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyRegressor
 from sklearn.pipeline import Pipeline
 
 from turbofan import registry
+from turbofan.cli.predict import main as predict_main
 from turbofan.inference.schemas import FEATURE_COLUMNS
+
+
+class _CliResult(NamedTuple):
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def _record(
@@ -94,35 +100,26 @@ def _register_ridge_model(subset: str = "FD001") -> str:
 
 
 def _run_predict(
-    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
     *args: str,
-) -> subprocess.CompletedProcess[str]:
-    """Run the predict command module with the worktree src on PYTHONPATH.
+) -> _CliResult:
+    """Run the predict CLI in-process and return captured output.
 
     Args:
-        tmp_path: Temporary test directory.
-        *args: Additional command-line arguments.
+        capsys: pytest capsys fixture for stdout/stderr capture.
+        *args: Command-line arguments forwarded to main().
 
     Returns:
-        Completed subprocess result.
+        CLI result with returncode, stdout, and stderr.
     """
-    repo_root = Path(__file__).resolve().parents[2]
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(repo_root / "src"),
-    }
-    return subprocess.run(
-        [sys.executable, "-m", "turbofan.cli.predict", *args],
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    returncode = predict_main(list(args))
+    captured = capsys.readouterr()
+    return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
 def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI writes prediction CSV, metadata JSON, and a useful summary."""
     name = _register_ridge_model()
@@ -136,7 +133,7 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
         writer.writerow(_record(engine_id=1, cycle=3))
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         name,
         "--input",
@@ -173,6 +170,7 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
 
 def test_predict_cli_reads_json_records_object(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI accepts JSON records envelopes and predicts per engine."""
     name = _register_ridge_model()
@@ -191,7 +189,7 @@ def test_predict_cli_reads_json_records_object(
     )
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         name,
         "--input",
@@ -214,7 +212,10 @@ def test_predict_cli_reads_json_records_object(
     assert metadata["warnings"] == []
 
 
-def test_predict_cli_resolves_explicit_models_uri(tmp_path: Path) -> None:
+def test_predict_cli_resolves_explicit_models_uri(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """CLI accepts an explicit models:/<name>@<alias> URI."""
     name = _register_ridge_model()
     input_path = tmp_path / "input.csv"
@@ -226,7 +227,7 @@ def test_predict_cli_resolves_explicit_models_uri(tmp_path: Path) -> None:
         writer.writerow(_record(engine_id=1, cycle=1))
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         f"models:/{name}@production",
         "--input",
@@ -243,12 +244,15 @@ def test_predict_cli_resolves_explicit_models_uri(tmp_path: Path) -> None:
     assert metadata["model_type"] == "ridge"
 
 
-def test_predict_cli_exits_nonzero_for_missing_input(tmp_path: Path) -> None:
+def test_predict_cli_exits_nonzero_for_missing_input(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """CLI reports missing input paths on stderr and exits non-zero."""
     name = _register_ridge_model()
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         name,
         "--input",
@@ -282,6 +286,7 @@ def _write_rul_labels(data_dir: Path, subset: str, labels: list[int]) -> Path:
 
 def test_predict_cli_evaluates_against_rul_labels_when_available(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI computes and prints metrics when RUL labels file is found."""
     name = _register_ridge_model()
@@ -297,7 +302,7 @@ def test_predict_cli_evaluates_against_rul_labels_when_available(
         writer.writerow(_record(engine_id=2, cycle=1))
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         name,
         "--input",
@@ -325,6 +330,7 @@ def test_predict_cli_evaluates_against_rul_labels_when_available(
 
 def test_predict_cli_skips_evaluation_when_rul_labels_missing(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI skips evaluation silently when no RUL labels file exists."""
     name = _register_ridge_model()
@@ -337,7 +343,7 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
         writer.writerow(_record(engine_id=1, cycle=1))
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         name,
         "--input",
@@ -358,7 +364,10 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
     assert "evaluation" not in metadata
 
 
-def test_predict_cli_exits_nonzero_for_unknown_model(tmp_path: Path) -> None:
+def test_predict_cli_exits_nonzero_for_unknown_model(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """CLI reports model resolution errors on stderr and exits non-zero."""
     input_path = tmp_path / "input.csv"
     with input_path.open("w", newline="") as file:
@@ -367,7 +376,7 @@ def test_predict_cli_exits_nonzero_for_unknown_model(tmp_path: Path) -> None:
         writer.writerow(_record())
 
     result = _run_predict(
-        tmp_path,
+        capsys,
         "--model",
         "turbofan-ridge-does-not-exist",
         "--input",
