@@ -50,6 +50,7 @@ outputs/*
 artifacts/
 
 # MLflow
+mlflow.db
 mlruns/
 mlartifacts/
 

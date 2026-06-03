@@ -1,21 +1,18 @@
-"""Tests for turbofan.inference.predictors."""
+"""Tests for the shared inference compute in turbofan.inference.predictors."""
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
-from pathlib import Path
 
-import joblib
+import numpy as np
 import pandas as pd
 import pytest
 import torch
 
-from turbofan.inference.schemas import (
-    FEATURE_COLUMNS,
-    PredictionResult,
-    PredictionRow,
-    SchemaValidationError,
+from turbofan.inference.predictors import (
+    gru_final_window_predictions,
+    ridge_engine_predictions,
 )
+from turbofan.inference.schemas import FEATURE_COLUMNS, validate_raw_records
 from turbofan.models.gru import GRURULRegressor
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
@@ -39,7 +36,7 @@ def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:
 
 
 class _NegativeRidgePipeline:
-    """Small joblib-serializable estimator returning negative predictions."""
+    """Small estimator returning one negative prediction per row."""
 
     def predict(self, rows: pd.DataFrame) -> list[float]:
         """Return one negative prediction per row.
@@ -98,175 +95,61 @@ def _records_for_engine(
     ]
 
 
-def _write_manifest(
-    directory: Path,
+def _gru_payload(
     *,
-    model_type: str,
-    artifact_id: str,
-    prediction_scope: str,
-    model_path: str,
-) -> Path:
-    """Write a model manifest for a synthetic artifact.
+    window_size: int = 3,
+    max_rul: int = 125,
+    bias: float | None = None,
+    include_max_rul: bool = True,
+    legacy_flat_stats: bool = False,
+) -> dict[str, object]:
+    """Build a tiny GRU checkpoint payload mirroring the production format.
 
     Args:
-        directory: Artifact directory.
-        model_type: Model family identifier.
-        artifact_id: Stable artifact identifier.
-        prediction_scope: Prediction scope identifier.
-        model_path: Manifest-relative model path.
-
-    Returns:
-        Path to the written manifest.
-    """
-    manifest_path = directory / "model_manifest.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "model_type": model_type,
-                "artifact_id": artifact_id,
-                "prediction_scope": prediction_scope,
-                "model_path": model_path,
-            }
-        )
-    )
-    return manifest_path
-
-
-def _ridge_artifact(tmp_path: Path) -> Path:
-    """Create a synthetic Ridge artifact.
-
-    Args:
-        tmp_path: Temporary test directory.
-
-    Returns:
-        Path to the manifest.
-    """
-    artifact_dir = tmp_path / "ridge"
-    artifact_dir.mkdir()
-    joblib.dump(_NegativeRidgePipeline(), artifact_dir / "model.joblib")
-    return _write_manifest(
-        artifact_dir,
-        model_type="ridge",
-        artifact_id="ridge-test",
-        prediction_scope="engine",
-        model_path="model.joblib",
-    )
-
-
-def _gru_artifact(
-    tmp_path: Path, *, window_size: int = 3, max_rul: int = 125
-) -> Path:
-    """Create a synthetic GRU artifact.
-
-    Args:
-        tmp_path: Temporary test directory.
-        window_size: Serialized sequence window size.
+        window_size: Sequence window size.
         max_rul: Maximum RUL cap stored in the checkpoint.
+        bias: Optional regressor bias to set; weights are zeroed when given so
+            the model output is deterministic.
+        include_max_rul: Whether to include the ``max_rul`` field.
+        legacy_flat_stats: Whether to write a legacy flat-stat normalizer.
 
     Returns:
-        Path to the manifest.
+        Checkpoint payload mapping.
     """
-    artifact_dir = tmp_path / "gru"
-    artifact_dir.mkdir()
     model = GRURULRegressor(
         input_size=len(FEATURE_COLUMNS),
         hidden_size=4,
         num_layers=1,
         dropout=0.0,
     )
-    for parameter in model.parameters():
-        parameter.data.zero_()
-    model.regressor.bias.data.fill_(-2.0)
-
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "sequence_config": {
-                "architecture": "gru",
-                "window_size": window_size,
-                "hidden_size": 4,
-                "num_layers": 1,
-                "dropout": 0.0,
-            },
-            "feature_cols": FEATURE_COLUMNS,
-            "normalizer_type": "operating_mode",
-            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
-            "max_rul": max_rul,
+    if bias is not None:
+        for parameter in model.parameters():
+            parameter.data.zero_()
+        model.regressor.bias.data.fill_(bias)
+    payload: dict[str, object] = {
+        "model_state_dict": model.state_dict(),
+        "sequence_config": {
+            "architecture": "gru",
+            "window_size": window_size,
+            "hidden_size": 4,
+            "num_layers": 1,
+            "dropout": 0.0,
         },
-        artifact_dir / "model.pt",
-    )
-    return _write_manifest(
-        artifact_dir,
-        model_type="gru",
-        artifact_id="gru-test",
-        prediction_scope="final_window",
-        model_path="model.pt",
-    )
+        "feature_cols": list(FEATURE_COLUMNS),
+    }
+    if legacy_flat_stats:
+        payload["normalizer_means"] = {column: 0.0 for column in FEATURE_COLUMNS}
+        payload["normalizer_stds"] = {column: 1.0 for column in FEATURE_COLUMNS}
+    else:
+        payload["normalizer_type"] = "operating_mode"
+        payload["normalizer_payload"] = _make_normalizer_payload(FEATURE_COLUMNS)
+    if include_max_rul:
+        payload["max_rul"] = max_rul
+    return payload
 
 
-def _assert_prediction_rows(
-    rows: Sequence[PredictionRow],
-    *,
-    artifact_id: str,
-    model_type: str,
-    prediction_scope: str,
-) -> None:
-    """Assert stable metadata on prediction rows.
-
-    Args:
-        rows: Prediction result rows.
-        artifact_id: Expected artifact identifier.
-        model_type: Expected model family.
-        prediction_scope: Expected prediction scope.
-    """
-    assert rows
-    for row in rows:
-        assert isinstance(row, PredictionRow)
-        assert row.prediction >= 0.0
-        assert row.artifact_id == artifact_id
-        assert row.model_type == model_type
-        assert row.prediction_scope == prediction_scope
-        assert row.predicted_at.tzinfo is not None
-
-
-def _assert_response_metadata(
-    result: PredictionResult,
-    *,
-    artifact_id: str,
-    model_type: str,
-    prediction_scope: str,
-    input_rows: int,
-    prediction_rows: int,
-    warnings: list[str],
-) -> None:
-    """Assert response-level prediction metadata.
-
-    Args:
-        result: Prediction response object.
-        artifact_id: Expected artifact identifier.
-        model_type: Expected model family.
-        prediction_scope: Expected prediction scope.
-        input_rows: Expected raw input row count.
-        prediction_rows: Expected prediction row count.
-        warnings: Expected response warnings.
-    """
-    assert isinstance(result, PredictionResult)
-    assert result.metadata.artifact_id == artifact_id
-    assert result.metadata.model_type == model_type
-    assert result.metadata.prediction_scope == prediction_scope
-    assert result.metadata.input_rows == input_rows
-    assert result.metadata.prediction_rows == prediction_rows
-    assert result.metadata.warnings == warnings
-
-
-def test_load_predictor_returns_ridge_prediction_per_engine_last_cycle(
-    tmp_path: Path,
-) -> None:
-    """Ridge predictor returns one clipped prediction per engine (last cycle)."""
-    from turbofan.inference.predictors import load_predictor
-
-    predictor = load_predictor(_ridge_artifact(tmp_path))
+def test_ridge_engine_predictions_returns_clipped_last_cycle_per_engine() -> None:
+    """Ridge compute returns one clipped prediction per engine (last cycle)."""
     records = pd.DataFrame(
         [
             _record(engine_id=1, cycle=1),
@@ -276,337 +159,70 @@ def test_load_predictor_returns_ridge_prediction_per_engine_last_cycle(
             _record(engine_id=2, cycle=2),
         ]
     )
+    validated = validate_raw_records(records)
 
-    result = predictor.predict(records)
-
-    prediction_tuples = [
-        (row.engine_id, row.cycle, row.prediction) for row in result.predictions
-    ]
-    assert prediction_tuples == [
-        (1, 3, 0.0),
-        (2, 2, 0.0),
-    ]
-    _assert_prediction_rows(
-        result.predictions,
-        artifact_id="ridge-test",
-        model_type="ridge",
-        prediction_scope="engine",
-    )
-    _assert_response_metadata(
-        result,
-        artifact_id="ridge-test",
-        model_type="ridge",
-        prediction_scope="engine",
-        input_rows=5,
-        prediction_rows=2,
-        warnings=[],
+    metadata, predictions = ridge_engine_predictions(
+        _NegativeRidgePipeline(), validated.records
     )
 
+    assert metadata["engine_id"].tolist() == [1, 2]
+    assert metadata["cycle"].tolist() == [3, 2]
+    # Negative pipeline outputs are clipped to the non-negative floor.
+    assert np.allclose(predictions, [0.0, 0.0])
 
-def test_load_predictor_returns_gru_prediction_for_each_eligible_engine(
-    tmp_path: Path,
-) -> None:
-    """GRU predictor returns one final-window prediction per eligible engine."""
-    from turbofan.inference.predictors import load_predictor
 
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
+def test_gru_final_window_predictions_one_per_eligible_engine() -> None:
+    """GRU compute returns one final-window prediction per eligible engine."""
+    payload = _gru_payload(window_size=3, bias=-2.0)
     records = pd.DataFrame(
         [
             *_records_for_engine(2, 4, feature_value=2.0),
             *_records_for_engine(1, 3, feature_value=1.0),
         ]
     )
+    validated = validate_raw_records(records)
 
-    result = predictor.predict(records)
+    metadata, predictions = gru_final_window_predictions(payload, validated.records)
 
-    prediction_tuples = [
-        (row.engine_id, row.cycle, row.prediction) for row in result.predictions
-    ]
-    assert prediction_tuples == [
-        (1, 3, 0.0),
-        (2, 4, 0.0),
-    ]
-    _assert_prediction_rows(
-        result.predictions,
-        artifact_id="gru-test",
-        model_type="gru",
-        prediction_scope="final_window",
-    )
-    _assert_response_metadata(
-        result,
-        artifact_id="gru-test",
-        model_type="gru",
-        prediction_scope="final_window",
-        input_rows=7,
-        prediction_rows=2,
-        warnings=[],
-    )
+    assert metadata["engine_id"].tolist() == [1, 2]
+    assert metadata["cycle"].tolist() == [3, 4]
+    # Negative bias drives the raw output below zero, so clipping floors at 0.
+    assert np.allclose(predictions, [0.0, 0.0])
 
 
-def test_gru_predictor_strict_mode_fails_for_short_engines(tmp_path: Path) -> None:
-    """GRU strict mode rejects inputs containing engines shorter than a window."""
-    from turbofan.inference.predictors import load_predictor
+def test_gru_final_window_predictions_rescales_output_by_max_rul() -> None:
+    """GRU compute multiplies raw model output by max_rul before clipping."""
+    # Zero weights with a +0.12 regressor bias yield a constant raw output of
+    # 0.12; rescaling by max_rul=125 gives 15.0, distinguishable from the
+    # unrescaled value and well above the clipping floor.
+    payload = _gru_payload(window_size=3, max_rul=125, bias=0.12)
+    records = pd.DataFrame(_records_for_engine(1, 3, feature_value=0.0))
+    validated = validate_raw_records(records)
 
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
-    records = pd.DataFrame(
-        [
-            *_records_for_engine(1, 3),
-            *_records_for_engine(2, 2),
-        ]
-    )
+    _, predictions = gru_final_window_predictions(payload, validated.records)
 
-    with pytest.raises(SchemaValidationError, match="shorter than window_size"):
-        predictor.predict(records)
-
-
-def test_gru_predictor_partial_mode_warns_and_pads_short_engines(
-    tmp_path: Path,
-) -> None:
-    """GRU partial mode pads short engines, warns about each, and predicts all."""
-    from turbofan.inference.predictors import load_predictor
-
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
-    records = pd.DataFrame(
-        [
-            *_records_for_engine(1, 3),
-            *_records_for_engine(2, 2),
-        ]
-    )
-
-    result = predictor.predict(records, allow_partial=True)
-
-    engine_ids = [row.engine_id for row in result.predictions]
-    assert 1 in engine_ids
-    assert 2 in engine_ids
-    assert len(result.metadata.warnings) == 1
-    assert "2" in result.metadata.warnings[0]
-    assert "padded" in result.metadata.warnings[0].lower()
-    assert result.metadata.input_rows == 5
-    assert result.metadata.prediction_rows == 2
+    assert len(predictions) == 1
+    assert 10.0 < predictions[0] < 20.0
 
 
-def test_gru_predictor_partial_mode_pads_sole_short_engine(
-    tmp_path: Path,
-) -> None:
-    """GRU partial mode pads a sole short engine and returns one prediction."""
-    from turbofan.inference.predictors import load_predictor
+def test_gru_final_window_predictions_rejects_missing_max_rul() -> None:
+    """GRU compute fails when the checkpoint payload omits max_rul."""
+    payload = _gru_payload(include_max_rul=False)
+    records = pd.DataFrame(_records_for_engine(1, 3))
+    validated = validate_raw_records(records)
 
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
-    records = pd.DataFrame(_records_for_engine(1, 2))
-
-    result = predictor.predict(records, allow_partial=True)
-
-    assert len(result.predictions) == 1
-    assert result.predictions[0].engine_id == 1
-    assert len(result.metadata.warnings) == 1
-    assert "padded" in result.metadata.warnings[0].lower()
+    with pytest.raises(KeyError):
+        gru_final_window_predictions(payload, validated.records)
 
 
-def test_gru_predictor_rescales_output_by_max_rul(tmp_path: Path) -> None:
-    """GRU predictor multiplies raw model output by max_rul before clipping."""
-    from turbofan.inference.predictors import load_predictor
+def test_gru_final_window_predictions_torch_is_deterministic() -> None:
+    """Repeated GRU compute on identical payload/input is bit-for-bit stable."""
+    torch.manual_seed(0)
+    payload = _gru_payload(window_size=3)
+    records = pd.DataFrame(_records_for_engine(1, 4, feature_value=1.0))
+    validated = validate_raw_records(records)
 
-    # Build an artifact with a model that produces a known positive raw output.
-    # All weights are zero and the regressor bias is set to +0.12, so the model
-    # always outputs 0.12 regardless of input. After rescaling by max_rul=125
-    # the prediction is 0.12 * 125 = 15.0, which is well above the clipping
-    # floor of 0.0 and therefore distinguishable from an unrescaled result.
-    max_rul = 125
-    artifact_dir = tmp_path / "gru_rescale"
-    artifact_dir.mkdir()
-    window_size = 3
-    model = GRURULRegressor(
-        input_size=len(FEATURE_COLUMNS),
-        hidden_size=4,
-        num_layers=1,
-        dropout=0.0,
-    )
-    for parameter in model.parameters():
-        parameter.data.zero_()
-    model.regressor.bias.data.fill_(0.12)
+    _, first = gru_final_window_predictions(payload, validated.records)
+    _, second = gru_final_window_predictions(payload, validated.records)
 
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "sequence_config": {
-                "architecture": "gru",
-                "window_size": window_size,
-                "hidden_size": 4,
-                "num_layers": 1,
-                "dropout": 0.0,
-            },
-            "feature_cols": FEATURE_COLUMNS,
-            "normalizer_type": "operating_mode",
-            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
-            "max_rul": max_rul,
-        },
-        artifact_dir / "model.pt",
-    )
-    manifest = _write_manifest(
-        artifact_dir,
-        model_type="gru",
-        artifact_id="gru-rescale-test",
-        prediction_scope="final_window",
-        model_path="model.pt",
-    )
-
-    predictor = load_predictor(manifest)
-    records = pd.DataFrame(_records_for_engine(1, window_size, feature_value=0.0))
-
-    result = predictor.predict(records)
-
-    assert len(result.predictions) == 1
-    prediction = result.predictions[0].prediction
-    # raw output = 0.12; rescaled = 0.12 * 125 = 15.0
-    assert prediction > 10.0, f"Expected rescaled prediction > 10, got {prediction}"
-    assert prediction < 20.0, f"Expected rescaled prediction < 20, got {prediction}"
-
-
-def test_gru_predictor_rejects_checkpoint_without_max_rul(tmp_path: Path) -> None:
-    """GRU predictor fails to load when checkpoint is missing max_rul."""
-    from turbofan.inference.predictors import load_predictor
-
-    artifact_dir = tmp_path / "gru_no_maxrul"
-    artifact_dir.mkdir()
-    model = GRURULRegressor(
-        input_size=len(FEATURE_COLUMNS),
-        hidden_size=4,
-        num_layers=1,
-        dropout=0.0,
-    )
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "sequence_config": {
-                "architecture": "gru",
-                "window_size": 3,
-                "hidden_size": 4,
-                "num_layers": 1,
-                "dropout": 0.0,
-            },
-            "feature_cols": FEATURE_COLUMNS,
-            "normalizer_type": "operating_mode",
-            "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
-        },
-        artifact_dir / "model.pt",
-    )
-    _write_manifest(
-        artifact_dir,
-        model_type="gru",
-        artifact_id="gru-no-maxrul",
-        prediction_scope="final_window",
-        model_path="model.pt",
-    )
-
-    with pytest.raises(ValueError, match="max_rul"):
-        load_predictor(artifact_dir / "model_manifest.json")
-
-
-def test_gru_predictor_rejects_legacy_flat_stat_checkpoint(tmp_path: Path) -> None:
-    """GRU predictor rejects legacy checkpoints that use flat normalizer stats."""
-    from turbofan.inference.predictors import load_predictor
-
-    artifact_dir = tmp_path / "gru_legacy"
-    artifact_dir.mkdir()
-    model = GRURULRegressor(
-        input_size=len(FEATURE_COLUMNS),
-        hidden_size=4,
-        num_layers=1,
-        dropout=0.0,
-    )
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "sequence_config": {
-                "architecture": "gru",
-                "window_size": 3,
-                "hidden_size": 4,
-                "num_layers": 1,
-                "dropout": 0.0,
-            },
-            "feature_cols": FEATURE_COLUMNS,
-            "normalizer_means": {column: 0.0 for column in FEATURE_COLUMNS},
-            "normalizer_stds": {column: 1.0 for column in FEATURE_COLUMNS},
-            "max_rul": 125,
-        },
-        artifact_dir / "model.pt",
-    )
-    _write_manifest(
-        artifact_dir,
-        model_type="gru",
-        artifact_id="gru-legacy",
-        prediction_scope="final_window",
-        model_path="model.pt",
-    )
-
-    with pytest.raises(ValueError, match="[Rr]etrain"):
-        load_predictor(artifact_dir / "model_manifest.json")
-
-
-def test_gru_predictor_allow_partial_pads_short_engine(
-    tmp_path: Path,
-) -> None:
-    """GRU allow-partial mode pads short engines and returns predictions for all."""
-    from turbofan.inference.predictors import load_predictor
-
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
-    records = pd.DataFrame(
-        [
-            *_records_for_engine(1, 2),  # short engine (2 < window_size=3)
-            *_records_for_engine(2, 4),  # full-length engine
-        ]
-    )
-
-    result = predictor.predict(records, allow_partial=True)
-
-    engine_ids = [row.engine_id for row in result.predictions]
-    assert 1 in engine_ids, "Short engine should still get a prediction (padded)"
-    assert 2 in engine_ids, "Full engine should still get a prediction"
-    assert len(result.predictions) == 2
-    assert any("padded" in w.lower() for w in result.metadata.warnings), (
-        "Expected at least one warning mentioning 'padded'"
-    )
-
-
-def test_gru_predictor_strict_still_errors_on_short_engine(
-    tmp_path: Path,
-) -> None:
-    """GRU strict mode still raises SchemaValidationError for short engines."""
-    from turbofan.inference.predictors import load_predictor
-
-    predictor = load_predictor(_gru_artifact(tmp_path, window_size=3))
-    records = pd.DataFrame(
-        [
-            *_records_for_engine(1, 3),  # full-length engine
-            *_records_for_engine(2, 2),  # short engine (2 < window_size=3)
-        ]
-    )
-
-    with pytest.raises(SchemaValidationError, match="shorter than window_size"):
-        predictor.predict(records, allow_partial=False)
-
-
-def test_ridge_predictor_partial_mode_returns_validation_warnings(
-    tmp_path: Path,
-) -> None:
-    """Ridge partial mode returns validation warnings in response metadata."""
-    from turbofan.inference.predictors import load_predictor
-
-    predictor = load_predictor(_ridge_artifact(tmp_path))
-    bad_record = _record(engine_id=1, cycle=2)
-    bad_record["s_21"] = "bad"
-    records = pd.DataFrame(
-        [
-            _record(engine_id=1, cycle=1),
-            bad_record,
-        ]
-    )
-
-    result = predictor.predict(records, allow_partial=True)
-
-    assert [(row.engine_id, row.cycle) for row in result.predictions] == [(1, 1)]
-    assert result.metadata.input_rows == 2
-    assert result.metadata.prediction_rows == 1
-    assert len(result.metadata.warnings) == 1
-    assert "row 1" in result.metadata.warnings[0]
-    assert "numeric and finite" in result.metadata.warnings[0]
+    assert np.allclose(first, second)

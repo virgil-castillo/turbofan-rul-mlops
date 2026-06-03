@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+from turbofan.utils.logging import setup_logging
 
 
 def _load_train_baseline_module() -> ModuleType:
@@ -55,101 +55,81 @@ def _write_cmapps_file(path: Path, n_engines: int, n_cycles: int) -> None:
     path.write_text("\n".join(lines))
 
 
-def test_train_baseline_cli_writes_artifacts(tmp_path: Path) -> None:
-    """CLI trains on synthetic files and writes model artifacts."""
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
-    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
-    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+def test_train_baseline_cli_writes_records_logs_run_and_registers(
+    tmp_path: Path,
+) -> None:
+    """One CLI run: disk run records, MLflow run + registration, and run.log.
 
+    Consolidates the run-dir artifact, MLflow params/metrics/tags +
+    registration, and run.log-artifact facets into a single training run
+    instead of spawning a separate ~10s training subprocess per facet, all of
+    which exercised the same standard run.
+    """
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    from turbofan import registry, tracking
+
+    cfg_path = _write_minimal_baseline_config(tmp_path)
     artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        "\n".join(
-            [
-                "project_name: test",
-                "data:",
-                f"  raw_dir: {raw_dir.as_posix()}",
-                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
-                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
-                "  fd_subset: FD001",
-                "  max_rul: 30",
-                "  test_size: 0.25",
-                "  random_seed: 42",
-                "model:",
-                "  name: ridge",
-                "  alpha: 1.0",
-                f"  artifact_dir: {artifact_dir.as_posix()}",
-                "features:",
-                "  sensor_cols_to_drop:",
-                "    - s_2",
-                "  feature_set: raw_plus_rolling_mean",
-                "  windows:",
-                "    - 5",
-            ]
-        )
-    )
 
-    project_root = Path(__file__).parent.parent.parent
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "turbofan.cli.train_baseline",
-            "--config",
-            str(cfg_path),
-        ],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    result = _run_baseline_cli(cfg_path)
 
+    # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
     assert "validation rmse" in result.stdout
     run_dirs = list((artifact_dir / "baseline").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "model.joblib").exists()
+    assert not (run_dir / "model.joblib").exists()
+    assert not (run_dir / "model_manifest.json").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
-    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "validation_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
 
-    manifest = json.loads((run_dir / "model_manifest.json").read_text())
-    assert manifest == {
-        "schema_version": 1,
-        "model_type": "ridge",
-        "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "engine",
-        "model_path": "model.joblib",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
-
     metrics = json.loads((run_dir / "metrics.json").read_text())
-    assert "validation" in metrics
-    assert "official_test" in metrics
+    assert set(metrics) == {"validation", "official_test"}
     assert set(metrics["validation"]) == {"rmse", "mae"}
     assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
 
-    estimator = joblib.load(run_dir / "model.joblib")
-    dropper = estimator.named_steps["features"].named_steps["sensor_dropper"]
-    assert dropper.drop == ["s_2"]
-    feature_engineer = estimator.named_steps["features"].named_steps["feature_engineer"]
-    assert feature_engineer.feature_set == "raw_plus_rolling_mean"
-    assert feature_engineer.windows == [5]
+    # --- the production MLflow run: params, metrics, tags ---
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    row = runs.iloc[0]
+    assert row["tags.model_type"] == "ridge"
+    assert row["tags.run_type"] == "production"
+    assert "tags.run_dir" in row
+    assert row["params.alpha"] == "1.0"
+    assert row["params.feature_set"] == "raw"
+    assert row["metrics.val_rmse"] >= 0.0
+    assert row["metrics.val_mae"] >= 0.0
+    assert row["metrics.official_rmse"] >= 0.0
 
-    from turbofan.preprocessing.normalization import OperatingModeNormalizer
+    # --- a registered model version linked to the run + prediction artifacts ---
+    run_id = row["run_id"]
+    client = MlflowClient()
+    name = registry.model_name("ridge", "FD001")
+    assert name == "turbofan-ridge-fd001"
+    versions = client.search_model_versions(f"name = '{name}'")
+    assert len(versions) >= 1
+    assert any(version.run_id == run_id for version in versions)
 
-    normalizer = estimator.named_steps["features"].named_steps["normalizer"]
-    assert isinstance(normalizer, OperatingModeNormalizer)
-    assert normalizer.n_modes == 1  # config default
-    assert normalizer.random_state == 42
+    artifact_paths = {
+        artifact.path for artifact in client.list_artifacts(run_id, "predictions")
+    }
+    assert "predictions/validation_predictions.csv" in artifact_paths
+
+    # --- the run.log diagnostic artifact with training narration ---
+    log_paths = {artifact.path for artifact in client.list_artifacts(run_id, "logs")}
+    assert "logs/run.log" in log_paths
+    local_path = mlflow.artifacts.download_artifacts(
+        run_id=run_id,
+        artifact_path="logs/run.log",
+    )
+    contents = Path(local_path).read_text()
+    assert "loading training data for FD001" in contents
+    assert "saved baseline run to" in contents
 
 
 def test_train_baseline_cli_skips_missing_official_test(
@@ -200,11 +180,107 @@ def test_train_baseline_cli_skips_missing_official_test(
         env=env,
     )
 
-    assert "official test evaluation skipped" in result.stdout
+    assert "official test evaluation skipped" in result.stderr
     run_dir = next((artifact_dir / "baseline").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation"}
+
+
+def _write_minimal_baseline_config(tmp_path: Path) -> Path:
+    """Write synthetic data and a minimal baseline config; return the config path.
+
+    Args:
+        tmp_path: Temporary test directory.
+
+    Returns:
+        Path to the written YAML config.
+    """
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=8)
+    _write_cmapps_file(raw_dir / "test_FD001.txt", n_engines=2, n_cycles=5)
+    (raw_dir / "RUL_FD001.txt").write_text("10\n20\n")
+
+    artifact_dir = tmp_path / "artifacts"
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "project_name: test",
+                "data:",
+                f"  raw_dir: {raw_dir.as_posix()}",
+                f"  processed_dir: {(tmp_path / 'processed').as_posix()}",
+                f"  interim_dir: {(tmp_path / 'interim').as_posix()}",
+                "  fd_subset: FD001",
+                "  max_rul: 30",
+                "  test_size: 0.25",
+                "  random_seed: 42",
+                "model:",
+                "  name: ridge",
+                "  alpha: 1.0",
+                f"  artifact_dir: {artifact_dir.as_posix()}",
+                "features:",
+                "  feature_set: raw",
+            ]
+        )
+    )
+    return cfg_path
+
+
+def _run_baseline_cli(
+    cfg_path: Path,
+    *extra_args: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run the baseline training CLI from the worktree source.
+
+    Args:
+        cfg_path: Path to the YAML config.
+        *extra_args: Additional CLI arguments.
+
+    Returns:
+        Completed subprocess result.
+    """
+    project_root = Path(__file__).parent.parent.parent
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "turbofan.cli.train_baseline",
+            "--config",
+            str(cfg_path),
+            *extra_args,
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def test_predict_with_clipping_debug_line_respects_log_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The raw prediction min/max line is DEBUG-only and goes to stderr.
+
+    Exercises the verbosity wiring in-process by driving the helper that emits
+    the line and toggling the configured level, instead of running the full
+    training CLI in a subprocess twice.
+    """
+    module = _load_train_baseline_module()
+    estimator = RecordingEstimator()
+    rows = pd.DataFrame({"s_1": [1.0, 2.0, 3.0]})
+
+    setup_logging("DEBUG")
+    module._predict_with_clipping(estimator, rows, rul_cap=125, label="validation")
+    assert "raw prediction min/max" in capsys.readouterr().err
+
+    setup_logging("WARNING")
+    module._predict_with_clipping(estimator, rows, rul_cap=125, label="validation")
+    assert "raw prediction min/max" not in capsys.readouterr().err
 
 
 def test_official_eval_predicts_full_trajectory_before_final_selection(

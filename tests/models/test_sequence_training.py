@@ -26,6 +26,7 @@ from turbofan.sequences.windowing import WindowedSequences
 EXPECTED_HISTORY_COLUMNS = [
     "epoch",
     "train_loss",
+    "val_loss",
     "validation_windows_rmse",
     "validation_windows_mae",
 ]
@@ -354,6 +355,29 @@ def test_evaluate_loader_rescales_predictions_by_max_rul() -> None:
 
     assert metrics_scaled["rmse"] == pytest.approx(0.0, abs=1e-5)
     assert metrics_identity["rmse"] == pytest.approx(9.9, abs=1e-5)
+
+
+def test_evaluate_loader_returns_normalized_validation_loss() -> None:
+    """Evaluate loader reports MSE on the normalized scale as ``loss``.
+
+    The loss must use the same normalized [0, 1] target scale as the training
+    criterion (predictions vs ``targets / max_rul``), unclipped, so it is
+    directly comparable to ``train_loss``.
+    """
+    targets = torch.tensor([10.0, 10.0], dtype=torch.float32)
+    features = torch.zeros((2, 1, 1), dtype=torch.float32)
+    lengths = torch.full((2,), 1, dtype=torch.int64)
+    loader = DataLoader(TensorDataset(features, targets, lengths), batch_size=2)
+    model = _ConstantRegressor(0.1)
+    device = torch.device("cpu")
+
+    # Normalized target = 10/100 = 0.1, prediction = 0.1 -> loss = 0.
+    metrics_scaled = _evaluate_loader(model, loader, device, max_rul=100)
+    # Normalized target = 10/1 = 10, prediction = 0.1 -> loss = (0.1 - 10)^2.
+    metrics_identity = _evaluate_loader(model, loader, device, max_rul=1)
+
+    assert metrics_scaled["loss"] == pytest.approx(0.0, abs=1e-6)
+    assert metrics_identity["loss"] == pytest.approx((0.1 - 10.0) ** 2, abs=1e-4)
 
 
 def test_predict_windows_rescales_by_max_rul() -> None:

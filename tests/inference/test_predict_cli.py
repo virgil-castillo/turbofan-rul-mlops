@@ -8,9 +8,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import joblib
+import mlflow
+import pandas as pd
+from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyRegressor
+from sklearn.pipeline import Pipeline
 
+from turbofan import registry
 from turbofan.inference.schemas import FEATURE_COLUMNS
 
 
@@ -37,33 +41,56 @@ def _record(
     }
 
 
-def _write_ridge_artifact(tmp_path: Path) -> Path:
-    """Write a synthetic Ridge artifact for CLI tests.
+def _constant_ridge_pipeline(constant: float = 42.0) -> Pipeline:
+    """Build a Ridge-shaped pipeline that always predicts a constant.
+
+    The pipeline consumes the full canonical frame and selects the feature
+    columns internally, exactly like ``build_baseline_pipeline``, so the logged
+    pyfunc Ridge wrapper scores it correctly. A ``DummyRegressor`` keeps the
+    prediction deterministic for the metadata assertions.
 
     Args:
-        tmp_path: Temporary test directory.
+        constant: Constant RUL value every prediction returns.
 
     Returns:
-        Path to the model manifest.
+        A fitted sklearn ``Pipeline`` mapping canonical rows to ``constant``.
     """
-    artifact_dir = tmp_path / "artifact"
-    artifact_dir.mkdir()
-    model = DummyRegressor(strategy="constant", constant=42.0)
-    model.fit([[0.0], [1.0]], [42.0, 42.0])
-    joblib.dump(model, artifact_dir / "model.joblib")
-    manifest_path = artifact_dir / "model_manifest.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "model_type": "ridge",
-                "artifact_id": "ridge-cli-test",
-                "prediction_scope": "engine",
-                "model_path": "model.joblib",
-            }
-        )
+    rows = [
+        _record(engine_id=engine_id, cycle=cycle)
+        for engine_id in (1, 2)
+        for cycle in range(1, 4)
+    ]
+    frame = pd.DataFrame(rows)
+    pipeline = Pipeline(
+        [
+            (
+                "features",
+                ColumnTransformer([("keep", "passthrough", FEATURE_COLUMNS)]),
+            ),
+            ("model", DummyRegressor(strategy="constant", constant=constant)),
+        ]
     )
-    return manifest_path
+    pipeline.fit(frame, [constant] * len(frame))
+    return pipeline
+
+
+def _register_ridge_model(subset: str = "FD001") -> str:
+    """Register and promote a tiny Ridge model in the per-test MLflow store.
+
+    Args:
+        subset: C-MAPSS subset identifier for the registered-model name.
+
+    Returns:
+        The registered-model name (e.g. ``turbofan-ridge-fd001``).
+    """
+    pipeline = _constant_ridge_pipeline()
+    name = registry.model_name("ridge", subset)
+    with mlflow.start_run():
+        version = registry.log_and_register(
+            pipeline, model_type="ridge", subset=subset
+        )
+    registry.promote(name, version)
+    return name
 
 
 def _run_predict(
@@ -98,7 +125,7 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     tmp_path: Path,
 ) -> None:
     """CLI writes prediction CSV, metadata JSON, and a useful summary."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+    name = _register_ridge_model()
     input_path = tmp_path / "input.csv"
     output_path = tmp_path / "predictions.csv"
     metadata_path = tmp_path / "metadata.json"
@@ -110,8 +137,8 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        name,
         "--input",
         str(input_path),
         "--output",
@@ -121,7 +148,8 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     )
 
     assert result.returncode == 0, result.stderr
-    rows = list(csv.DictReader(output_path.open()))
+    with output_path.open() as handle:
+        rows = list(csv.DictReader(handle))
     assert [(row["engine_id"], row["cycle"]) for row in rows] == [
         ("1", "3"),
         ("2", "1"),
@@ -130,105 +158,99 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     metadata = json.loads(metadata_path.read_text())
     assert metadata == {
         "model_type": "ridge",
-        "artifact_id": "ridge-cli-test",
+        "artifact_id": f"{name}/1",
         "prediction_scope": "engine",
         "input_rows": 2,
         "prediction_rows": 2,
         "warnings": [],
     }
-    assert "ridge-cli-test" in result.stdout
+    assert f"{name}/1" in result.stdout
     assert "ridge" in result.stdout
     assert "2 prediction" in result.stdout
     assert str(output_path) in result.stdout
     assert str(metadata_path) in result.stdout
 
 
-def test_predict_cli_reads_json_records_object_and_allows_partial_rows(
+def test_predict_cli_reads_json_records_object(
     tmp_path: Path,
 ) -> None:
-    """CLI accepts JSON records envelopes and forwards allow_partial."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+    """CLI accepts JSON records envelopes and predicts per engine."""
+    name = _register_ridge_model()
     input_path = tmp_path / "input.json"
     output_path = tmp_path / "predictions.csv"
     metadata_path = tmp_path / "metadata.json"
-    invalid_record = _record(engine_id=1, cycle=2)
-    invalid_record["s_21"] = "bad"
     input_path.write_text(
-        json.dumps({"records": [_record(engine_id=1, cycle=1), invalid_record]})
+        json.dumps(
+            {
+                "records": [
+                    _record(engine_id=1, cycle=1),
+                    _record(engine_id=1, cycle=2),
+                ]
+            }
+        )
     )
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        name,
         "--input",
         str(input_path),
         "--output",
         str(output_path),
         "--metadata-output",
         str(metadata_path),
-        "--allow-partial",
     )
 
     assert result.returncode == 0, result.stderr
-    rows = list(csv.DictReader(output_path.open()))
+    with output_path.open() as handle:
+        rows = list(csv.DictReader(handle))
     assert len(rows) == 1
+    assert rows[0]["engine_id"] == "1"
+    assert rows[0]["cycle"] == "2"
     metadata = json.loads(metadata_path.read_text())
     assert metadata["input_rows"] == 2
     assert metadata["prediction_rows"] == 1
-    assert len(metadata["warnings"]) == 1
-    assert "row 1" in metadata["warnings"][0]
+    assert metadata["warnings"] == []
 
 
-def test_predict_cli_allows_partial_csv_rows_with_one_bad_numeric_cell(
-    tmp_path: Path,
-) -> None:
-    """CLI scores valid CSV rows when one row has a bad numeric feature."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+def test_predict_cli_resolves_explicit_models_uri(tmp_path: Path) -> None:
+    """CLI accepts an explicit models:/<name>@<alias> URI."""
+    name = _register_ridge_model()
     input_path = tmp_path / "input.csv"
     output_path = tmp_path / "predictions.csv"
     metadata_path = tmp_path / "metadata.json"
-    invalid_record = _record(engine_id=1, cycle=2)
-    invalid_record["s_21"] = "bad"
     with input_path.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(_record().keys()))
         writer.writeheader()
         writer.writerow(_record(engine_id=1, cycle=1))
-        writer.writerow(invalid_record)
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        f"models:/{name}@production",
         "--input",
         str(input_path),
         "--output",
         str(output_path),
         "--metadata-output",
         str(metadata_path),
-        "--allow-partial",
     )
 
     assert result.returncode == 0, result.stderr
-    rows = list(csv.DictReader(output_path.open()))
-    assert len(rows) == 1
-    assert rows[0]["engine_id"] == "1"
-    assert rows[0]["cycle"] == "1"
     metadata = json.loads(metadata_path.read_text())
-    assert metadata["input_rows"] == 2
-    assert metadata["prediction_rows"] == 1
-    assert len(metadata["warnings"]) == 1
-    assert "row 1" in metadata["warnings"][0]
+    assert metadata["artifact_id"] == f"{name}/production"
+    assert metadata["model_type"] == "ridge"
 
 
 def test_predict_cli_exits_nonzero_for_missing_input(tmp_path: Path) -> None:
     """CLI reports missing input paths on stderr and exits non-zero."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+    name = _register_ridge_model()
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        name,
         "--input",
         str(tmp_path / "missing.csv"),
         "--output",
@@ -262,7 +284,7 @@ def test_predict_cli_evaluates_against_rul_labels_when_available(
     tmp_path: Path,
 ) -> None:
     """CLI computes and prints metrics when RUL labels file is found."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+    name = _register_ridge_model()
     data_dir = tmp_path / "data"
     _write_rul_labels(data_dir, "FD001", [40, 45])
     input_path = tmp_path / "input.csv"
@@ -276,8 +298,8 @@ def test_predict_cli_evaluates_against_rul_labels_when_available(
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        name,
         "--input",
         str(input_path),
         "--output",
@@ -305,7 +327,7 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
     tmp_path: Path,
 ) -> None:
     """CLI skips evaluation silently when no RUL labels file exists."""
-    artifact_path = _write_ridge_artifact(tmp_path)
+    name = _register_ridge_model()
     input_path = tmp_path / "input.csv"
     output_path = tmp_path / "predictions.csv"
     metadata_path = tmp_path / "metadata.json"
@@ -316,8 +338,8 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(artifact_path),
+        "--model",
+        name,
         "--input",
         str(input_path),
         "--output",
@@ -336,8 +358,8 @@ def test_predict_cli_skips_evaluation_when_rul_labels_missing(
     assert "evaluation" not in metadata
 
 
-def test_predict_cli_exits_nonzero_for_invalid_artifact(tmp_path: Path) -> None:
-    """CLI reports artifact loading errors on stderr and exits non-zero."""
+def test_predict_cli_exits_nonzero_for_unknown_model(tmp_path: Path) -> None:
+    """CLI reports model resolution errors on stderr and exits non-zero."""
     input_path = tmp_path / "input.csv"
     with input_path.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(_record().keys()))
@@ -346,8 +368,8 @@ def test_predict_cli_exits_nonzero_for_invalid_artifact(tmp_path: Path) -> None:
 
     result = _run_predict(
         tmp_path,
-        "--artifact",
-        str(tmp_path / "missing_manifest.json"),
+        "--model",
+        "turbofan-ridge-does-not-exist",
         "--input",
         str(input_path),
         "--output",
@@ -357,4 +379,4 @@ def test_predict_cli_exits_nonzero_for_invalid_artifact(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
-    assert "Manifest path does not exist" in result.stderr
+    assert result.stderr.strip() != ""

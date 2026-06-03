@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from turbofan.inference.manifest import ModelMetadata
 from turbofan.inference.schemas import (
     FEATURE_COLUMNS,
     PredictionMetadata,
@@ -24,21 +22,22 @@ class _StaticPredictor:
 
     def __init__(self) -> None:
         """Create a predictor with stable test metadata."""
-        self._metadata = ModelMetadata(
-            schema_version=1,
+        self._metadata = PredictionMetadata(
             model_type="ridge",
-            artifact_id="ridge-api-test",
-            prediction_scope="row",
-            model_path=Path("model.joblib"),
+            artifact_id="turbofan-ridge-fd001/1",
+            prediction_scope="engine",
+            input_rows=0,
+            prediction_rows=0,
+            warnings=[],
         )
         self.allow_partial_seen: bool | None = None
 
     @property
-    def metadata(self) -> ModelMetadata:
+    def metadata(self) -> PredictionMetadata:
         """Return stable metadata for health responses.
 
         Returns:
-            Model metadata for the fake predictor.
+            Prediction metadata for the fake predictor.
         """
         return self._metadata
 
@@ -65,18 +64,18 @@ class _StaticPredictor:
                     cycle=2,
                     prediction=12.5,
                     model_type="ridge",
-                    artifact_id="ridge-api-test",
-                    prediction_scope="row",
+                    artifact_id="turbofan-ridge-fd001/1",
+                    prediction_scope="engine",
                     predicted_at=datetime(2026, 5, 25, tzinfo=UTC),
                 )
             ],
             metadata=PredictionMetadata(
                 model_type="ridge",
-                artifact_id="ridge-api-test",
-                prediction_scope="row",
+                artifact_id="turbofan-ridge-fd001/1",
+                prediction_scope="engine",
                 input_rows=len(records),
                 prediction_rows=1,
-                warnings=["kept"],
+                warnings=[],
             ),
         )
 
@@ -170,8 +169,8 @@ def test_health_returns_loaded_model_metadata() -> None:
         "status": "ok",
         "model": {
             "model_type": "ridge",
-            "artifact_id": "ridge-api-test",
-            "prediction_scope": "row",
+            "artifact_id": "turbofan-ridge-fd001/1",
+            "prediction_scope": "engine",
         },
     }
 
@@ -192,11 +191,11 @@ def test_predict_returns_predictions_and_metadata() -> None:
     payload = response.json()
     assert payload["metadata"] == {
         "model_type": "ridge",
-        "artifact_id": "ridge-api-test",
-        "prediction_scope": "row",
+        "artifact_id": "turbofan-ridge-fd001/1",
+        "prediction_scope": "engine",
         "input_rows": 1,
         "prediction_rows": 1,
-        "warnings": ["kept"],
+        "warnings": [],
     }
     assert payload["predictions"] == [
         {
@@ -204,8 +203,8 @@ def test_predict_returns_predictions_and_metadata() -> None:
             "cycle": 2,
             "prediction": 12.5,
             "model_type": "ridge",
-            "artifact_id": "ridge-api-test",
-            "prediction_scope": "row",
+            "artifact_id": "turbofan-ridge-fd001/1",
+            "prediction_scope": "engine",
             "predicted_at": "2026-05-25T00:00:00+00:00",
         }
     ]
@@ -268,9 +267,25 @@ def test_predict_returns_422_for_short_window_validation_errors() -> None:
     assert "shorter than window_size" in response.json()["detail"]
 
 
-def test_create_app_fails_for_missing_artifact_path(tmp_path: Path) -> None:
-    """Factory fails clearly when the configured artifact cannot be loaded."""
-    from turbofan.inference.service import create_app
+def test_create_app_fails_when_no_model_name_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Factory fails clearly when no model name is provided or configured."""
+    from turbofan.inference.service import MODEL_NAME_ENV, create_app
 
-    with pytest.raises(ValueError, match="does not exist"):
-        create_app(artifact_path=tmp_path / "missing_manifest.json")
+    monkeypatch.delenv(MODEL_NAME_ENV, raising=False)
+
+    with pytest.raises(ValueError, match="Registered model name is required"):
+        create_app()
+
+
+def test_create_app_fails_for_unresolvable_model_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Factory fails when the configured model name cannot be resolved."""
+    from turbofan.inference.service import MODEL_NAME_ENV, create_app
+
+    monkeypatch.delenv(MODEL_NAME_ENV, raising=False)
+
+    with pytest.raises(Exception, match="turbofan-ridge-does-not-exist"):
+        create_app(model_name="turbofan-ridge-does-not-exist")

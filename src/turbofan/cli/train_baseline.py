@@ -2,19 +2,23 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
+from turbofan import registry, tracking
 from turbofan.config.schema import ProjectConfig, load_config
 from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import (
     create_run_dir,
     save_json,
-    save_model,
     save_predictions,
 )
 from turbofan.models.baseline import build_baseline_pipeline
@@ -26,6 +30,9 @@ from turbofan.models.evaluate import (
 )
 from turbofan.models.metrics import official_test_metrics, regression_metrics
 from turbofan.models.split import split_by_engine
+from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
+
+logger = get_logger(__name__)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -41,6 +48,12 @@ def _parse_args() -> argparse.Namespace:
         default=Path("configs/default.yaml"),
         help="Path to YAML project config.",
     )
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=os.environ.get("LOG_LEVEL", "INFO"),
+        help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
+    )
     return parser.parse_args()
 
 
@@ -54,27 +67,6 @@ def _config_to_dict(cfg: ProjectConfig) -> dict[str, object]:
         Dictionary with JSON-friendly values.
     """
     return cfg.model_dump(mode="json")
-
-
-def _manifest_payload(run_dir: Path, model_type: str) -> dict[str, object]:
-    """Build a schema-version-1 model manifest payload.
-
-    Args:
-        run_dir: Created training run directory.
-        model_type: Persisted baseline model type.
-
-    Returns:
-        JSON-serializable model manifest.
-    """
-    return {
-        "schema_version": 1,
-        "model_type": model_type,
-        "artifact_id": f"baseline/{run_dir.name}",
-        "prediction_scope": "engine",
-        "model_path": "model.joblib",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
 
 
 def _prediction_frame(
@@ -136,9 +128,8 @@ def _predict_with_clipping(
         Float64 predictions clipped to ``[0, rul_cap]``.
     """
     raw = np.asarray(estimator.predict(rows), dtype=np.float64)
-    print(
-        f"{label} raw prediction min/max: "
-        f"{raw.min():.6f}/{raw.max():.6f}"
+    logger.debug(
+        "%s raw prediction min/max: %.6f/%.6f", label, raw.min(), raw.max()
     )
     return _clip_rul_predictions(raw, rul_cap=rul_cap)
 
@@ -182,66 +173,123 @@ def _evaluate_official_test(
 def main() -> None:
     """Train, evaluate, and persist a baseline model run."""
     args = _parse_args()
+    setup_logging(args.log_level)
     cfg = load_config(args.config)
 
-    train_raw = load_raw_train(cfg.data)
-    train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
-    train_df, val_df = split_by_engine(
-        train_labeled,
-        test_size=cfg.data.test_size,
-        random_seed=cfg.data.random_seed,
-    )
+    tmp_log_dir = Path(tempfile.mkdtemp())
+    tmp_run_log = tmp_log_dir / "run.log"
+    try:
+        with run_file_logging(tmp_run_log):
+            logger.info("loading training data for %s", cfg.data.fd_subset)
+            train_raw = load_raw_train(cfg.data)
+            train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
+            train_df, val_df = split_by_engine(
+                train_labeled,
+                test_size=cfg.data.test_size,
+                random_seed=cfg.data.random_seed,
+            )
 
-    X_train, y_train = split_features_target(train_df)
-    X_val, y_val = split_features_target(val_df)
+            X_train, y_train = split_features_target(train_df)
+            X_val, y_val = split_features_target(val_df)
 
-    estimator = build_baseline_pipeline(
-        model_name=cfg.model.name,
-        alpha=cfg.model.alpha,
-        feature_set=(rf := cfg.features.for_model("ridge")).feature_set,
-        windows=rf.windows,
-        lag_steps=rf.lag_steps,
-        sensor_drop=cfg.features.sensor_cols_to_drop or None,
-        n_modes=cfg.features.n_modes,
-        random_state=cfg.data.random_seed,
-    )
-    estimator.fit(X_train, y_train)
+            estimator = build_baseline_pipeline(
+                model_name=cfg.model.name,
+                alpha=cfg.model.alpha,
+                feature_set=(rf := cfg.features.for_model("ridge")).feature_set,
+                windows=rf.windows,
+                lag_steps=rf.lag_steps,
+                sensor_drop=cfg.features.sensor_cols_to_drop or None,
+                n_modes=cfg.features.n_modes,
+                random_state=cfg.data.random_seed,
+            )
+            logger.info("fitting %s baseline pipeline", cfg.model.name)
+            estimator.fit(X_train, y_train)
 
-    val_pred = _predict_with_clipping(
-        estimator,
-        X_val,
-        rul_cap=cfg.data.max_rul,
-        label="validation",
-    )
-    val_metrics = regression_metrics(y_val, val_pred)
-    val_predictions = _prediction_frame(X_val, y_val, val_pred)
+            val_pred = _predict_with_clipping(
+                estimator,
+                X_val,
+                rul_cap=cfg.data.max_rul,
+                label="validation",
+            )
+            val_metrics = regression_metrics(y_val, val_pred)
+            val_predictions = _prediction_frame(X_val, y_val, val_pred)
 
-    run_dir = create_run_dir(cfg.model.artifact_dir, "baseline")
-    metrics_payload: dict[str, object] = {"validation": val_metrics}
+            tracking.configure_mlflow()
+            mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+            with mlflow.start_run():
+                run_dir = create_run_dir(cfg.model.artifact_dir, "baseline")
+                metrics_payload: dict[str, object] = {"validation": val_metrics}
+                run_metrics: dict[str, float] = {
+                    "val_rmse": val_metrics["rmse"],
+                    "val_mae": val_metrics["mae"],
+                }
 
-    official = _evaluate_official_test(cfg, estimator)
-    if official is not None:
-        official_metrics, official_predictions = official
-        metrics_payload["official_test"] = official_metrics
-        save_predictions(
-            official_predictions,
-            run_dir / "official_test_predictions.csv",
-        )
-    else:
-        print("official test evaluation skipped: test or RUL files not found")
+                official = _evaluate_official_test(cfg, estimator)
+                if official is not None:
+                    official_metrics, official_predictions = official
+                    metrics_payload["official_test"] = official_metrics
+                    run_metrics["official_rmse"] = official_metrics["rmse"]
+                    run_metrics["official_mae"] = official_metrics["mae"]
+                    run_metrics["official_phm08"] = official_metrics["phm08_score"]
+                    save_predictions(
+                        official_predictions,
+                        run_dir / "official_test_predictions.csv",
+                    )
+                else:
+                    logger.warning(
+                        "official test evaluation skipped: "
+                        "test or RUL files not found"
+                    )
 
-    save_model(estimator, run_dir / "model.joblib")
-    save_json(metrics_payload, run_dir / "metrics.json")
-    save_json(_config_to_dict(cfg), run_dir / "config.json")
-    save_json(
-        _manifest_payload(run_dir, cfg.model.name),
-        run_dir / "model_manifest.json",
-    )
-    save_predictions(val_predictions, run_dir / "validation_predictions.csv")
+                save_json(metrics_payload, run_dir / "metrics.json")
+                save_json(_config_to_dict(cfg), run_dir / "config.json")
+                save_predictions(
+                    val_predictions, run_dir / "validation_predictions.csv"
+                )
+                logger.info("saved baseline run to %s", run_dir)
 
-    print(f"run_dir: {run_dir}")
-    print(f"validation rmse: {val_metrics['rmse']:.6f}")
-    print(f"validation mae: {val_metrics['mae']:.6f}")
+                tracking.log_params(
+                    {
+                        "alpha": cfg.model.alpha,
+                        "feature_set": rf.feature_set,
+                        "windows": rf.windows,
+                        "lag_steps": rf.lag_steps,
+                        "seed": cfg.data.random_seed,
+                    }
+                )
+                tracking.log_metrics(run_metrics)
+                tracking.set_tags(
+                    {
+                        "model_type": "ridge",
+                        "run_type": "production",
+                        "run_dir": str(run_dir),
+                    }
+                )
+                mlflow.log_artifact(str(tmp_run_log), artifact_path="logs")
+
+                version = registry.log_and_register(
+                    estimator, model_type="ridge", subset=cfg.data.fd_subset
+                )
+                mlflow.log_artifact(
+                    str(run_dir / "validation_predictions.csv"),
+                    artifact_path="predictions",
+                )
+                if official is not None:
+                    mlflow.log_artifact(
+                        str(run_dir / "official_test_predictions.csv"),
+                        artifact_path="predictions",
+                    )
+                logger.info(
+                    "registered %s version %d",
+                    registry.model_name("ridge", cfg.data.fd_subset),
+                    version,
+                )
+
+                print(f"run_dir: {run_dir}")
+                print(f"validation rmse: {val_metrics['rmse']:.6f}")
+                print(f"validation mae: {val_metrics['mae']:.6f}")
+    finally:
+        shutil.rmtree(tmp_log_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

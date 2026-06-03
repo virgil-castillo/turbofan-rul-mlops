@@ -4,7 +4,8 @@
 #
 # Runs on CPU: configs/default.yaml sets `sequence.device: cpu`, and the train
 # CLI is config-driven (it takes only --config). Each run writes a timestamped
-# artifact dir under artifacts/models/ and appends a row to results/training_log.jsonl.
+# artifact dir under artifacts/models/ and logs an MLflow run to mlflow.db
+# (turbofan-training experiment).
 #
 # Override the subset list with the SUBSETS env var, e.g.:
 #   $env:SUBSETS = "fd003"; ./scripts/retrain_gru_selected.ps1

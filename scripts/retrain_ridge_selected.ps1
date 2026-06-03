@@ -6,7 +6,8 @@
 # Runs on CPU (Ridge is CPU-only). The train CLI is config-driven (it takes only
 # --config) and performs official-test evaluation when the test files are present.
 # Each run writes a timestamped artifact dir under artifacts/models/baseline/ and
-# appends a row to results/training_log.jsonl. Ridge is fast — seconds per subset.
+# logs an MLflow run to mlflow.db (turbofan-training experiment). Ridge is fast —
+# seconds per subset.
 #
 # Override the subset list with the SUBSETS env var, e.g.:
 #   $env:SUBSETS = "fd003"; ./scripts/retrain_ridge_selected.ps1

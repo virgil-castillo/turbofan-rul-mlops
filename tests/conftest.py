@@ -1,21 +1,51 @@
 """Shared pytest fixtures for the turbofan test suite."""
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
+import mlflow
 import pandas as pd
 import pytest
 
-import turbofan.models.training_log as _training_log_module
 from turbofan.config.schema import DataConfig
 
 
 @pytest.fixture(autouse=True)
-def _redirect_training_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect training log writes to tmp_path so tests never touch results/."""
-    monkeypatch.setattr(
-        _training_log_module, "_DEFAULT_LOG_PATH", tmp_path / "training_log.jsonl"
-    )
+def _redirect_mlflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Redirect MLflow to a per-test SQLite store so runs never touch the repo.
+
+    Sets ``MLFLOW_TRACKING_URI`` so both in-process code and subprocess CLIs
+    (which copy ``os.environ``) log to an isolated ``tmp_path`` database, and
+    pins MLflow's process-global tracking URI to the same store. Pinning is
+    required because any prior test calling ``mlflow.set_tracking_uri`` makes
+    the global URI override ``MLFLOW_TRACKING_URI`` for ``MlflowClient`` and
+    ``mlflow.start_run`` for the rest of the session; without this, registry
+    reads and writes would leak across tests. The previous global URI is
+    restored afterward.
+    """
+    import mlflow.tracking.fluent as fluent
+
+    db_path = tmp_path / "mlflow.db"
+    uri = f"sqlite:///{db_path.as_posix()}"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    # MLflow writes MLFLOW_EXPERIMENT_ID into os.environ during a run so child
+    # processes inherit it; that id refers to a previous test's store and does
+    # not exist in this test's fresh store, so clear it (and the name var).
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
+    previous_uri = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(uri)
+    # Reset the cached active-experiment id so runs resolve the default
+    # experiment in this test's fresh store rather than reusing an id created
+    # in a previous test's store (which would not exist here).
+    monkeypatch.setattr(fluent, "_active_experiment_id", None, raising=False)
+    try:
+        yield
+    finally:
+        mlflow.set_tracking_uri(previous_uri)
 
 
 def _write_cmapss_file(path: Path, n_engines: int, n_cycles: int) -> None:

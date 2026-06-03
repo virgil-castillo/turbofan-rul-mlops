@@ -263,7 +263,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
     )
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(
@@ -309,7 +309,12 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "append_training_log", lambda entry: None)
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
+    monkeypatch.setattr(
+        module.registry, "log_and_register", lambda *a, **k: 1
+    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     torch.manual_seed(999)
     module.main()
@@ -326,11 +331,15 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         assert torch.equal(captured_state[name], value)
 
 
-def test_train_sequence_gru_cli_appends_training_log_entry(
+def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """CLI appends a GRU training log entry after artifacts are saved."""
+    """CLI logs one production GRU MLflow run with params, metrics, and tags."""
+    import mlflow
+
+    from turbofan import tracking
+
     module = _load_train_sequence_gru_module()
     run_dir = tmp_path / "run"
     cfg = ProjectConfig(
@@ -356,9 +365,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         ),
     )
     window_metrics = {"rmse": 1.0, "mae": 2.0}
-    build_calls: list[dict[str, object]] = []
-    appended_entries: list[dict[str, object]] = []
-    timer_values = iter([10.0, 12.5])
 
     def fake_train_gru_model(**kwargs: object) -> TrainingResult:
         del kwargs
@@ -369,7 +375,12 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
                 num_layers=2,
                 dropout=0.1,
             ),
-            history=pd.DataFrame([{"epoch": 1}]),
+            history=pd.DataFrame(
+                [
+                    {"epoch": 1, "train_loss": 5.0, "validation_windows_rmse": 4.0},
+                    {"epoch": 2, "train_loss": 3.0, "validation_windows_rmse": 2.0},
+                ]
+            ),
             best_epoch=7,
             best_metric=0.0,
         )
@@ -382,10 +393,6 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
         del kwargs
         return window_metrics, pd.DataFrame()
 
-    def fake_build_log_entry(**kwargs: object) -> dict[str, object]:
-        build_calls.append(kwargs)
-        return {"entry": kwargs}
-
     def fake_create_run_dir(artifact_dir: Path, name: str) -> Path:
         del artifact_dir
         del name
@@ -395,7 +402,7 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
     )
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
@@ -430,51 +437,48 @@ def test_train_sequence_gru_cli_appends_training_log_entry(
     monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "build_log_entry", fake_build_log_entry, raising=False)
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
     monkeypatch.setattr(
-        module,
-        "append_training_log",
-        lambda entry: appended_entries.append(entry),
-        raising=False,
+        module.registry, "log_and_register", lambda *a, **k: 1
     )
-    monkeypatch.setattr(
-        module,
-        "perf_counter",
-        lambda: next(timer_values),
-        raising=False,
-    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     module.main()
 
-    assert build_calls == [
-        {
-            "model_type": "gru",
-            "dataset": "FD002",
-            "random_seed": 123,
-            "hyperparameters": {
-                "window_size": 5,
-                "hidden_size": 6,
-                "learning_rate": 0.002,
-                "num_layers": 2,
-                "dropout": 0.1,
-                "batch_size": 8,
-                "epochs": 3,
-                "patience": 2,
-            },
-            "metrics": window_metrics,
-            "training_duration_seconds": 2.5,
-            "device": "cpu",
-            "run_dir": str(run_dir),
-            "best_epoch": 7,
-        }
-    ]
-    assert appended_entries == [{"entry": build_calls[0]}]
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    row = runs.iloc[0]
+    assert row["tags.model_type"] == "gru"
+    assert row["tags.run_type"] == "production"
+    assert row["tags.best_epoch"] == "7"
+    assert row["tags.run_dir"] == str(run_dir)
+    assert row["params.window_size"] == "5"
+    assert row["params.hidden_size"] == "6"
+    assert row["params.learning_rate"] == "0.002"
+    assert row["params.seed"] == "123"
+    assert "params.feature_set" in row
+    assert row["metrics.val_rmse"] == 1.0
+    assert row["metrics.val_mae"] == 2.0
 
 
-def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
+def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     tmp_path: Path,
 ) -> None:
-    """CLI trains a tiny GRU and writes validation plus official artifacts."""
+    """One CLI run: disk run records, a registered checkpoint, and run artifacts.
+
+    Consolidates the run-dir artifact, model-registration, prediction-artifact,
+    and checkpoint-payload facets into a single training run instead of spawning
+    a separate ~12s training subprocess per facet, all of which exercised the
+    same standard-data run.
+    """
+    import mlflow
+    import torch as _torch
+    from mlflow.tracking import MlflowClient
+
+    from turbofan import registry, tracking
+
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
@@ -487,36 +491,52 @@ def test_train_sequence_gru_cli_writes_artifacts_with_official_test(
 
     result = _run_cli(cfg_path)
 
+    # --- run-dir records (model bytes + manifest retired; MLflow is the store) ---
     assert "validation_windows rmse" in result.stdout
     run_dirs = list((artifact_dir / "sequence_gru").iterdir())
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "model.pt").exists()
+    assert not (run_dir / "model.pt").exists()
+    assert not (run_dir / "model_manifest.json").exists()
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "config.json").exists()
-    assert (run_dir / "model_manifest.json").exists()
     assert (run_dir / "training_history.csv").exists()
     assert (run_dir / "validation_window_predictions.csv").exists()
     assert (run_dir / "official_test_predictions.csv").exists()
 
-    manifest = json.loads((run_dir / "model_manifest.json").read_text())
-    assert manifest == {
-        "schema_version": 1,
-        "model_type": "gru",
-        "artifact_id": f"sequence_gru/{run_dir.name}",
-        "prediction_scope": "final_window",
-        "model_path": "model.pt",
-        "config_path": "config.json",
-        "metrics_path": "metrics.json",
-    }
-
     metrics = json.loads((run_dir / "metrics.json").read_text())
-    assert set(metrics) == {
-        "validation_windows",
-        "official_test",
-    }
+    assert set(metrics) == {"validation_windows", "official_test"}
     _assert_metric_keys(metrics, "validation_windows")
     _assert_metric_keys(metrics, "official_test")
+
+    # --- registered model version linked to the run + prediction artifacts ---
+    tracking.configure_mlflow()
+    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    assert len(runs) == 1
+    run_id = runs.iloc[0]["run_id"]
+
+    client = MlflowClient()
+    name = registry.model_name("gru", "FD001")
+    assert name == "turbofan-gru-fd001"
+    versions = client.search_model_versions(f"name = '{name}'")
+    assert len(versions) >= 1
+    assert any(version.run_id == run_id for version in versions)
+
+    artifact_paths = {
+        artifact.path for artifact in client.list_artifacts(run_id, "predictions")
+    }
+    assert "predictions/validation_window_predictions.csv" in artifact_paths
+    assert "predictions/official_test_predictions.csv" in artifact_paths
+
+    # --- the registered checkpoint carries the operating-mode normalizer payload ---
+    local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
+    checkpoint = next(local_dir.rglob("model.pt"))
+    payload = _torch.load(checkpoint, map_location="cpu")
+    assert payload["normalizer_type"] == "operating_mode"
+    assert "normalizer_payload" in payload
+    assert payload["normalizer_payload"]["schema_version"] == 1
+    assert "normalizer_means" not in payload
+    assert "normalizer_stds" not in payload
 
 
 def test_train_sequence_gru_cli_aligns_official_labels_to_all_test_engines(
@@ -567,36 +587,12 @@ def test_train_sequence_gru_cli_skips_missing_official_test(
     result = _run_cli(cfg_path)
 
     assert "validation_windows rmse" in result.stdout
-    assert "official test evaluation skipped" in result.stdout
+    assert "official test evaluation skipped" in result.stderr
     run_dir = next((artifact_dir / "sequence_gru").iterdir())
     assert not (run_dir / "official_test_predictions.csv").exists()
     metrics = json.loads((run_dir / "metrics.json").read_text())
     assert set(metrics) == {"validation_windows"}
     _assert_metric_keys(metrics, "validation_windows")
-
-
-def test_train_sequence_gru_cli_checkpoint_uses_normalizer_payload(
-    tmp_path: Path,
-) -> None:
-    """Saved checkpoint contains normalizer_type and normalizer_payload."""
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    _write_cmapps_file(raw_dir / "train_FD001.txt", n_engines=4, n_cycles=6)
-
-    artifact_dir = tmp_path / "artifacts"
-    cfg_path = tmp_path / "config.yaml"
-    _write_config(cfg_path, raw_dir, artifact_dir, tmp_path)
-
-    _run_cli(cfg_path)
-
-    run_dir = next((artifact_dir / "sequence_gru").iterdir())
-    import torch as _torch
-    payload = _torch.load(run_dir / "model.pt", map_location="cpu")
-    assert payload["normalizer_type"] == "operating_mode"
-    assert "normalizer_payload" in payload
-    assert payload["normalizer_payload"]["schema_version"] == 1
-    assert "normalizer_means" not in payload
-    assert "normalizer_stds" not in payload
 
 
 def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
@@ -645,7 +641,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml"),
+        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
     )
     monkeypatch.setattr(module, "load_config", lambda p: cfg)
     monkeypatch.setattr(
@@ -687,7 +683,12 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
-    monkeypatch.setattr(module, "append_training_log", lambda e: None)
+    # Disk artifacts are stubbed out above, so skip registry/artifact logging
+    # (exercised by the dedicated registration test and tests/test_registry.py).
+    monkeypatch.setattr(
+        module.registry, "log_and_register", lambda *a, **k: 1
+    )
+    monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     module.main()
 

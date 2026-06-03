@@ -1,20 +1,24 @@
-"""Batch prediction CLI for local turbofan inference artifacts."""
+"""Batch prediction CLI resolving the production model from the registry."""
 from __future__ import annotations
 
 import argparse
 import json
 import math
-import sys
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from turbofan.inference.predictors import load_predictor
+from turbofan import registry, tracking
+from turbofan.inference.predictors import PyfuncPredictor
 from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.inference.service import prediction_result_to_dict
 from turbofan.models.metrics import official_test_metrics
+from turbofan.utils.logging import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -28,10 +32,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    setup_logging(args.log_level)
     evaluation: dict[str, float] | None = None
     try:
         records = _read_records(args.input)
-        predictor = load_predictor(args.artifact)
+        predictor = _resolve_predictor(args.model, args.alias)
         result = predictor.predict(records, allow_partial=args.allow_partial)
         payload = prediction_result_to_dict(result)
         _write_predictions(args.output, payload)
@@ -45,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 meta["evaluation"] = evaluation
         _write_metadata(args.metadata_output, payload)
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        logger.error(str(exc))
         return 1
 
     metadata = result.metadata
@@ -59,6 +64,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"MAE: {evaluation['mae']:.4f}")
         print(f"PHM08 Score: {evaluation['phm08_score']:.4f}")
     return 0
+
+
+def _resolve_predictor(model: str, alias: str) -> PyfuncPredictor:
+    """Resolve the prediction model from the registry by name or models URI.
+
+    Args:
+        model: Registered-model name (e.g. ``turbofan-gru-fd001``) or an
+            explicit ``models:/<name>@<alias>`` URI.
+        alias: Alias to resolve when ``model`` is a bare name.
+
+    Returns:
+        A loaded predictor adapter for the resolved registry model.
+    """
+    tracking.configure_mlflow()
+    if model.startswith("models:/"):
+        return registry.load_predictor_from_uri(model)
+    return registry.load_predictor(model, alias)
 
 
 def _try_evaluate(
@@ -98,13 +120,40 @@ def _try_evaluate(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifact", required=True, type=Path)
+    parser.add_argument(
+        "--model",
+        required=True,
+        type=str,
+        help=(
+            "Registered-model name (e.g. turbofan-gru-fd001) or an explicit "
+            "models:/<name>@<alias> URI."
+        ),
+    )
+    parser.add_argument(
+        "--alias",
+        type=str,
+        default="production",
+        help="Alias to resolve for a bare model name (defaults to production).",
+    )
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metadata-output", required=True, type=Path)
-    parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help=(
+            "Accepted for compatibility. The registry model validates strictly, "
+            "so partial-row warnings are no longer surfaced."
+        ),
+    )
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--subset", type=str, default=None)
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=os.environ.get("LOG_LEVEL", "INFO"),
+        help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
+    )
     return parser
 
 

@@ -4,6 +4,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ${MODEL_RUN_DIR:-./artifacts/models/sequence_gru/20260527-114428}:/models:ro
+      # Mount the MLflow registry store (SQLite db + artifacts) into the
+      # container so the server can resolve models:/<name>@<alias>.
+      - ${MLFLOW_STORE_DIR:-./mlflow_store}:/models:ro
     environment:
-      TURBOFAN_MODEL_ARTIFACT: /models/model_manifest.json
+      TURBOFAN_MODEL_NAME: ${TURBOFAN_MODEL_NAME:-turbofan-gru-fd001}
+      TURBOFAN_MODEL_ALIAS: ${TURBOFAN_MODEL_ALIAS:-production}
+      MLFLOW_TRACKING_URI: sqlite:////models/mlflow.db

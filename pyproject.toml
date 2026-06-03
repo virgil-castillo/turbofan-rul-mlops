@@ -16,6 +16,7 @@ dependencies = [
     "scikit-learn",
     "joblib",
     "torch",
+    "mlflow",
 ]
 
 [project.optional-dependencies]
@@ -39,13 +40,8 @@ turbofan-train-baseline = "turbofan.cli.train_baseline:main"
 turbofan-train-sequence-gru = "turbofan.cli.train_sequence_gru:main"
 turbofan-predict = "turbofan.cli.predict:main"
 turbofan-serve-api = "turbofan.cli.serve_api:main"
-turbofan-sweep-baseline-alpha = "turbofan.experiments.baseline_alpha:main"
-turbofan-compare-baseline-features = "turbofan.experiments.baseline_feature_comparison:main"
-turbofan-sweep-gru = "turbofan.experiments.sequence_gru_sweep:main"
-turbofan-sweep-feature-gru = "turbofan.experiments.feature_gru_sweep:main"
-turbofan-sweep-features = "turbofan.experiments.feature_sweep:main"
-turbofan-sweep-gru-temporal = "turbofan.experiments.gru_temporal_sweep:main"
-turbofan-sweep-gru-capacity = "turbofan.experiments.gru_capacity_sweep:main"
+turbofan-promote = "turbofan.cli.promote_model:main"
+turbofan-models = "turbofan.cli.list_models:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -72,6 +68,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "joblib.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "mlflow.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

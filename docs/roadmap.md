@@ -114,10 +114,9 @@ Existing GRU checkpoints trained before this refactor are incompatible: `feature
 A single sweep harness now evaluates Ridge and GRU on identical feature inputs
 through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 
-- [x] `turbofan-sweep-features --model ridge|gru` (`src/turbofan/experiments/feature_sweep.py`) — one CLI routing both models through the same preprocessing contract; results carry a `model` column so separate runs stack and compare
+- [x] Unified feature-engineering sweep CLI — one entrypoint routing both Ridge and GRU through the same preprocessing contract; results carry a `model` column so separate runs stack and compare
 - [x] `raw_plus_lag` feature set added as the lag-family companion to `raw_plus_rolling_mean`
 - [x] `lag` semantics corrected to a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)` (previously returned the raw historical value `x[t-N]`)
-- [x] Multi-dataset runner scripts: `scripts/sweep_ridge_all_datasets.ps1` and `jobs/slurm/run_feature_sweep_gru_all_datasets.sh`
 - [x] Default output path `results/feature_sweep_{model}_{subset}.csv`; sweeps run for all four subsets across both models
 - [x] Cross-model analysis reports grounded solely in the sweep data and EDA, with methodology citations: `docs/feature_sweep_ridge_report.md`, `docs/archive/feature_sweep_gru_report.md` (archived 2026-06-01), `docs/feature_sweep_ridge_vs_gru.md`
 - [x] Removed the superseded `baseline_feature_comparison` job/results and stale pre-refactor reports
@@ -151,12 +150,44 @@ Two-stage sweep harness that disentangles how much temporal context the GRU need
 no engine is dropped from any window size.
 
 - [x] Left-zero-pad short engines: `_build_windows` pads engines with fewer cycles than `window_size` (instead of skipping them) and records a `padded` flag and per-window `lengths`; `SequenceDataset`/`build_sequence_loader` yield 3-tuples; `GRURULRegressor.forward` accepts optional `lengths` and uses `pack_padded_sequence`; training, eval, and predict loops thread lengths through; `GRUPredictor` pads in `allow_partial` mode (strict mode unchanged); GRU sweep rows record `n_engines_total`, `n_engines_padded`, `n_engines_full`
-- [x] Stage 1 temporal-context sweep CLI (`turbofan-sweep-gru-temporal`, `src/turbofan/experiments/gru_temporal_sweep.py`) — crosses `sequence_window_size` × the rolling-feature grid (plus a raw control) per subset
-- [x] Stage 2 capacity sweep CLI (`turbofan-sweep-gru-capacity`, `src/turbofan/experiments/gru_capacity_sweep.py`) — consumes the Stage 1 output CSV and crosses `hidden_size` × `learning_rate` on the top-K configs
-- [x] SLURM drivers: `jobs/slurm/run_gru_temporal_sweep_stage1.sh`, `jobs/slurm/run_gru_capacity_sweep_stage2.sh`, `jobs/slurm/run_gru_selected_retrain.sh`
+- [x] SLURM retrain driver: `jobs/slurm/run_gru_selected_retrain.sh`
 
 The post-run analysis report and any selected-config updates are deferred until the
 cluster sweeps complete.
+
+## Completed — Model Registry (2026-06-02)
+
+Formal model versioning and promotion via MLflow's Model Registry on the local
+SQLite store, replacing path-based resolution of timestamped artifact
+directories. The MLflow artifact store is now the authoritative home for model
+bytes.
+
+- [x] `turbofan.registry` seam over MLflow's registry: `model_name`,
+  `log_and_register`, `promote`, `resolve_uri`, `load`, `list_registered`, and
+  `RegisteredModelInfo`
+- [x] Ridge and GRU packaged as `mlflow.pyfunc` wrappers that reuse the existing
+  inference compute (`ridge_engine_predictions`, `gru_final_window_predictions`);
+  the wrappers return an `engine_id`/`cycle`/`prediction` frame so callers
+  reconstruct the per-row prediction contract through the pyfunc boundary
+- [x] Production training auto-registers a new version of
+  `turbofan-<model_type>-<subset>` linked to its run; promotion is manual
+- [x] `turbofan-promote` (alias repointing / rollback) and `turbofan-models`
+  (listing with `@production`, `val_rmse`, run link) CLIs
+- [x] `turbofan-predict` resolves `--model <name>` (`--alias`, default
+  `production`) or an explicit `models:/<name>@<alias>` URI; the serving API
+  resolves `models:/<name>@production` from `TURBOFAN_MODEL_NAME` / `--model`
+
+**Retired (full retirement, by user decision):** `inference/manifest.py` and the
+path-based `load_predictor` resolution; writing `model_manifest.json`; the
+`artifacts/models/<ts>/` directory as the model home. Training run directories
+are kept only for lightweight run records (metrics, config, prediction CSVs);
+model bytes (`model.joblib`/`model.pt`) and manifests are no longer written
+there. The Dockerfile/compose now mount the MLflow store and resolve by name
+instead of mounting a run directory.
+
+**Contract change:** the pyfunc boundary validates strictly, so the
+`--allow-partial` per-row-skipping warnings are no longer surfaced; the flag is
+accepted for CLI compatibility but does not change validation.
 
 ## Future — Additional Models
 
@@ -181,16 +212,29 @@ These are lower priority — the current feature set already supports meaningful
 
 Deliberately deferred until the modeling contract stabilizes:
 
-- [ ] Experiment tracking (MLflow or similar)
-- [ ] CI/CD (GitHub Actions for lint, type-check, tests)
-- [ ] Structured logging (replace print statements with proper logging)
-- [ ] Model registry / formal versioning beyond timestamp directories
+- [x] Experiment tracking — MLflow with a local SQLite store (`mlflow.db`); Ridge
+  and GRU runs log under the `turbofan-training` and `turbofan-sweeps`
+  experiments. Replaced the GRU-only `results/training_log.jsonl` audit log.
+- [x] CI/CD (GitHub Actions for lint, type-check, tests)
+- [x] Structured logging — leveled stdlib `logging` to stderr across the four
+  surviving entrypoints (`--log-level`, `LOG_LEVEL` env fallback); genuine
+  results stay on stdout. The two production training CLIs capture a per-run
+  `run.log` attached as an MLflow artifact under `logs/`.
+- [x] Model registry / formal versioning beyond timestamp directories (see
+  "Completed — Model Registry" below)
+- [ ] Speed up the test suite (~3 min). The subprocess-based CLI/sweep tests
+  cold-start a fresh interpreter and re-import torch + mlflow on every run, which
+  dominates wall time; `import mlflow` and per-test SQLite setup added overhead in
+  the tracking migration. Options: `pytest-xdist` (`-n auto`) since these tests
+  parallelize well, mark the subprocess integration tests `slow` and run a fast
+  in-process subset by default, or convert subprocess CLI tests to in-process
+  `main()` calls.
 
 ## Design Decisions Worth Preserving
 
 **Operating-mode normalization is config-driven, not auto-derived.** `n_modes` lives in `FeatureConfig` (default `1`). Setting it to `6` in config enables KMeans-based per-mode normalization for FD002/FD004. The original approach of auto-deriving from `fd_subset` via a lookup table was removed in favor of explicit config so the user can override the count when needed.
 
-**GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error.
+**GRU artifacts are self-contained after the normalization migration.** The checkpoint stores `normalizer_type: operating_mode` and a `normalizer_payload` dict; inference reconstructs the normalizer from it without any runtime config. Legacy checkpoints (flat `normalizer_means`/`normalizer_stds`) are rejected with a retrain error. After the model-registry step the checkpoint payload is carried inside the MLflow GRU pyfunc model rather than a run-dir `model.pt`.
 
 
 
