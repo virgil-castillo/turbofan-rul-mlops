@@ -101,7 +101,6 @@ def _gru_payload(
     max_rul: int = 125,
     bias: float | None = None,
     include_max_rul: bool = True,
-    legacy_flat_stats: bool = False,
 ) -> dict[str, object]:
     """Build a tiny GRU checkpoint payload mirroring the production format.
 
@@ -111,7 +110,6 @@ def _gru_payload(
         bias: Optional regressor bias to set; weights are zeroed when given so
             the model output is deterministic.
         include_max_rul: Whether to include the ``max_rul`` field.
-        legacy_flat_stats: Whether to write a legacy flat-stat normalizer.
 
     Returns:
         Checkpoint payload mapping.
@@ -136,13 +134,9 @@ def _gru_payload(
             "dropout": 0.0,
         },
         "feature_cols": list(FEATURE_COLUMNS),
+        "normalizer_type": "operating_mode",
+        "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
     }
-    if legacy_flat_stats:
-        payload["normalizer_means"] = {column: 0.0 for column in FEATURE_COLUMNS}
-        payload["normalizer_stds"] = {column: 1.0 for column in FEATURE_COLUMNS}
-    else:
-        payload["normalizer_type"] = "operating_mode"
-        payload["normalizer_payload"] = _make_normalizer_payload(FEATURE_COLUMNS)
     if include_max_rul:
         payload["max_rul"] = max_rul
     return payload

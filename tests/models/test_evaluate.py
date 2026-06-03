@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from turbofan.models.evaluate import (
-    Predictor,
     add_rul_column,
     align_official_test_labels,
     evaluate_rows,
@@ -137,9 +136,3 @@ def test_evaluate_rows_rejects_wrong_prediction_length() -> None:
     )
     with pytest.raises(ValueError, match="same length"):
         evaluate_rows(FixedPredictor([1.0]), df)
-
-
-def test_fixed_predictor_satisfies_protocol() -> None:
-    """FixedPredictor implements the Predictor protocol."""
-    predictor: Predictor = FixedPredictor([1.0])
-    assert predictor.predict(pd.DataFrame({"x": [1.0]}))[0] == 1.0

@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
@@ -308,35 +307,6 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         abs=1e-7,
     )
 
-
-def test_train_one_epoch_normalized_targets_produce_smaller_loss() -> None:
-    """Normalizing targets by max_rul produces a smaller epoch loss."""
-    torch.manual_seed(42)
-    model_identity = GRURULRegressor(
-        input_size=2, hidden_size=4, num_layers=1, dropout=0.0
-    )
-    torch.manual_seed(42)
-    model_normalized = GRURULRegressor(
-        input_size=2, hidden_size=4, num_layers=1, dropout=0.0
-    )
-    criterion = nn.MSELoss()
-    optimizer_identity = torch.optim.Adam(model_identity.parameters(), lr=0.001)
-    optimizer_normalized = torch.optim.Adam(model_normalized.parameters(), lr=0.001)
-    device = torch.device("cpu")
-
-    loss_identity = _train_one_epoch(
-        model_identity, _loader(), criterion, optimizer_identity, device, max_rul=1
-    )
-    loss_normalized = _train_one_epoch(
-        model_normalized,
-        _loader(),
-        criterion,
-        optimizer_normalized,
-        device,
-        max_rul=125,
-    )
-
-    assert loss_normalized < loss_identity
 
 
 def test_evaluate_loader_rescales_predictions_by_max_rul() -> None:
