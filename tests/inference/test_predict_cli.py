@@ -148,7 +148,8 @@ def test_predict_cli_reads_csv_and_writes_predictions_and_metadata(
     )
 
     assert result.returncode == 0, result.stderr
-    rows = list(csv.DictReader(output_path.open()))
+    with output_path.open() as handle:
+        rows = list(csv.DictReader(handle))
     assert [(row["engine_id"], row["cycle"]) for row in rows] == [
         ("1", "3"),
         ("2", "1"),
@@ -202,7 +203,8 @@ def test_predict_cli_reads_json_records_object(
     )
 
     assert result.returncode == 0, result.stderr
-    rows = list(csv.DictReader(output_path.open()))
+    with output_path.open() as handle:
+        rows = list(csv.DictReader(handle))
     assert len(rows) == 1
     assert rows[0]["engine_id"] == "1"
     assert rows[0]["cycle"] == "2"
