@@ -385,6 +385,7 @@ def main() -> None:
                         "window_size": cfg.sequence.window_size,
                         "hidden_size": cfg.sequence.hidden_size,
                         "learning_rate": cfg.sequence.learning_rate,
+                        "weight_decay": cfg.sequence.weight_decay,
                         "num_layers": cfg.sequence.num_layers,
                         "dropout": cfg.sequence.dropout,
                         "batch_size": cfg.sequence.batch_size,

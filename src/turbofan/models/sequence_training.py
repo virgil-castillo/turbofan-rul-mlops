@@ -86,7 +86,11 @@ def train_sequence_model(
     """
     seed_everything(random_seed)
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
     criterion = nn.MSELoss()
     history: list[dict[str, float | int]] = []
     best_epoch = 0

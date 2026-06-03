@@ -167,6 +167,9 @@ class SequenceConfig(BaseModel):
         num_layers: Number of stacked recurrent layers.
         dropout: Dropout probability between recurrent layers.
         learning_rate: Adam optimizer learning rate.
+        weight_decay: Adam L2 weight-decay strength. Defaults to ``0.0`` (no
+            regularization), preserving prior behaviour; raise it to penalize
+            large weights and curb overfitting. Shared by GRU and LSTM.
         epochs: Maximum training epochs.
         patience: Early-stopping patience in epochs.
         device: Requested torch device.
@@ -180,6 +183,7 @@ class SequenceConfig(BaseModel):
     num_layers: int = Field(default=1, gt=0)
     dropout: float = Field(default=0.0, ge=0.0, lt=1.0)
     learning_rate: float = Field(default=1e-3, gt=0.0)
+    weight_decay: float = Field(default=0.0, ge=0.0)
     epochs: int = Field(default=50, gt=0)
     patience: int = Field(default=8, gt=0)
     device: Literal["cpu", "cuda"] = "cpu"
