@@ -9,45 +9,58 @@ dependencies:
     - numpy
     - pandas
     - scipy
-    
+    - joblib
+
     # Machine learning
     - scikit-learn
     - xgboost
+    - lightgbm
+    - imbalanced-learn
+    - shap
     - optuna
-    
+
     # Deep learning (CPU-only; swap to torch[cuda] for GPU)
     - torch
     - torchvision
     - torchaudio
-    
+
     # Visualization
     - matplotlib
     - plotly
-    
+    - streamlit
+
     # Web framework & APIs
     - fastapi
     - uvicorn
     - pydantic>=2.0
-    
+
     # MLOps & experiment tracking
     - mlflow>=2.0
-    
+
     # Configuration & utilities
     - pyyaml
     - python-dotenv
     - pydantic-settings
     - requests
     - tqdm
-    
+
+    # Data download & notebooks
+    - kaggle
+    - jupyter
+    - nbformat
+    - nbstripout
+
     # Development & testing
     - pytest
     - pytest-cov
+    - pytest-xdist
+    - httpx
     - ruff
     - mypy
-    - black
-    - isort
-    
+
     # Type stubs for mypy
     - types-pyyaml
-    - types-requests
-    - types-setuptools
+    - pandas-stubs
+
+    # The project itself (editable install; provides the turbofan-* CLIs)
+    - -e .

@@ -9,43 +9,53 @@ dependencies:
     - numpy
     - pandas
     - scipy
-    
+    - joblib
+
     # Machine learning
     - scikit-learn
     - xgboost
+    - lightgbm
+    - imbalanced-learn
+    - shap
     - optuna
-    
-    # Torch installed separately
+
+    # Torch installed separately (CUDA build)
     # pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
     # Visualization
     - matplotlib
     - plotly
-    
+    - streamlit
+
     # Web framework & APIs
     - fastapi
     - uvicorn
     - pydantic>=2.0
-    
+
     # MLOps & experiment tracking
     - mlflow>=2.0
-    
+
     # Configuration & utilities
     - pyyaml
     - python-dotenv
     - pydantic-settings
     - requests
     - tqdm
-    
+
+    # Data download & notebooks
+    - kaggle
+    - jupyter
+    - nbformat
+    - nbstripout
+
     # Development & testing
     - pytest
     - pytest-cov
+    - pytest-xdist
+    - httpx
     - ruff
     - mypy
-    - black
-    - isort
-    
+
     # Type stubs for mypy
     - types-pyyaml
-    - types-requests
-    - types-setuptools
+    - pandas-stubs
