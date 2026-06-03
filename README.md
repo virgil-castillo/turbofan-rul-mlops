@@ -243,7 +243,7 @@ validation split. When the official test files for the configured subset are
 present (e.g. `test_FD001.txt` with `RUL_FD001.txt`), training also evaluates
 against them and reports RMSE, MAE, and the PHM08 score.
 
-Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/sequence_gru/<timestamp>/`. Cross-run summaries are saved under `results/`.
+Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/<model_type>/<timestamp>/`. Cross-run summaries are saved under `results/`.
 
 ## Inference and Serving
 
@@ -372,9 +372,11 @@ mypy src/turbofan               # strict type checking
 - [x] Cross-dataset benchmark table from persisted models
 - [x] Left-zero-pad short engines in GRU windowing (packed sequences; no engine skipped)
 - [x] Two-stage GRU temporal-context and capacity sweep (sequence window vs. hidden-size/LR cross); short engines left-zero-padded
+- [x] MLflow experiment tracking — local SQLite store; Ridge and GRU runs log params, metrics, and per-epoch curves; replaces JSONL audit log
+- [x] Structured logging — leveled stdlib logging to stderr; `run.log` captured as MLflow artifact; results stay on stdout
+- [x] Model registry — MLflow registry over local store; `turbofan-promote` and `turbofan-models` CLIs; name-based resolution replaces path/manifest layer
 - [ ] Additional models (LSTM, Transformer)
 - [ ] Advanced feature engineering
-- [x] MLOps infrastructure — CI/CD (GitHub Actions) and MLflow experiment tracking (local SQLite store)
 
 See [docs/roadmap.md](docs/roadmap.md) for detailed priorities and design decisions.
 
