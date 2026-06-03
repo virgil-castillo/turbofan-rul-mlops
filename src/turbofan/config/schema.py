@@ -90,6 +90,7 @@ class FeatureConfig(BaseModel):
         lag_steps: Shared lag offsets. Used by the lag feature set.
         ridge: Optional Ridge-specific feature overrides.
         gru: Optional GRU-specific feature overrides.
+        lstm: Optional LSTM-specific feature overrides.
     """
 
     sensor_cols_to_drop: list[str] = Field(default_factory=list)
@@ -99,8 +100,11 @@ class FeatureConfig(BaseModel):
     lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])
     ridge: ModelFeatureConfig | None = None
     gru: ModelFeatureConfig | None = None
+    lstm: ModelFeatureConfig | None = None
 
-    def for_model(self, model: Literal["ridge", "gru"]) -> ResolvedFeatureConfig:
+    def for_model(
+        self, model: Literal["ridge", "gru", "lstm"]
+    ) -> ResolvedFeatureConfig:
         """Resolve effective feature settings for a model.
 
         Applies the model-specific override block when present, falling back to
@@ -112,7 +116,12 @@ class FeatureConfig(BaseModel):
         Returns:
             Fully resolved feature settings for the model.
         """
-        override = self.ridge if model == "ridge" else self.gru
+        overrides: dict[str, ModelFeatureConfig | None] = {
+            "ridge": self.ridge,
+            "gru": self.gru,
+            "lstm": self.lstm,
+        }
+        override = overrides[model]
         feature_set = self.feature_set
         windows = self.windows
         lag_steps = self.lag_steps
@@ -143,15 +152,20 @@ class ModelConfig(BaseModel):
 
 
 class SequenceConfig(BaseModel):
-    """Configuration for GRU sequence model training.
+    """Configuration for sequence model training (GRU or LSTM).
+
+    GRU and LSTM share the same hyperparameter surface; the recurrent layer is
+    selected by ``architecture`` and every other field applies unchanged to
+    both.
 
     Args:
-        architecture: Sequence model architecture identifier.
+        architecture: Sequence model architecture identifier (``gru`` or
+            ``lstm``).
         window_size: Number of cycles per sequence window.
         batch_size: Training batch size.
-        hidden_size: GRU hidden state width.
-        num_layers: Number of stacked GRU layers.
-        dropout: Dropout probability between GRU layers.
+        hidden_size: Recurrent hidden state width.
+        num_layers: Number of stacked recurrent layers.
+        dropout: Dropout probability between recurrent layers.
         learning_rate: Adam optimizer learning rate.
         epochs: Maximum training epochs.
         patience: Early-stopping patience in epochs.
@@ -159,7 +173,7 @@ class SequenceConfig(BaseModel):
         artifact_dir: Directory for local sequence run artifacts.
     """
 
-    architecture: Literal["gru"] = "gru"
+    architecture: Literal["gru", "lstm"] = "gru"
     window_size: int = Field(default=45, gt=0)
     batch_size: int = Field(default=64, gt=0)
     hidden_size: int = Field(default=64, gt=0)
@@ -199,7 +213,7 @@ class ProjectConfig(BaseModel):
         data: Data layer configuration.
         features: Feature engineering configuration.
         model: Baseline model training configuration.
-        sequence: GRU sequence model training configuration.
+        sequence: Sequence model (GRU/LSTM) training configuration.
         inference: Local inference serving configuration.
     """
 
