@@ -251,12 +251,45 @@ def _deep_merge(
     return result
 
 
+def _load_raw_config(path: Path) -> dict[str, object]:
+    """Load a YAML config and recursively resolve its ``_base_`` chain.
+
+    Each ``_base_`` reference is resolved relative to the file that declares it,
+    so a chain like ``fd001_lstm.yaml`` → ``fd001.yaml`` → ``default.yaml`` is
+    fully composed: every base in the chain is loaded and the more specific file
+    is deep-merged on top. The ``_base_`` key is consumed at each level and does
+    not appear in the returned mapping.
+
+    Args:
+        path: Path to the YAML configuration file.
+
+    Returns:
+        The fully merged raw config mapping.
+
+    Raises:
+        FileNotFoundError: If a config file in the chain does not exist.
+        yaml.YAMLError: If a file in the chain is not valid YAML.
+    """
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
+
+    if "_base_" in raw:
+        base_path = (path.parent / raw.pop("_base_")).resolve()
+        base = _load_raw_config(base_path)
+        raw = _deep_merge(base, raw)
+    return cast(dict[str, object], raw)
+
+
 def load_config(path: Path) -> ProjectConfig:
     """Load and validate project configuration from a YAML file.
 
-    If the file contains a ``_base_`` key, the referenced file is loaded
-    first and the current file is deep-merged on top, allowing subset
-    configs to override only the fields that differ from the base.
+    If the file contains a ``_base_`` key, the referenced file is loaded first
+    and the current file is deep-merged on top, allowing subset configs to
+    override only the fields that differ from the base. ``_base_`` references are
+    resolved recursively, so a config may extend another config that itself
+    extends a shared default.
 
     Args:
         path: Path to the YAML configuration file.
@@ -269,14 +302,5 @@ def load_config(path: Path) -> ProjectConfig:
         yaml.YAMLError: If the file is not valid YAML.
         pydantic.ValidationError: If the config structure is invalid.
     """
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except yaml.YAMLError as exc:
-        raise yaml.YAMLError(f"Failed to parse config file {path}: {exc}") from exc
-
-    if "_base_" in raw:
-        base_path = (path.parent / raw.pop("_base_")).resolve()
-        base = yaml.safe_load(base_path.read_text())
-        raw = _deep_merge(base, raw)
-
+    raw = _load_raw_config(path)
     return ProjectConfig.model_validate(raw)
