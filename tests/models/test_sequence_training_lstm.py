@@ -154,6 +154,7 @@ def test_train_gru_model_alias_delegates_to_train_sequence_model() -> None:
         learning_rate=0.01,
     )
 
+    torch.manual_seed(0)
     via_alias = build_sequence_model(
         "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
     )
@@ -170,6 +171,7 @@ def test_train_gru_model_alias_delegates_to_train_sequence_model() -> None:
         via_alias, _loader(), torch.device("cpu"), max_rul=1
     )
 
+    torch.manual_seed(0)
     via_generalized = build_sequence_model(
         "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
     )
