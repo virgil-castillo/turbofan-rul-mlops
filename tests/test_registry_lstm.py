@@ -92,7 +92,11 @@ def _lstm_payload(*, window_size: int = 3, max_rul: int = 125) -> dict[str, obje
     """
     torch.manual_seed(0)
     model = build_sequence_model(
-        "lstm", input_size=len(FEATURE_COLUMNS), hidden_size=4, num_layers=1, dropout=0.0
+        "lstm",
+        input_size=len(FEATURE_COLUMNS),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
     )
     return {
         "model_state_dict": model.state_dict(),
