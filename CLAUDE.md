@@ -29,6 +29,9 @@ pytest tests/test_file.py               # single file
 pytest -k "test_name"                   # single test by name
 ```
 
+## Commit style
+Use conventional commits: `type(scope): message` (e.g. `feat(features): add rolling window`, `fix(train): correct loss accumulation`).
+
 ## Coding style
 - **Docstrings.** Every public module, class, and function gets a
   Google-style docstring with `Args:`, `Returns:`, and `Raises:` sections
