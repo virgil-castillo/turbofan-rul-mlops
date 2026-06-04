@@ -1,11 +1,34 @@
 """Config-driven feature engineering transformer."""
 from __future__ import annotations
 
-from typing import Literal, Self, get_args
+from typing import Any, Literal, Self, get_args
 
+import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
+
+
+def _slope(x: npt.NDArray[np.floating[Any]]) -> float:
+    """Compute the least-squares slope of ``x`` against an integer index.
+
+    The index runs from ``0`` to ``len(x) - 1``.  When the window contains
+    only a single point (denominator is zero) the slope is defined as ``0.0``
+    to avoid division by zero.
+
+    Args:
+        x: 1-D array of sensor values in the rolling window (raw=True).
+
+    Returns:
+        Least-squares slope, or ``0.0`` when the window has length 1.
+    """
+    t = np.arange(len(x), dtype=float)
+    denom = float(((t - t.mean()) ** 2).sum())
+    if denom == 0.0:
+        return 0.0
+    return float(((t - t.mean()) * (x - x.mean())).sum() / denom)
+
 
 FeatureSet = Literal[
     "raw",
@@ -102,6 +125,12 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         if self.feature_set == "raw_plus_lag":
             raw = X[self.sensor_cols_].copy()
             return pd.concat([raw, self._lag_features(X)], axis=1)
+        if self.feature_set == "rolling_std":
+            return self._rolling_std(X)
+        if self.feature_set == "rolling_slope":
+            return self._rolling_slope(X)
+        if self.feature_set == "rolling_delta":
+            return self._rolling_delta(X)
         # lag
         return self._lag_features(X)
 
@@ -143,6 +172,24 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
             return list(self.sensor_cols_) + [
                 f"{col}_lag_{step}"
                 for step in self._lag_steps
+                for col in self.sensor_cols_
+            ]
+        if self.feature_set == "rolling_std":
+            return [
+                f"{col}_rstd_{w}"
+                for w in self._windows
+                for col in self.sensor_cols_
+            ]
+        if self.feature_set == "rolling_slope":
+            return [
+                f"{col}_rslope_{w}"
+                for w in self._windows
+                for col in self.sensor_cols_
+            ]
+        if self.feature_set == "rolling_delta":
+            return [
+                f"{col}_rdelta_{w}"
+                for w in self._windows
                 for col in self.sensor_cols_
             ]
         # lag
@@ -226,4 +273,79 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
                 diff = X[col] - lagged
                 safe_mean = mean.where(mean.abs() > 1e-9, other=1.0)
                 cols[f"{col}_lag_{step}"] = diff / safe_mean
+        return pd.DataFrame(cols, index=X.index)
+
+    def _rolling_std(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-engine rolling standard deviation for each sensor and window.
+
+        The first cycle of each engine yields a single-point window whose std
+        is ``NaN``; that value is filled with ``0.0`` to match the std handling
+        already applied in :meth:`_rolling_stats`.
+
+        Args:
+            X: Input DataFrame with ``engine_id`` and sensor columns.
+
+        Returns:
+            DataFrame of rolling-std feature columns (``{s}_rstd_{w}``).
+        """
+        cols: dict[str, pd.Series] = {}
+        for w in self._windows:
+            for col in self.sensor_cols_:
+                grp = X.groupby("engine_id")[col]
+                cols[f"{col}_rstd_{w}"] = grp.transform(
+                    lambda s, _w=w: s.rolling(_w, min_periods=1).std()
+                ).fillna(0.0)
+        return pd.DataFrame(cols, index=X.index)
+
+    def _rolling_slope(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-engine rolling least-squares slope for each sensor and window.
+
+        The slope is estimated by ordinary least squares of the sensor values
+        against the integer index ``0 .. L-1`` within each rolling window of
+        length ``L``.  Windows containing only a single point have a zero
+        denominator; the slope is defined as ``0.0`` in that case.
+
+        Args:
+            X: Input DataFrame with ``engine_id`` and sensor columns.
+
+        Returns:
+            DataFrame of rolling-slope feature columns (``{s}_rslope_{w}``).
+        """
+        cols: dict[str, pd.Series] = {}
+        for w in self._windows:
+            for col in self.sensor_cols_:
+                grp = X.groupby("engine_id")[col]
+                cols[f"{col}_rslope_{w}"] = grp.transform(
+                    lambda s, _w=w: s.rolling(_w, min_periods=1).apply(
+                        _slope, raw=True
+                    )
+                )
+        return pd.DataFrame(cols, index=X.index)
+
+    def _rolling_delta(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-engine rolling windowed difference for each sensor and window.
+
+        Each feature is ``x[t] - x[t - (w - 1)]``, i.e. the raw change over
+        the span of the rolling window.  Early cycles where ``x[t - (w-1)]``
+        has no history are backfilled to the earliest available value, yielding
+        a difference of ``0.0`` for the first cycle of each engine.
+
+        Note: ``rolling_delta`` is distinct from the ``lag`` family.  ``lag``
+        normalises by a rolling mean and is keyed to an arbitrary lag step
+        ``N``; ``rolling_delta`` is an un-normalised windowed difference keyed
+        directly to the rolling span ``w - 1``.
+
+        Args:
+            X: Input DataFrame with ``engine_id`` and sensor columns.
+
+        Returns:
+            DataFrame of rolling-delta feature columns (``{s}_rdelta_{w}``).
+        """
+        cols: dict[str, pd.Series] = {}
+        for w in self._windows:
+            for col in self.sensor_cols_:
+                grp = X.groupby("engine_id")[col]
+                cols[f"{col}_rdelta_{w}"] = grp.transform(
+                    lambda s, _w=w: s - s.shift(_w - 1).fillna(s)
+                )
         return pd.DataFrame(cols, index=X.index)
