@@ -15,6 +15,9 @@ FeatureSet = Literal[
     "raw_plus_rolling_stats",
     "lag",
     "raw_plus_lag",
+    "rolling_std",
+    "rolling_slope",
+    "rolling_delta",
 ]
 
 _VALID_FEATURE_SETS: frozenset[str] = frozenset(get_args(FeatureSet))

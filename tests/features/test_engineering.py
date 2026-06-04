@@ -243,3 +243,282 @@ def test_lag_diff_respects_engine_boundaries() -> None:
     # Engine 2 cycle 1: backfilled → diff=0, feature=0
     e2 = result.loc[df["engine_id"] == 2, "s_1_lag_1"].tolist()
     assert e2[0] == pytest.approx(0.0)
+
+
+# ── rolling_std ───────────────────────────────────────────────────────────────
+
+
+def test_rolling_std_column_names_and_order() -> None:
+    """rolling_std produces {sensor}_rstd_{window} columns in window-major order."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    result = eng.fit_transform(df)
+    expected = [
+        "s_1_rstd_5", "s_2_rstd_5", "s_3_rstd_5",
+        "s_1_rstd_10", "s_2_rstd_10", "s_3_rstd_10",
+    ]
+    assert list(result.columns) == expected
+
+
+def test_rolling_std_no_engine_id_in_output() -> None:
+    """engine_id is never present in rolling_std transform output."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    result = eng.fit_transform(df)
+    assert "engine_id" not in result.columns
+
+
+def test_rolling_std_shape() -> None:
+    """rolling_std output has correct shape: same rows, n_windows * n_sensors cols."""
+    df = _sensor_df(n_engines=2, n_cycles=10)
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert result.shape == (20, 6)  # 2 engines * 10 cycles, 2 windows * 3 sensors
+
+
+def test_rolling_std_feature_cols_attribute() -> None:
+    """feature_cols_ matches the transform output columns for rolling_std."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    eng.fit(df)
+    assert eng.feature_cols_ == ["s_1_rstd_5", "s_2_rstd_5", "s_3_rstd_5"]
+    result = eng.transform(df)
+    assert list(result.columns) == eng.feature_cols_
+
+
+def test_rolling_std_first_cycle_nan_filled_with_zero() -> None:
+    """rolling_std fills first-cycle NaN (std of single value) with 0.0."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1],
+        "s_1": [10.0, 20.0, 30.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    result = eng.fit_transform(df)
+    # Column presence is asserted first; value check requires the column to exist.
+    cols = list(result.columns)
+    assert "s_1_rstd_5" in result.columns, f"expected s_1_rstd_5 in {cols}"
+    # std of a single value is NaN → must be filled to 0.0
+    assert result["s_1_rstd_5"].iloc[0] == pytest.approx(0.0)
+
+
+def test_rolling_std_no_nan_in_output() -> None:
+    """rolling_std output contains no NaN values (min_periods=1 + fillna)."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert not result.isna().any().any()
+
+
+def test_rolling_std_respects_engine_boundaries() -> None:
+    """Engine 2 cycle-1 std is unaffected by engine 1 values."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 2, 2],
+        "s_1": [100.0, 200.0, 5.0, 10.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rstd_5" in result.columns, f"expected s_1_rstd_5 in {cols}"
+    # Engine 2 cycle 1: single point → std NaN → 0.0
+    e2_first = result.loc[df["engine_id"] == 2, "s_1_rstd_5"].iloc[0]
+    assert e2_first == pytest.approx(0.0)
+    # Engine 2 cycle 2: std of [5.0, 10.0], not contaminated by engine 1
+    e2_second = result.loc[df["engine_id"] == 2, "s_1_rstd_5"].iloc[1]
+    expected_std = pd.Series([5.0, 10.0]).std()
+    assert e2_second == pytest.approx(expected_std)
+
+
+# ── rolling_slope ─────────────────────────────────────────────────────────────
+
+
+def test_rolling_slope_column_names_and_order() -> None:
+    """rolling_slope produces {sensor}_rslope_{window} columns in window-major order."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    result = eng.fit_transform(df)
+    expected = [
+        "s_1_rslope_5", "s_2_rslope_5", "s_3_rslope_5",
+        "s_1_rslope_10", "s_2_rslope_10", "s_3_rslope_10",
+    ]
+    assert list(result.columns) == expected
+
+
+def test_rolling_slope_no_engine_id_in_output() -> None:
+    """engine_id is never present in rolling_slope transform output."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    result = eng.fit_transform(df)
+    assert "engine_id" not in result.columns
+
+
+def test_rolling_slope_shape() -> None:
+    """rolling_slope output has correct shape."""
+    df = _sensor_df(n_engines=2, n_cycles=10)
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert result.shape == (20, 6)
+
+
+def test_rolling_slope_feature_cols_attribute() -> None:
+    """feature_cols_ matches transform output columns for rolling_slope."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    eng.fit(df)
+    assert eng.feature_cols_ == ["s_1_rslope_5", "s_2_rslope_5", "s_3_rslope_5"]
+    result = eng.transform(df)
+    assert list(result.columns) == eng.feature_cols_
+
+
+def test_rolling_slope_known_slope_value() -> None:
+    """Sensor increasing by 1 per cycle yields slope=1.0 once window is full."""
+    # s_1 = 1,2,3,4,5 → slope = 1.0 everywhere once window=5 is satisfied
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 1, 1],
+        "s_1": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rslope_5" in result.columns, f"expected s_1_rslope_5 in {cols}"
+    # At row 4 (cycle 5), window = [1,2,3,4,5], t = [0,1,2,3,4]
+    # tbar=2, xbar=3; sum((t-tbar)*(x-xbar))=10; sum((t-tbar)^2)=10 → slope=1.0
+    assert result["s_1_rslope_5"].iloc[4] == pytest.approx(1.0)
+
+
+def test_rolling_slope_window_1_yields_zero() -> None:
+    """Window size 1 → length-1 window → zero denominator → slope=0.0."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1],
+        "s_1": [10.0, 20.0, 30.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[1])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rslope_1" in result.columns, f"expected s_1_rslope_1 in {cols}"
+    # Every window has exactly 1 point → denominator=0 → slope=0.0 for all rows
+    assert result["s_1_rslope_1"].iloc[0] == pytest.approx(0.0)
+    assert result["s_1_rslope_1"].iloc[1] == pytest.approx(0.0)
+    assert result["s_1_rslope_1"].iloc[2] == pytest.approx(0.0)
+
+
+def test_rolling_slope_no_nan_in_output() -> None:
+    """rolling_slope output contains no NaN values."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert not result.isna().any().any()
+
+
+def test_rolling_slope_respects_engine_boundaries() -> None:
+    """Engine 2 cycle-1 slope is unaffected by engine 1 values."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 2, 2, 2],
+        "s_1": [100.0, 200.0, 300.0, 1.0, 2.0, 3.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rslope_5" in result.columns, f"expected s_1_rslope_5 in {cols}"
+    # Engine 2 cycle 1: single point → slope=0.0 (length-1 window)
+    e2_first = result.loc[df["engine_id"] == 2, "s_1_rslope_5"].iloc[0]
+    assert e2_first == pytest.approx(0.0)
+    # Engine 2 cycle 3 (index 2 of engine 2): t=[0,1,2], x=[1,2,3]
+    # tbar=1, xbar=2; sum((t-tbar)*(x-xbar))=(-1)(-1)+0*0+1*1=2; sum((t-tbar)^2)=2
+    # slope = 2/2 = 1.0
+    e2_third = result.loc[df["engine_id"] == 2, "s_1_rslope_5"].iloc[2]
+    assert e2_third == pytest.approx(1.0)
+
+
+# ── rolling_delta ─────────────────────────────────────────────────────────────
+
+
+def test_rolling_delta_column_names_and_order() -> None:
+    """rolling_delta produces {sensor}_rdelta_{window} columns in window-major order."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    result = eng.fit_transform(df)
+    expected = [
+        "s_1_rdelta_5", "s_2_rdelta_5", "s_3_rdelta_5",
+        "s_1_rdelta_10", "s_2_rdelta_10", "s_3_rdelta_10",
+    ]
+    assert list(result.columns) == expected
+
+
+def test_rolling_delta_no_engine_id_in_output() -> None:
+    """engine_id is never present in rolling_delta transform output."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5])
+    result = eng.fit_transform(df)
+    assert "engine_id" not in result.columns
+
+
+def test_rolling_delta_shape() -> None:
+    """rolling_delta output has correct shape."""
+    df = _sensor_df(n_engines=2, n_cycles=10)
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert result.shape == (20, 6)
+
+
+def test_rolling_delta_feature_cols_attribute() -> None:
+    """feature_cols_ matches transform output columns for rolling_delta."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5])
+    eng.fit(df)
+    assert eng.feature_cols_ == ["s_1_rdelta_5", "s_2_rdelta_5", "s_3_rdelta_5"]
+    result = eng.transform(df)
+    assert list(result.columns) == eng.feature_cols_
+
+
+def test_rolling_delta_first_cycle_is_zero() -> None:
+    """First cycle of each engine has insufficient history → backfill → 0.0."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1],
+        "s_1": [10.0, 20.0, 30.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"
+    # rdelta_3 = x[t] - x[t-2]; cycle 1: no history → backfill → 0.0
+    assert result["s_1_rdelta_3"].iloc[0] == pytest.approx(0.0)
+
+
+def test_rolling_delta_known_value() -> None:
+    """rdelta_3 at t=4 equals x[4] - x[2] (shift by w-1=2)."""
+    # s_1 = [10, 20, 30, 40, 50], window=3 → shift(2)
+    # rdelta_3[4] = 50 - 30 = 20
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 1, 1],
+        "s_1": [10.0, 20.0, 30.0, 40.0, 50.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"
+    # Also check t=2: x[2] - x[0] = 30 - 10 = 20
+    assert result["s_1_rdelta_3"].iloc[2] == pytest.approx(20.0)
+    assert result["s_1_rdelta_3"].iloc[4] == pytest.approx(20.0)
+
+
+def test_rolling_delta_no_nan_in_output() -> None:
+    """rolling_delta output contains no NaN values (backfill covers leading history)."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    result = eng.fit_transform(df)
+    assert not result.isna().any().any()
+
+
+def test_rolling_delta_respects_engine_boundaries() -> None:
+    """Engine 2 cycle-1 delta is unaffected by engine 1 values."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 2, 2],
+        "s_1": [100.0, 200.0, 5.0, 10.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    result = eng.fit_transform(df)
+    cols = list(result.columns)
+    assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"
+    # Engine 2 cycle 1: shift(2) within engine → backfill → x[0]=5.0, delta=0.0
+    e2_first = result.loc[df["engine_id"] == 2, "s_1_rdelta_3"].iloc[0]
+    assert e2_first == pytest.approx(0.0)

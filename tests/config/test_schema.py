@@ -527,3 +527,29 @@ def test_base_key_not_present_in_validated_config(tmp_path: Path) -> None:
 
     cfg = load_config(override)
     assert not hasattr(cfg, "_base_")
+
+
+# ── new rolling-family FeatureSetName values ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "feature_set", ["rolling_std", "rolling_slope", "rolling_delta"]
+)
+def test_new_feature_set_names_accepted_in_feature_config(
+    tmp_path: Path, feature_set: str
+) -> None:
+    """rolling_std / rolling_slope / rolling_delta are valid FeatureSetName in YAML."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "features": {"feature_set": feature_set},
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.features.feature_set == feature_set
