@@ -46,5 +46,5 @@ def test_gru_subset_config_resolves_gru_features(subset: str) -> None:
     resolved = gru_cfg.features.for_model("gru")
     base_resolved = base_cfg.features.for_model("gru")
 
-    assert resolved.feature_set == base_resolved.feature_set
+    assert resolved.feature_families == base_resolved.feature_families
     assert resolved.windows == base_resolved.windows

@@ -47,5 +47,5 @@ def test_lstm_subset_config_resolves_seeded_lstm_features(subset: str) -> None:
     lstm_features = cfg.features.for_model("lstm")
     gru_features = cfg.features.for_model("gru")
 
-    assert lstm_features.feature_set == gru_features.feature_set
+    assert lstm_features.feature_families == gru_features.feature_families
     assert lstm_features.windows == gru_features.windows

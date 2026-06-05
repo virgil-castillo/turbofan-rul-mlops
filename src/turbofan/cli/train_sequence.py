@@ -254,7 +254,9 @@ def main() -> None:
                 sensor_drop=cfg.features.sensor_cols_to_drop or None,
                 n_modes=cfg.features.n_modes,
                 random_state=cfg.data.random_seed,
-                feature_set=(sf := cfg.features.for_model(architecture)).feature_set,
+                feature_families=(
+                    sf := cfg.features.for_model(architecture)
+                ).feature_families,
                 windows=sf.windows,
                 lag_steps=sf.lag_steps,
             )
@@ -395,7 +397,7 @@ def main() -> None:
                         "batch_size": cfg.sequence.batch_size,
                         "epochs": cfg.sequence.epochs,
                         "patience": cfg.sequence.patience,
-                        "feature_set": sf.feature_set,
+                        "feature_families": sf.feature_families,
                         "windows": sf.windows,
                         "lag_steps": sf.lag_steps,
                         "seed": cfg.data.random_seed,

@@ -211,10 +211,10 @@ features:
     - s_19
   n_modes: 6              # 6 operating conditions
   ridge:                  # Ridge's best feature config (from the sweep)
-    feature_set: raw_plus_rolling_mean
+    feature_families: [raw, rolling_mean]
     windows: [4]
   gru:                    # GRU's best feature config (from the sweep)
-    feature_set: rolling_mean
+    feature_families: [rolling_mean]
     windows: [15]
 ```
 
@@ -236,7 +236,7 @@ extends `default.yaml` is fully composed.)
 
 The `sensor_cols_to_drop` lists are derived from the EDA notebooks (`notebooks/eda_fd00{1-4}.ipynb`) and represent the authoritative drop decision for each subset.
 
-The optional `features.ridge`, `features.gru`, and `features.lstm` blocks set per-model feature engineering: the top-level `feature_set`/`windows` are shared fallbacks, and each model's training CLI resolves its own block (inheriting the shared values for anything left unset). The committed Ridge and GRU values are each model's best configuration from the feature sweep; the `features.lstm` block is currently seeded from the GRU-tuned values (a dedicated LSTM feature sweep is a possible follow-up).
+The optional `features.ridge`, `features.gru`, and `features.lstm` blocks set per-model feature engineering: the top-level `feature_families`/`windows`/`lag_steps` are shared fallbacks, and each model's training CLI resolves its own block (inheriting the shared values for anything left unset). The committed Ridge and GRU values are each model's best configuration from the feature sweep; the `features.lstm` block is currently seeded from the GRU-tuned values (a dedicated LSTM feature sweep is a possible follow-up).
 
 ## Dataset
 
@@ -275,7 +275,7 @@ subsets — note that inter-layer `dropout` only takes effect when
 `num_layers > 1`, so at the default single layer `weight_decay` is the sole
 explicit regularizer.
 
-All models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_set` config key selects which engineered features the models receive — `raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, `lag`, or `raw_plus_lag`. Rolling and lag features are computed per engine without crossing engine boundaries; `lag` is a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)`. Feature settings can differ per model via the `features.ridge` / `features.gru` / `features.lstm` config blocks.
+All models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_families` config key selects the ordered engineered feature families the models receive: `raw`, `rolling_mean`, `lag`, `rolling_std`, `rolling_min`, `rolling_max`, `rolling_slope`, and `rolling_delta`. Families compose by concatenating their output columns in config order. Rolling, lag, slope, and delta features are computed per engine without crossing engine boundaries. Feature settings can differ per model via the `features.ridge` / `features.gru` / `features.lstm` config blocks.
 
 ## Evaluation
 
@@ -419,7 +419,7 @@ mypy src/turbofan               # strict type checking
 - [x] Config-driven sensor dropping (EDA-derived explicit drop list replaces runtime std-threshold)
 - [x] EDA notebooks for all four subsets with correlation-based sensor filter
 - [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
-- [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
+- [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_families` is config-driven
 - [x] Unified feature-engineering sweep with Ridge vs GRU analysis across all four subsets
 - [x] Train and persist baseline and GRU production artifacts on FD002–FD004
 - [x] Cross-dataset benchmark table from persisted models

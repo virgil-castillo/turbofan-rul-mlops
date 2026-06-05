@@ -8,7 +8,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from turbofan.features.engineering import FeatureEngineer, FeatureSet
+from turbofan.features.engineering import FeatureEngineer, FeatureFamily
 from turbofan.features.sensor_dropper import SensorDropper
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
@@ -113,7 +113,7 @@ def build_feature_pipeline(
     sensor_drop: list[str] | None = None,
     n_modes: int = 1,
     random_state: int = 42,
-    feature_set: FeatureSet = "raw",
+    feature_families: list[FeatureFamily] | None = None,
     windows: list[int] | None = None,
     lag_steps: list[int] | None = None,
 ) -> Pipeline:
@@ -135,7 +135,7 @@ def build_feature_pipeline(
             Determined from EDA; passed to ``SensorDropper``.
         n_modes: Number of operating-mode KMeans clusters.
         random_state: KMeans random seed.
-        feature_set: Which engineered feature family to produce.
+        feature_families: Ordered feature families to produce.
         windows: Rolling window sizes. Forwarded to ``FeatureEngineer``.
         lag_steps: Lag offsets. Forwarded to ``FeatureEngineer``.
 
@@ -157,7 +157,7 @@ def build_feature_pipeline(
             (
                 "feature_engineer",
                 FeatureEngineer(
-                    feature_set=feature_set,
+                    feature_families=feature_families,
                     windows=windows,
                     lag_steps=lag_steps,
                 ),

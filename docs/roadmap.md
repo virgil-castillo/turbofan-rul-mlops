@@ -92,9 +92,9 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 
 Ridge and GRU previously received fundamentally different data: Ridge used rolling statistics on a filtered sensor set; GRU used raw values on all 21 sensors with its own normalization path. This refactor makes them share a single preprocessing contract.
 
-- [x] `FeatureEngineer` sklearn transformer — config-driven feature sets (`raw`, `rolling_mean`, `raw_plus_rolling_mean`, `lag`, `raw_plus_lag`, `rolling_std`, `rolling_min`, `rolling_max`, `rolling_slope`, `rolling_delta`); rolling and lag computed per engine, no boundary crossing
+- [x] `FeatureEngineer` sklearn transformer - config-driven feature families (`raw`, `rolling_mean`, `lag`, `rolling_std`, `rolling_min`, `rolling_max`, `rolling_slope`, `rolling_delta`); families compose by concatenating output columns in config order
 - [x] 5-step shared `build_feature_pipeline`: `SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer → StandardScaler`
-- [x] `FeatureConfig` gains `feature_set`, `windows`, `lag_steps`; `ModelConfig` loses them (they are feature engineering parameters, not model parameters)
+- [x] `FeatureConfig` gains `feature_families`, `windows`, `lag_steps`; `ModelConfig` loses them (they are feature engineering parameters, not model parameters)
 - [x] Ridge: simplified to 2-step pipeline (`build_feature_pipeline → Ridge`); old dead helpers removed (`RollingFeatureExtractor`, `_ModelFeatureSelector`, `_LowVarianceFeatureDropper`, `StandardScaler`, etc.)
 - [x] GRU training and sweep: manual `OperatingModeNormalizer` + `default_feature_cols()` replaced by `build_feature_pipeline`; `feature_cols` derived from `pipeline.named_steps["feature_engineer"].feature_cols_`
 - [x] Dead code deleted: `rolling.py`, `SequenceNormalizer`, `default_feature_cols`
@@ -130,7 +130,7 @@ through the shared `build_feature_pipeline`, across all four C-MAPSS subsets.
 
 **Design decisions:**
 
-- Sweep dimensions (`feature_sets`, `windows`, `lag_steps`) are CLI arguments, not a second config file. The subset configs still own dataset-specific parameters (`sensor_cols_to_drop`, `n_modes`, `max_rul`).
+- Sweep dimensions (`feature_families`, `windows`, `lag_steps`) are CLI arguments, not a second config file. The subset configs still own dataset-specific parameters (`sensor_cols_to_drop`, `n_modes`, `max_rul`).
 - The bespoke `top_corr` / `top_corr_rolling` feature sets from the old GRU sweep were dropped; sensor selection lives at EDA time via `sensor_cols_to_drop`.
 
 ## Completed — Multi-Dataset Training
@@ -213,7 +213,7 @@ The original plan included Random Forest, XGBoost, LSTM, and Transformer models.
 
 ## Future — Advanced Feature Engineering
 
-Current features: constant sensor removal, rolling statistics, lag features, operating-condition normalization — all config-driven via `feature_set`. The original plan listed several more exotic variants:
+Current features: constant sensor removal, rolling statistics, lag features, operating-condition normalization — all config-driven via `feature_families`. The original plan listed several more exotic variants:
 
 - [ ] Degradation slope estimation
 - [ ] Trend indicators

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Literal, cast
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 PositiveWindow = Annotated[int, Field(gt=0)]
 
@@ -32,18 +32,25 @@ class DataConfig(BaseModel):
     random_seed: int = 42
 
 
-FeatureSetName = Literal[
+FeatureFamilyName = Literal[
     "raw",
     "rolling_mean",
-    "raw_plus_rolling_mean",
     "lag",
-    "raw_plus_lag",
     "rolling_std",
     "rolling_min",
     "rolling_max",
     "rolling_slope",
     "rolling_delta",
 ]
+
+
+def _default_feature_families() -> list[FeatureFamilyName]:
+    """Return the default feature family list.
+
+    Returns:
+        Default ordered feature families.
+    """
+    return ["raw"]
 
 
 class ModelFeatureConfig(BaseModel):
@@ -53,12 +60,17 @@ class ModelFeatureConfig(BaseModel):
     resolved via :meth:`FeatureConfig.for_model`.
 
     Args:
-        feature_set: Feature family for this model, or ``None`` to inherit.
+        feature_families: Ordered feature families for this model, or
+            ``None`` to inherit.
         windows: Rolling window sizes for this model, or ``None`` to inherit.
         lag_steps: Lag offsets for this model, or ``None`` to inherit.
     """
 
-    feature_set: FeatureSetName | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    feature_families: list[FeatureFamilyName] | None = Field(
+        default=None, min_length=1
+    )
     windows: list[PositiveWindow] | None = None
     lag_steps: list[PositiveWindow] | None = None
 
@@ -67,12 +79,12 @@ class ResolvedFeatureConfig(BaseModel):
     """Fully resolved feature settings for a single model.
 
     Args:
-        feature_set: Selected feature family.
+        feature_families: Ordered feature families.
         windows: Rolling window sizes.
         lag_steps: Lag offsets.
     """
 
-    feature_set: FeatureSetName
+    feature_families: list[FeatureFamilyName]
     windows: list[PositiveWindow]
     lag_steps: list[PositiveWindow]
 
@@ -80,7 +92,7 @@ class ResolvedFeatureConfig(BaseModel):
 class FeatureConfig(BaseModel):
     """Configuration for feature engineering.
 
-    The top-level ``feature_set`` / ``windows`` / ``lag_steps`` are the shared
+    The top-level ``feature_families`` / ``windows`` / ``lag_steps`` are shared
     defaults. Optional ``ridge`` and ``gru`` blocks override them per model;
     resolve the effective settings for a model with :meth:`for_model`.
 
@@ -88,7 +100,7 @@ class FeatureConfig(BaseModel):
         sensor_cols_to_drop: Sensor column names to remove before modeling.
             Determined from EDA; applied without recomputation at fit time.
         n_modes: Number of operating-mode clusters for normalization.
-        feature_set: Shared engineered feature family (per-model fallback).
+        feature_families: Shared ordered feature families.
         windows: Shared rolling window sizes. Used by rolling feature sets.
         lag_steps: Shared lag offsets. Used by the lag feature set.
         ridge: Optional Ridge-specific feature overrides.
@@ -96,9 +108,13 @@ class FeatureConfig(BaseModel):
         lstm: Optional LSTM-specific feature overrides.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     sensor_cols_to_drop: list[str] = Field(default_factory=list)
     n_modes: int = Field(default=1, gt=0)
-    feature_set: FeatureSetName = "raw"
+    feature_families: list[FeatureFamilyName] = Field(
+        default_factory=_default_feature_families, min_length=1
+    )
     windows: list[PositiveWindow] = Field(default_factory=lambda: [10])
     lag_steps: list[PositiveWindow] = Field(default_factory=lambda: [1])
     ridge: ModelFeatureConfig | None = None
@@ -125,18 +141,20 @@ class FeatureConfig(BaseModel):
             "lstm": self.lstm,
         }
         override = overrides[model]
-        feature_set = self.feature_set
+        feature_families = self.feature_families
         windows = self.windows
         lag_steps = self.lag_steps
         if override is not None:
-            if override.feature_set is not None:
-                feature_set = override.feature_set
+            if override.feature_families is not None:
+                feature_families = override.feature_families
             if override.windows is not None:
                 windows = override.windows
             if override.lag_steps is not None:
                 lag_steps = override.lag_steps
         return ResolvedFeatureConfig(
-            feature_set=feature_set, windows=windows, lag_steps=lag_steps
+            feature_families=feature_families,
+            windows=windows,
+            lag_steps=lag_steps,
         )
 
 

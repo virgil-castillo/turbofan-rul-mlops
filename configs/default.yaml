@@ -12,7 +12,8 @@ data:
 features:
   sensor_cols_to_drop: []
   n_modes: 1
-  feature_set: rolling_mean
+  feature_families:
+    - rolling_mean
   windows:
     - 10
   lag_steps:

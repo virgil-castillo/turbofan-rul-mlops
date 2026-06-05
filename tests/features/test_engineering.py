@@ -24,9 +24,9 @@ def _sensor_df(n_engines: int = 2, n_cycles: int = 10) -> pd.DataFrame:
 
 
 def test_raw_returns_sensor_columns_only() -> None:
-    """feature_set=raw returns only s_* columns with no engine_id."""
+    """feature_families=[raw] returns only s_* columns with no engine_id."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw")
+    eng = FeatureEngineer(feature_families=["raw"])
     result = eng.fit_transform(df)
     assert list(result.columns) == ["s_1", "s_2", "s_3"]
     assert "engine_id" not in result.columns
@@ -35,7 +35,7 @@ def test_raw_returns_sensor_columns_only() -> None:
 def test_raw_feature_cols_attribute() -> None:
     """feature_cols_ matches the output column list for raw."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw")
+    eng = FeatureEngineer(feature_families=["raw"])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1", "s_2", "s_3"]
 
@@ -43,7 +43,7 @@ def test_raw_feature_cols_attribute() -> None:
 def test_rolling_mean_columns() -> None:
     """rolling_mean produces {sensor}_rmean_{window} columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_mean", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_mean"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rmean_5", "s_2_rmean_5", "s_3_rmean_5",
@@ -55,7 +55,7 @@ def test_rolling_mean_columns() -> None:
 def test_rolling_min_columns() -> None:
     """rolling_min produces {sensor}_rmin_{window} columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_min", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_min"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rmin_5", "s_2_rmin_5", "s_3_rmin_5",
@@ -67,7 +67,7 @@ def test_rolling_min_columns() -> None:
 def test_rolling_max_columns() -> None:
     """rolling_max produces {sensor}_rmax_{window} columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_max", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_max"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rmax_5", "s_2_rmax_5", "s_3_rmax_5",
@@ -79,7 +79,7 @@ def test_rolling_max_columns() -> None:
 def test_raw_plus_rolling_mean_columns() -> None:
     """raw_plus_rolling_mean produces raw + rolling_mean columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw_plus_rolling_mean", windows=[5])
+    eng = FeatureEngineer(feature_families=["raw", "rolling_mean"], windows=[5])
     result = eng.fit_transform(df)
     assert "s_1" in result.columns
     assert "s_1_rmean_5" in result.columns
@@ -89,7 +89,7 @@ def test_raw_plus_rolling_mean_columns() -> None:
 def test_lag_columns() -> None:
     """lag produces {sensor}_lag_{step} columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1, 2])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1, 2])
     result = eng.fit_transform(df)
     for step in [1, 2]:
         for sensor in ["s_1", "s_2", "s_3"]:
@@ -100,8 +100,8 @@ def test_lag_columns() -> None:
 def test_rolling_no_nan_min_periods() -> None:
     """Rolling features have no NaN due to min_periods=1."""
     df = _sensor_df()
-    for feature_set in ["rolling_min", "rolling_max"]:
-        eng = FeatureEngineer(feature_set=feature_set, windows=[10])
+    for family in ["rolling_min", "rolling_max"]:
+        eng = FeatureEngineer(feature_families=[family], windows=[10])
         result = eng.fit_transform(df)
         assert not result.isna().any().any()
 
@@ -112,7 +112,7 @@ def test_rolling_respects_engine_boundaries() -> None:
         "engine_id": [1, 1, 2, 2],
         "s_1": [100.0, 200.0, 5.0, 10.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_mean", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_mean"], windows=[5])
     result = eng.fit_transform(df)
     engine2_first_rmean = result.loc[df["engine_id"] == 2, "s_1_rmean_5"].iloc[0]
     assert engine2_first_rmean == pytest.approx(5.0)
@@ -124,24 +124,24 @@ def test_lag_first_cycle_backfills_with_engine_first_value() -> None:
         "engine_id": [1, 1, 1, 2, 2, 2],
         "s_1": [10.0, 20.0, 30.0, 100.0, 200.0, 300.0],
     })
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1])
     result = eng.fit_transform(df)
     assert result.iloc[0]["s_1_lag_1"] == pytest.approx(10.0)
     assert result.iloc[3]["s_1_lag_1"] == pytest.approx(100.0)
 
 
-def test_unsupported_feature_set_raises() -> None:
-    """Unknown feature_set raises ValueError on fit."""
+def test_unsupported_feature_family_raises() -> None:
+    """Unknown feature family raises ValueError on fit."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="fft")
-    with pytest.raises(ValueError, match="Unsupported feature_set"):
+    eng = FeatureEngineer(feature_families=["fft"])  # type: ignore[list-item]
+    with pytest.raises(ValueError, match="Unsupported feature_families"):
         eng.fit(df)
 
 
 def test_feature_cols_attribute_rolling_min() -> None:
     """feature_cols_ is set correctly on fit for rolling_min."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_min", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_min"], windows=[5])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1_rmin_5", "s_2_rmin_5", "s_3_rmin_5"]
 
@@ -149,7 +149,7 @@ def test_feature_cols_attribute_rolling_min() -> None:
 def test_feature_cols_attribute_rolling_max() -> None:
     """feature_cols_ is set correctly on fit for rolling_max."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_max", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_max"], windows=[5])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1_rmax_5", "s_2_rmax_5", "s_3_rmax_5"]
 
@@ -160,7 +160,7 @@ def test_rolling_min_known_value() -> None:
         "engine_id": [1, 1, 1, 1],
         "s_1": [10.0, 5.0, 8.0, 7.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_min", windows=[3])
+    eng = FeatureEngineer(feature_families=["rolling_min"], windows=[3])
     result = eng.fit_transform(df)
     assert result["s_1_rmin_3"].tolist() == pytest.approx(
         [10.0, 5.0, 5.0, 5.0]
@@ -173,7 +173,7 @@ def test_rolling_max_known_value() -> None:
         "engine_id": [1, 1, 1, 1],
         "s_1": [10.0, 5.0, 8.0, 7.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_max", windows=[3])
+    eng = FeatureEngineer(feature_families=["rolling_max"], windows=[3])
     result = eng.fit_transform(df)
     assert result["s_1_rmax_3"].tolist() == pytest.approx(
         [10.0, 10.0, 10.0, 8.0]
@@ -187,10 +187,10 @@ def test_rolling_min_max_respect_engine_boundaries() -> None:
         "s_1": [100.0, 200.0, 5.0, 10.0],
     })
     min_result = FeatureEngineer(
-        feature_set="rolling_min", windows=[5]
+        feature_families=["rolling_min"], windows=[5]
     ).fit_transform(df)
     max_result = FeatureEngineer(
-        feature_set="rolling_max", windows=[5]
+        feature_families=["rolling_max"], windows=[5]
     ).fit_transform(df)
     e2_min = min_result.loc[df["engine_id"] == 2, "s_1_rmin_5"].iloc[0]
     e2_max = max_result.loc[df["engine_id"] == 2, "s_1_rmax_5"].iloc[0]
@@ -201,34 +201,61 @@ def test_rolling_min_max_respect_engine_boundaries() -> None:
 def test_no_engine_id_in_output() -> None:
     """engine_id is never present in transform output."""
     df = _sensor_df()
-    for fs in [
-        "raw",
-        "rolling_mean",
-        "rolling_min",
-        "rolling_max",
-        "lag",
-        "raw_plus_lag",
+    for families in [
+        ["raw"],
+        ["rolling_mean"],
+        ["rolling_min"],
+        ["rolling_max"],
+        ["lag"],
+        ["raw", "lag"],
     ]:
-        kwargs = {"windows": [3]} if "rolling" in fs else {"lag_steps": [1]}
-        eng = FeatureEngineer(feature_set=fs, **kwargs)  # type: ignore[arg-type]
+        kwargs = (
+            {"windows": [3]}
+            if any("rolling" in family for family in families)
+            else {"lag_steps": [1]}
+        )
+        eng = FeatureEngineer(feature_families=families, **kwargs)
         result = eng.fit_transform(df)
-        assert "engine_id" not in result.columns, f"engine_id in output for {fs}"
+        assert "engine_id" not in result.columns, (
+            f"engine_id in output for {families}"
+        )
 
 
 def test_raw_plus_lag_columns() -> None:
     """raw_plus_lag produces raw sensor columns followed by lag columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw_plus_lag", lag_steps=[1])
+    eng = FeatureEngineer(feature_families=["raw", "lag"], lag_steps=[1])
     result = eng.fit_transform(df)
     expected = ["s_1", "s_2", "s_3", "s_1_lag_1", "s_2_lag_1", "s_3_lag_1"]
     assert list(result.columns) == expected
     assert "engine_id" not in result.columns
 
 
+def test_feature_families_compose_in_config_order() -> None:
+    """feature_families composes primitive families in configured order."""
+    df = _sensor_df()
+    eng = FeatureEngineer(
+        feature_families=["raw", "lag", "rolling_mean"],
+        windows=[5, 10],
+        lag_steps=[1, 2],
+    )
+    result = eng.fit_transform(df)
+    expected = [
+        "s_1", "s_2", "s_3",
+        "s_1_lag_1", "s_2_lag_1", "s_3_lag_1",
+        "s_1_lag_2", "s_2_lag_2", "s_3_lag_2",
+        "s_1_rmean_5", "s_2_rmean_5", "s_3_rmean_5",
+        "s_1_rmean_10", "s_2_rmean_10", "s_3_rmean_10",
+    ]
+    assert list(result.columns) == expected
+    assert eng.feature_cols_ == expected
+    assert "engine_id" not in result.columns
+
+
 def test_raw_plus_lag_feature_cols_attribute() -> None:
     """feature_cols_ matches raw + lag column list for raw_plus_lag."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw_plus_lag", lag_steps=[1, 2])
+    eng = FeatureEngineer(feature_families=["raw", "lag"], lag_steps=[1, 2])
     eng.fit(df)
     expected = (
         ["s_1", "s_2", "s_3"]
@@ -244,7 +271,7 @@ def test_lag_returns_shifted_previous_value_lag1() -> None:
         "engine_id": [1, 1, 1],
         "s_1": [100.0, 110.0, 120.0],
     })
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1])
     result = eng.fit_transform(df)
     # cycle 1: no prior history, so backfill uses the first value.
     # cycle 2: previous value is 100.
@@ -259,7 +286,7 @@ def test_lag_returns_shifted_previous_value_lag2() -> None:
         "engine_id": [1, 1, 1],
         "s_1": [100.0, 110.0, 120.0],
     })
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[2])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[2])
     result = eng.fit_transform(df)
     # shift(2).bfill() = [100, 100, 100]
     values = result["s_1_lag_2"].tolist()
@@ -272,7 +299,7 @@ def test_lag_constant_sensor_returns_constant_history() -> None:
         "engine_id": [1, 1, 1, 1],
         "s_1": [50.0, 50.0, 50.0, 50.0],
     })
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1, 3])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1, 3])
     result = eng.fit_transform(df)
     assert result["s_1_lag_1"].tolist() == pytest.approx(
         [50.0, 50.0, 50.0, 50.0]
@@ -285,7 +312,7 @@ def test_lag_constant_sensor_returns_constant_history() -> None:
 def test_lag_no_nan_in_output() -> None:
     """Lag output contains no NaN values."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1, 3])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1, 3])
     result = eng.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -296,7 +323,7 @@ def test_lag_respects_engine_boundaries() -> None:
         "engine_id": [1, 1, 1, 2, 2, 2],
         "s_1": [10.0, 20.0, 30.0, 100.0, 110.0, 120.0],
     })
-    eng = FeatureEngineer(feature_set="lag", lag_steps=[1])
+    eng = FeatureEngineer(feature_families=["lag"], lag_steps=[1])
     result = eng.fit_transform(df)
     e2 = result.loc[df["engine_id"] == 2, "s_1_lag_1"].tolist()
     assert e2 == pytest.approx([100.0, 100.0, 110.0])
@@ -308,7 +335,7 @@ def test_lag_respects_engine_boundaries() -> None:
 def test_rolling_std_column_names_and_order() -> None:
     """rolling_std produces {sensor}_rstd_{window} columns in window-major order."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rstd_5", "s_2_rstd_5", "s_3_rstd_5",
@@ -320,7 +347,7 @@ def test_rolling_std_column_names_and_order() -> None:
 def test_rolling_std_no_engine_id_in_output() -> None:
     """engine_id is never present in rolling_std transform output."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5])
     result = eng.fit_transform(df)
     assert "engine_id" not in result.columns
 
@@ -328,7 +355,7 @@ def test_rolling_std_no_engine_id_in_output() -> None:
 def test_rolling_std_shape() -> None:
     """rolling_std output has correct shape: same rows, n_windows * n_sensors cols."""
     df = _sensor_df(n_engines=2, n_cycles=10)
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert result.shape == (20, 6)  # 2 engines * 10 cycles, 2 windows * 3 sensors
 
@@ -336,7 +363,7 @@ def test_rolling_std_shape() -> None:
 def test_rolling_std_feature_cols_attribute() -> None:
     """feature_cols_ matches the transform output columns for rolling_std."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1_rstd_5", "s_2_rstd_5", "s_3_rstd_5"]
     result = eng.transform(df)
@@ -349,7 +376,7 @@ def test_rolling_std_first_cycle_nan_filled_with_zero() -> None:
         "engine_id": [1, 1, 1],
         "s_1": [10.0, 20.0, 30.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5])
     result = eng.fit_transform(df)
     # Column presence is asserted first; value check requires the column to exist.
     cols = list(result.columns)
@@ -361,7 +388,7 @@ def test_rolling_std_first_cycle_nan_filled_with_zero() -> None:
 def test_rolling_std_no_nan_in_output() -> None:
     """rolling_std output contains no NaN values (min_periods=1 + fillna)."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -372,7 +399,7 @@ def test_rolling_std_respects_engine_boundaries() -> None:
         "engine_id": [1, 1, 2, 2],
         "s_1": [100.0, 200.0, 5.0, 10.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_std", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_std"], windows=[5])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rstd_5" in result.columns, f"expected s_1_rstd_5 in {cols}"
@@ -391,7 +418,7 @@ def test_rolling_std_respects_engine_boundaries() -> None:
 def test_rolling_slope_column_names_and_order() -> None:
     """rolling_slope produces {sensor}_rslope_{window} columns in window-major order."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rslope_5", "s_2_rslope_5", "s_3_rslope_5",
@@ -403,7 +430,7 @@ def test_rolling_slope_column_names_and_order() -> None:
 def test_rolling_slope_no_engine_id_in_output() -> None:
     """engine_id is never present in rolling_slope transform output."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5])
     result = eng.fit_transform(df)
     assert "engine_id" not in result.columns
 
@@ -411,7 +438,7 @@ def test_rolling_slope_no_engine_id_in_output() -> None:
 def test_rolling_slope_shape() -> None:
     """rolling_slope output has correct shape."""
     df = _sensor_df(n_engines=2, n_cycles=10)
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert result.shape == (20, 6)
 
@@ -419,7 +446,7 @@ def test_rolling_slope_shape() -> None:
 def test_rolling_slope_feature_cols_attribute() -> None:
     """feature_cols_ matches transform output columns for rolling_slope."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1_rslope_5", "s_2_rslope_5", "s_3_rslope_5"]
     result = eng.transform(df)
@@ -433,7 +460,7 @@ def test_rolling_slope_known_slope_value() -> None:
         "engine_id": [1, 1, 1, 1, 1],
         "s_1": [1.0, 2.0, 3.0, 4.0, 5.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rslope_5" in result.columns, f"expected s_1_rslope_5 in {cols}"
@@ -448,7 +475,7 @@ def test_rolling_slope_window_1_yields_zero() -> None:
         "engine_id": [1, 1, 1],
         "s_1": [10.0, 20.0, 30.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[1])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[1])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rslope_1" in result.columns, f"expected s_1_rslope_1 in {cols}"
@@ -461,7 +488,7 @@ def test_rolling_slope_window_1_yields_zero() -> None:
 def test_rolling_slope_no_nan_in_output() -> None:
     """rolling_slope output contains no NaN values."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -472,7 +499,7 @@ def test_rolling_slope_respects_engine_boundaries() -> None:
         "engine_id": [1, 1, 1, 2, 2, 2],
         "s_1": [100.0, 200.0, 300.0, 1.0, 2.0, 3.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_slope", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_slope"], windows=[5])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rslope_5" in result.columns, f"expected s_1_rslope_5 in {cols}"
@@ -492,7 +519,7 @@ def test_rolling_slope_respects_engine_boundaries() -> None:
 def test_rolling_delta_column_names_and_order() -> None:
     """rolling_delta produces {sensor}_rdelta_{window} columns in window-major order."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[5, 10])
     result = eng.fit_transform(df)
     expected = [
         "s_1_rdelta_5", "s_2_rdelta_5", "s_3_rdelta_5",
@@ -504,7 +531,7 @@ def test_rolling_delta_column_names_and_order() -> None:
 def test_rolling_delta_no_engine_id_in_output() -> None:
     """engine_id is never present in rolling_delta transform output."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[5])
     result = eng.fit_transform(df)
     assert "engine_id" not in result.columns
 
@@ -512,7 +539,7 @@ def test_rolling_delta_no_engine_id_in_output() -> None:
 def test_rolling_delta_shape() -> None:
     """rolling_delta output has correct shape."""
     df = _sensor_df(n_engines=2, n_cycles=10)
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert result.shape == (20, 6)
 
@@ -520,7 +547,7 @@ def test_rolling_delta_shape() -> None:
 def test_rolling_delta_feature_cols_attribute() -> None:
     """feature_cols_ matches transform output columns for rolling_delta."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[5])
     eng.fit(df)
     assert eng.feature_cols_ == ["s_1_rdelta_5", "s_2_rdelta_5", "s_3_rdelta_5"]
     result = eng.transform(df)
@@ -533,7 +560,7 @@ def test_rolling_delta_first_cycle_is_zero() -> None:
         "engine_id": [1, 1, 1],
         "s_1": [10.0, 20.0, 30.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[3])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"
@@ -549,7 +576,7 @@ def test_rolling_delta_known_value() -> None:
         "engine_id": [1, 1, 1, 1, 1],
         "s_1": [10.0, 20.0, 30.0, 40.0, 50.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[3])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"
@@ -561,7 +588,7 @@ def test_rolling_delta_known_value() -> None:
 def test_rolling_delta_no_nan_in_output() -> None:
     """rolling_delta output contains no NaN values (backfill covers leading history)."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[5, 10])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[5, 10])
     result = eng.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -572,7 +599,7 @@ def test_rolling_delta_respects_engine_boundaries() -> None:
         "engine_id": [1, 1, 2, 2],
         "s_1": [100.0, 200.0, 5.0, 10.0],
     })
-    eng = FeatureEngineer(feature_set="rolling_delta", windows=[3])
+    eng = FeatureEngineer(feature_families=["rolling_delta"], windows=[3])
     result = eng.fit_transform(df)
     cols = list(result.columns)
     assert "s_1_rdelta_3" in result.columns, f"expected s_1_rdelta_3 in {cols}"

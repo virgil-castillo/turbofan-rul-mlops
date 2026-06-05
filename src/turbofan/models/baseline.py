@@ -6,7 +6,7 @@ from typing import Literal
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
-from turbofan.features.engineering import FeatureSet
+from turbofan.features.engineering import FeatureFamily
 from turbofan.features.pipeline import build_feature_pipeline
 
 
@@ -17,7 +17,7 @@ def build_baseline_pipeline(
     sensor_drop: list[str] | None = None,
     n_modes: int = 1,
     random_state: int = 42,
-    feature_set: FeatureSet = "raw",
+    feature_families: list[FeatureFamily] | None = None,
     windows: list[int] | None = None,
     lag_steps: list[int] | None = None,
 ) -> Pipeline:
@@ -34,7 +34,7 @@ def build_baseline_pipeline(
         sensor_drop: Sensor column names to remove before feature engineering.
         n_modes: Operating-mode count for ``OperatingModeNormalizer``.
         random_state: KMeans random seed for the normalizer.
-        feature_set: Which engineered feature family to expose to Ridge.
+        feature_families: Ordered feature families to expose to Ridge.
         windows: Rolling window sizes. Forwarded to ``FeatureEngineer``.
         lag_steps: Lag offsets. Forwarded to ``FeatureEngineer``.
 
@@ -55,7 +55,7 @@ def build_baseline_pipeline(
                     sensor_drop=sensor_drop,
                     n_modes=n_modes,
                     random_state=random_state,
-                    feature_set=feature_set,
+                    feature_families=feature_families,
                     windows=windows,
                     lag_steps=lag_steps,
                 ),

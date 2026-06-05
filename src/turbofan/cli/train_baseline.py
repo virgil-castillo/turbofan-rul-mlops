@@ -193,10 +193,11 @@ def main() -> None:
             X_train, y_train = split_features_target(train_df)
             X_val, y_val = split_features_target(val_df)
 
+            rf = cfg.features.for_model("ridge")
             estimator = build_baseline_pipeline(
                 model_name=cfg.model.name,
                 alpha=cfg.model.alpha,
-                feature_set=(rf := cfg.features.for_model("ridge")).feature_set,
+                feature_families=rf.feature_families,
                 windows=rf.windows,
                 lag_steps=rf.lag_steps,
                 sensor_drop=cfg.features.sensor_cols_to_drop or None,
@@ -255,7 +256,7 @@ def main() -> None:
                 tracking.log_params(
                     {
                         "alpha": cfg.model.alpha,
-                        "feature_set": rf.feature_set,
+                        "feature_families": rf.feature_families,
                         "windows": rf.windows,
                         "lag_steps": rf.lag_steps,
                         "seed": cfg.data.random_seed,

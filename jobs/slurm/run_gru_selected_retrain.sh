@@ -37,7 +37,7 @@ echo "subsets=${SUBSET_ARGS[*]}"
 echo "device=$DEVICE"
 
 # Assumes configs/subsets/<fd>.yaml has been updated with the
-# Stage 1/2 selected gru block (feature_set, windows, sequence.window_size,
+# Stage 1/2 selected gru block (feature_families, windows, sequence.window_size,
 # sequence.hidden_size, sequence.learning_rate). This script just retrains
 # each subset's GRU using the existing training CLI.
 for fd in "${SUBSET_ARGS[@]}"; do

@@ -17,15 +17,15 @@ features:
   # Ridge: best-config feature engineering from the feature sweep.
   # GRU: selected config from the Stage 2 capacity sweep (docs/gru_capacity_sweep_report.md).
   ridge:
-    feature_set: raw_plus_rolling_mean
+    feature_families: [raw, rolling_mean]
     windows: [4]
   gru:
-    feature_set: rolling_mean
+    feature_families: [rolling_mean]
     windows: [10]
   # LSTM: seeded from the GRU-tuned values; a dedicated LSTM feature sweep is a
   # possible follow-up and may diverge these from GRU.
   lstm:
-    feature_set: rolling_mean
+    feature_families: [rolling_mean]
     windows: [10]
 
 # GRU sequence hyperparameters selected by the Stage 2 capacity sweep.

@@ -465,7 +465,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     assert row["params.hidden_size"] == "6"
     assert row["params.learning_rate"] == "0.002"
     assert row["params.seed"] == "123"
-    assert "params.feature_set" in row
+    assert row["params.feature_families"] == "['raw']"
     assert row["metrics.val_rmse"] == 1.0
     assert row["metrics.val_mae"] == 2.0
     assert row["metrics.training_duration_seconds"] >= 0.0
