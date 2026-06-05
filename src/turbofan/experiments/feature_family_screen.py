@@ -7,6 +7,7 @@ the CSV append/read layer. Model training (``run_cell``) and full orchestration
 """
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -235,32 +236,26 @@ def completed_keys(path: Path) -> set[tuple[str, str, str, str, str]]:
     if not path.exists():
         return set()
 
-    import csv as _csv
-
     keys: set[tuple[str, str, str, str, str]] = set()
     with path.open(newline="", encoding="utf-8") as fh:
-        reader = _csv.DictReader(fh)
+        reader = csv.DictReader(fh)
         for row in reader:
-            try:
-                fc = row["feature_config"]
-                rw = row["rolling_window"]
-                ls = row["lag_step"]
-                sw = row["sequence_window"]
-                sd = row["seed"]
-                # DictReader fills short rows with None; skip them
-                if None in (fc, rw, ls, sw, sd):
-                    continue
-                key: tuple[str, str, str, str, str] = (
-                    str(fc),
-                    str(rw),
-                    str(ls),
-                    str(sw),
-                    str(sd),
-                )
-                keys.add(key)
-            except KeyError:
-                # Malformed row (missing expected columns) — skip
+            fc = row["feature_config"]
+            rw = row["rolling_window"]
+            ls = row["lag_step"]
+            sw = row["sequence_window"]
+            sd = row["seed"]
+            # DictReader fills short rows with None; skip them
+            if None in (fc, rw, ls, sw, sd):
                 continue
+            key: tuple[str, str, str, str, str] = (
+                str(fc),
+                str(rw),
+                str(ls),
+                str(sw),
+                str(sd),
+            )
+            keys.add(key)
     return keys
 
 
@@ -276,16 +271,11 @@ def append_row(path: Path, row: dict[str, Any]) -> None:
         path: Destination CSV file path.
         row: Mapping from column name to value; must contain all keys in
             :data:`CSV_COLUMNS`.
-
-    Raises:
-        KeyError: If ``row`` is missing a required column.
     """
-    import csv as _csv
-
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="", encoding="utf-8") as fh:
-        writer = _csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+        writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         if write_header:
             writer.writeheader()
         writer.writerow(row)
