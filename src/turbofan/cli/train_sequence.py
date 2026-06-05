@@ -13,6 +13,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from time import perf_counter
 
 import mlflow
 import numpy as np
@@ -310,6 +311,7 @@ def main() -> None:
             logger.info(
                 "training %s for up to %d epochs", architecture, cfg.sequence.epochs
             )
+            training_started = perf_counter()
             result = train_sequence_model(
                 model=model,
                 train_loader=train_loader,
@@ -319,6 +321,7 @@ def main() -> None:
                 random_seed=cfg.data.random_seed,
                 max_rul=cfg.data.max_rul,
             )
+            training_duration_seconds = perf_counter() - training_started
 
             window_metrics, window_predictions = _evaluate_windows(
                 result.model,
@@ -340,6 +343,7 @@ def main() -> None:
                 run_metrics: dict[str, float] = {
                     "val_rmse": window_metrics["rmse"],
                     "val_mae": window_metrics["mae"],
+                    "training_duration_seconds": training_duration_seconds,
                 }
 
                 official = _evaluate_official_test(

@@ -112,6 +112,7 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     assert row["params.feature_set"] == "raw"
     assert row["metrics.val_rmse"] >= 0.0
     assert row["metrics.val_mae"] >= 0.0
+    assert row["metrics.training_duration_seconds"] >= 0.0
     assert row["metrics.official_rmse"] >= 0.0
 
     # --- a registered model version linked to the run + prediction artifacts ---

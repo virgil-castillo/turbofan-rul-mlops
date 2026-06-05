@@ -468,6 +468,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     assert "params.feature_set" in row
     assert row["metrics.val_rmse"] == 1.0
     assert row["metrics.val_mae"] == 2.0
+    assert row["metrics.training_duration_seconds"] >= 0.0
 
 
 def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(

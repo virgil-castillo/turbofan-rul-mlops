@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from time import perf_counter
 
 import mlflow
 import numpy as np
@@ -203,7 +204,9 @@ def main() -> None:
                 random_state=cfg.data.random_seed,
             )
             logger.info("fitting %s baseline pipeline", cfg.model.name)
+            training_started = perf_counter()
             estimator.fit(X_train, y_train)
+            training_duration_seconds = perf_counter() - training_started
 
             val_pred = _predict_with_clipping(
                 estimator,
@@ -222,6 +225,7 @@ def main() -> None:
                 run_metrics: dict[str, float] = {
                     "val_rmse": val_metrics["rmse"],
                     "val_mae": val_metrics["mae"],
+                    "training_duration_seconds": training_duration_seconds,
                 }
 
                 official = _evaluate_official_test(cfg, estimator)
