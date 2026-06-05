@@ -65,6 +65,7 @@ def test_features_step_is_pipeline() -> None:
         "normalizer",
         "sensor_selector",
         "feature_engineer",
+        "scaler",
     ]
 
 

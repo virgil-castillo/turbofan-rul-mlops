@@ -6,6 +6,7 @@ import io
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 from turbofan.features.pipeline import SensorColumnSelector, build_feature_pipeline
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
@@ -48,15 +49,22 @@ def _make_test_df() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_pipeline_has_four_named_steps() -> None:
-    """Pipeline has the four expected named steps."""
+def test_pipeline_has_five_named_steps() -> None:
+    """Pipeline has the five expected named steps."""
     pipe = build_feature_pipeline()
     assert list(pipe.named_steps) == [
         "sensor_dropper",
         "normalizer",
         "sensor_selector",
         "feature_engineer",
+        "scaler",
     ]
+
+
+def test_scaler_step_is_standard_scaler() -> None:
+    """Final pipeline step is StandardScaler."""
+    pipe = build_feature_pipeline()
+    assert isinstance(pipe.named_steps["scaler"], StandardScaler)
 
 
 def test_output_contains_only_sensor_columns_for_raw() -> None:

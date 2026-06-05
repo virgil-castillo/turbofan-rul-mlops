@@ -6,6 +6,7 @@ from typing import Any, Self
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from turbofan.features.engineering import FeatureEngineer, FeatureSet
 from turbofan.features.sensor_dropper import SensorDropper
@@ -116,16 +117,16 @@ def build_feature_pipeline(
     windows: list[int] | None = None,
     lag_steps: list[int] | None = None,
 ) -> Pipeline:
-    """Build the shared 4-step feature engineering pipeline.
+    """Build the shared 5-step feature engineering pipeline.
 
     Steps: ``sensor_dropper`` → ``normalizer`` → ``sensor_selector``
-    → ``feature_engineer``.
+    → ``feature_engineer`` → ``scaler``.
 
     The normalizer auto-detects sensor ``feature_cols`` from the data at fit
     time so op cols are available for KMeans but are not z-scored.
     ``SensorColumnSelector`` retains ``engine_id`` so that
     ``FeatureEngineer`` can compute per-engine rolling and lag features.
-    The final output contains only the engineered feature columns.
+    The final output contains only the scaled engineered feature columns.
 
     Args:
         op_cols: Operating-condition columns for KMeans clustering.
@@ -161,5 +162,6 @@ def build_feature_pipeline(
                     lag_steps=lag_steps,
                 ),
             ),
+            ("scaler", StandardScaler().set_output(transform="pandas")),
         ]
     )
