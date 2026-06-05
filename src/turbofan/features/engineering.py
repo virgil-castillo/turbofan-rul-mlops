@@ -245,34 +245,26 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         return pd.DataFrame(cols, index=X.index)
 
     def _lag_features(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Compute per-engine normalized lag-difference features.
+        """Compute per-engine lagged sensor-value features.
 
-        Each feature is ``(x[t] - x[t-N]) / rolling_mean(x, N)``, where
-        ``N`` is the lag step. Dividing by the rolling mean makes the change
-        scale-invariant across sensors and suppresses absolute-level noise.
-        Early cycles where ``x[t-N]`` has no history are backfilled, yielding
-        a difference of zero. When the rolling mean is near zero the raw
-        difference is returned unchanged to avoid division instability.
+        Each feature is ``x[t-N]``, where ``N`` is the lag step. Early cycles
+        where ``x[t-N]`` has no history are backfilled within the same engine
+        so the sklearn pipeline receives finite values without crossing engine
+        boundaries.
 
         Args:
             X: Input DataFrame with ``engine_id`` and sensor columns.
 
         Returns:
-            DataFrame of normalized lag-difference feature columns.
+            DataFrame of lagged sensor-value feature columns.
         """
         cols: dict[str, pd.Series] = {}
         for step in self._lag_steps:
             for col in self.sensor_cols_:
                 grp = X.groupby("engine_id")[col]
-                lagged = grp.transform(
-                    lambda s, _step=step: s.shift(_step).bfill()
+                cols[f"{col}_lag_{step}"] = grp.transform(
+                    lambda s, _step=step: s.shift(_step).bfill().fillna(s)
                 )
-                mean = grp.transform(
-                    lambda s, _step=step: s.rolling(_step, min_periods=1).mean()
-                )
-                diff = X[col] - lagged
-                safe_mean = mean.where(mean.abs() > 1e-9, other=1.0)
-                cols[f"{col}_lag_{step}"] = diff / safe_mean
         return pd.DataFrame(cols, index=X.index)
 
     def _rolling_std(self, X: pd.DataFrame) -> pd.DataFrame:
