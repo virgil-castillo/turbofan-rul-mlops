@@ -52,15 +52,28 @@ def test_rolling_mean_columns() -> None:
     assert list(result.columns) == expected
 
 
-def test_rolling_stats_columns() -> None:
-    """rolling_stats produces mean/std/min/max columns per sensor per window."""
+def test_rolling_min_columns() -> None:
+    """rolling_min produces {sensor}_rmin_{window} columns."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_stats", windows=[5])
+    eng = FeatureEngineer(feature_set="rolling_min", windows=[5, 10])
     result = eng.fit_transform(df)
-    for stat in ["rmean", "rstd", "rmin", "rmax"]:
-        for sensor in ["s_1", "s_2", "s_3"]:
-            assert f"{sensor}_{stat}_5" in result.columns
-    assert "engine_id" not in result.columns
+    expected = [
+        "s_1_rmin_5", "s_2_rmin_5", "s_3_rmin_5",
+        "s_1_rmin_10", "s_2_rmin_10", "s_3_rmin_10",
+    ]
+    assert list(result.columns) == expected
+
+
+def test_rolling_max_columns() -> None:
+    """rolling_max produces {sensor}_rmax_{window} columns."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_max", windows=[5, 10])
+    result = eng.fit_transform(df)
+    expected = [
+        "s_1_rmax_5", "s_2_rmax_5", "s_3_rmax_5",
+        "s_1_rmax_10", "s_2_rmax_10", "s_3_rmax_10",
+    ]
+    assert list(result.columns) == expected
 
 
 def test_raw_plus_rolling_mean_columns() -> None:
@@ -70,17 +83,6 @@ def test_raw_plus_rolling_mean_columns() -> None:
     result = eng.fit_transform(df)
     assert "s_1" in result.columns
     assert "s_1_rmean_5" in result.columns
-    assert "engine_id" not in result.columns
-
-
-def test_raw_plus_rolling_stats_columns() -> None:
-    """raw_plus_rolling_stats produces raw + all rolling stat columns."""
-    df = _sensor_df()
-    eng = FeatureEngineer(feature_set="raw_plus_rolling_stats", windows=[5])
-    result = eng.fit_transform(df)
-    assert "s_1" in result.columns
-    assert "s_1_rmean_5" in result.columns
-    assert "s_1_rstd_5" in result.columns
     assert "engine_id" not in result.columns
 
 
@@ -98,9 +100,10 @@ def test_lag_columns() -> None:
 def test_rolling_no_nan_min_periods() -> None:
     """Rolling features have no NaN due to min_periods=1."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_stats", windows=[10])
-    result = eng.fit_transform(df)
-    assert not result.isna().any().any()
+    for feature_set in ["rolling_min", "rolling_max"]:
+        eng = FeatureEngineer(feature_set=feature_set, windows=[10])
+        result = eng.fit_transform(df)
+        assert not result.isna().any().any()
 
 
 def test_rolling_respects_engine_boundaries() -> None:
@@ -135,20 +138,77 @@ def test_unsupported_feature_set_raises() -> None:
         eng.fit(df)
 
 
-def test_feature_cols_attribute_rolling_stats() -> None:
-    """feature_cols_ is set correctly on fit for rolling_stats."""
+def test_feature_cols_attribute_rolling_min() -> None:
+    """feature_cols_ is set correctly on fit for rolling_min."""
     df = _sensor_df()
-    eng = FeatureEngineer(feature_set="rolling_stats", windows=[5])
+    eng = FeatureEngineer(feature_set="rolling_min", windows=[5])
     eng.fit(df)
-    assert "s_1_rmean_5" in eng.feature_cols_
-    assert "s_1_rstd_5" in eng.feature_cols_
-    assert len(eng.feature_cols_) == 3 * 4 * 1  # 3 sensors * 4 stats * 1 window
+    assert eng.feature_cols_ == ["s_1_rmin_5", "s_2_rmin_5", "s_3_rmin_5"]
+
+
+def test_feature_cols_attribute_rolling_max() -> None:
+    """feature_cols_ is set correctly on fit for rolling_max."""
+    df = _sensor_df()
+    eng = FeatureEngineer(feature_set="rolling_max", windows=[5])
+    eng.fit(df)
+    assert eng.feature_cols_ == ["s_1_rmax_5", "s_2_rmax_5", "s_3_rmax_5"]
+
+
+def test_rolling_min_known_value() -> None:
+    """rolling_min returns the minimum inside the current window."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 1],
+        "s_1": [10.0, 5.0, 8.0, 7.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_min", windows=[3])
+    result = eng.fit_transform(df)
+    assert result["s_1_rmin_3"].tolist() == pytest.approx(
+        [10.0, 5.0, 5.0, 5.0]
+    )
+
+
+def test_rolling_max_known_value() -> None:
+    """rolling_max returns the maximum inside the current window."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 1, 1],
+        "s_1": [10.0, 5.0, 8.0, 7.0],
+    })
+    eng = FeatureEngineer(feature_set="rolling_max", windows=[3])
+    result = eng.fit_transform(df)
+    assert result["s_1_rmax_3"].tolist() == pytest.approx(
+        [10.0, 10.0, 10.0, 8.0]
+    )
+
+
+def test_rolling_min_max_respect_engine_boundaries() -> None:
+    """rolling_min and rolling_max do not cross engine boundaries."""
+    df = pd.DataFrame({
+        "engine_id": [1, 1, 2, 2],
+        "s_1": [100.0, 200.0, 5.0, 10.0],
+    })
+    min_result = FeatureEngineer(
+        feature_set="rolling_min", windows=[5]
+    ).fit_transform(df)
+    max_result = FeatureEngineer(
+        feature_set="rolling_max", windows=[5]
+    ).fit_transform(df)
+    e2_min = min_result.loc[df["engine_id"] == 2, "s_1_rmin_5"].iloc[0]
+    e2_max = max_result.loc[df["engine_id"] == 2, "s_1_rmax_5"].iloc[0]
+    assert e2_min == pytest.approx(5.0)
+    assert e2_max == pytest.approx(5.0)
 
 
 def test_no_engine_id_in_output() -> None:
     """engine_id is never present in transform output."""
     df = _sensor_df()
-    for fs in ["raw", "rolling_mean", "rolling_stats", "lag", "raw_plus_lag"]:
+    for fs in [
+        "raw",
+        "rolling_mean",
+        "rolling_min",
+        "rolling_max",
+        "lag",
+        "raw_plus_lag",
+    ]:
         kwargs = {"windows": [3]} if "rolling" in fs else {"lag_steps": [1]}
         eng = FeatureEngineer(feature_set=fs, **kwargs)  # type: ignore[arg-type]
         result = eng.fit_transform(df)

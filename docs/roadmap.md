@@ -92,7 +92,7 @@ Batch prediction and FastAPI serving have been validated end-to-end (2026-05-27)
 
 Ridge and GRU previously received fundamentally different data: Ridge used rolling statistics on a filtered sensor set; GRU used raw values on all 21 sensors with its own normalization path. This refactor makes them share a single preprocessing contract.
 
-- [x] `FeatureEngineer` sklearn transformer — config-driven feature sets (`raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, `lag`); rolling and lag computed per engine, no boundary crossing
+- [x] `FeatureEngineer` sklearn transformer — config-driven feature sets (`raw`, `rolling_mean`, `raw_plus_rolling_mean`, `lag`, `raw_plus_lag`, `rolling_std`, `rolling_min`, `rolling_max`, `rolling_slope`, `rolling_delta`); rolling and lag computed per engine, no boundary crossing
 - [x] 5-step shared `build_feature_pipeline`: `SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer → StandardScaler`
 - [x] `FeatureConfig` gains `feature_set`, `windows`, `lag_steps`; `ModelConfig` loses them (they are feature engineering parameters, not model parameters)
 - [x] Ridge: simplified to 2-step pipeline (`build_feature_pipeline → Ridge`); old dead helpers removed (`RollingFeatureExtractor`, `_ModelFeatureSelector`, `_LowVarianceFeatureDropper`, `StandardScaler`, etc.)

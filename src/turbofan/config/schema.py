@@ -35,12 +35,12 @@ class DataConfig(BaseModel):
 FeatureSetName = Literal[
     "raw",
     "rolling_mean",
-    "rolling_stats",
     "raw_plus_rolling_mean",
-    "raw_plus_rolling_stats",
     "lag",
     "raw_plus_lag",
     "rolling_std",
+    "rolling_min",
+    "rolling_max",
     "rolling_slope",
     "rolling_delta",
 ]

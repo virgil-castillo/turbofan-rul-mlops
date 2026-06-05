@@ -82,6 +82,18 @@ def test_model_feature_config_accepts_rolling_delta() -> None:
     assert cfg.feature_set == "rolling_delta"
 
 
+def test_model_feature_config_accepts_rolling_min() -> None:
+    """rolling_min is a valid FeatureSetName for ModelFeatureConfig."""
+    cfg = ModelFeatureConfig(feature_set="rolling_min")  # type: ignore[arg-type]
+    assert cfg.feature_set == "rolling_min"
+
+
+def test_model_feature_config_accepts_rolling_max() -> None:
+    """rolling_max is a valid FeatureSetName for ModelFeatureConfig."""
+    cfg = ModelFeatureConfig(feature_set="rolling_max")  # type: ignore[arg-type]
+    assert cfg.feature_set == "rolling_max"
+
+
 def test_feature_config_for_model_rolling_std_gru() -> None:
     """rolling_std resolves correctly through FeatureConfig.for_model for gru."""
     fc = FeatureConfig(
@@ -107,3 +119,21 @@ def test_feature_config_for_model_rolling_delta_lstm() -> None:
     )
     resolved = fc.for_model("lstm")
     assert resolved.feature_set == "rolling_delta"
+
+
+def test_feature_config_for_model_rolling_min_gru() -> None:
+    """rolling_min resolves correctly through FeatureConfig.for_model for gru."""
+    fc = FeatureConfig(
+        gru=ModelFeatureConfig(feature_set="rolling_min"),  # type: ignore[arg-type]
+    )
+    resolved = fc.for_model("gru")
+    assert resolved.feature_set == "rolling_min"
+
+
+def test_feature_config_for_model_rolling_max_ridge() -> None:
+    """rolling_max resolves correctly through FeatureConfig.for_model for ridge."""
+    fc = FeatureConfig(
+        ridge=ModelFeatureConfig(feature_set="rolling_max"),  # type: ignore[arg-type]
+    )
+    resolved = fc.for_model("ridge")
+    assert resolved.feature_set == "rolling_max"

@@ -533,12 +533,13 @@ def test_base_key_not_present_in_validated_config(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "feature_set", ["rolling_std", "rolling_slope", "rolling_delta"]
+    "feature_set",
+    ["rolling_std", "rolling_slope", "rolling_delta", "rolling_min", "rolling_max"],
 )
 def test_new_feature_set_names_accepted_in_feature_config(
     tmp_path: Path, feature_set: str
 ) -> None:
-    """rolling_std / rolling_slope / rolling_delta are valid FeatureSetName in YAML."""
+    """New modular rolling feature sets are valid FeatureSetName values."""
     cfg_file = _write_config(
         tmp_path,
         {

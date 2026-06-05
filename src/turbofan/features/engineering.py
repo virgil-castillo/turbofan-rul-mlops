@@ -33,12 +33,12 @@ def _slope(x: npt.NDArray[np.floating[Any]]) -> float:
 FeatureSet = Literal[
     "raw",
     "rolling_mean",
-    "rolling_stats",
     "raw_plus_rolling_mean",
-    "raw_plus_rolling_stats",
     "lag",
     "raw_plus_lag",
     "rolling_std",
+    "rolling_min",
+    "rolling_max",
     "rolling_slope",
     "rolling_delta",
 ]
@@ -114,19 +114,18 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
             return X[self.sensor_cols_].copy()
         if self.feature_set == "rolling_mean":
             return self._rolling_mean(X)
-        if self.feature_set == "rolling_stats":
-            return self._rolling_stats(X)
         if self.feature_set == "raw_plus_rolling_mean":
             raw = X[self.sensor_cols_].copy()
             return pd.concat([raw, self._rolling_mean(X)], axis=1)
-        if self.feature_set == "raw_plus_rolling_stats":
-            raw = X[self.sensor_cols_].copy()
-            return pd.concat([raw, self._rolling_stats(X)], axis=1)
         if self.feature_set == "raw_plus_lag":
             raw = X[self.sensor_cols_].copy()
             return pd.concat([raw, self._lag_features(X)], axis=1)
         if self.feature_set == "rolling_std":
             return self._rolling_std(X)
+        if self.feature_set == "rolling_min":
+            return self._rolling_min(X)
+        if self.feature_set == "rolling_max":
+            return self._rolling_max(X)
         if self.feature_set == "rolling_slope":
             return self._rolling_slope(X)
         if self.feature_set == "rolling_delta":
@@ -148,25 +147,11 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
                 for w in self._windows
                 for col in self.sensor_cols_
             ]
-        if self.feature_set == "rolling_stats":
-            return [
-                f"{col}_{stat}_{w}"
-                for w in self._windows
-                for col in self.sensor_cols_
-                for stat in ["rmean", "rstd", "rmin", "rmax"]
-            ]
         if self.feature_set == "raw_plus_rolling_mean":
             return list(self.sensor_cols_) + [
                 f"{col}_rmean_{w}"
                 for w in self._windows
                 for col in self.sensor_cols_
-            ]
-        if self.feature_set == "raw_plus_rolling_stats":
-            return list(self.sensor_cols_) + [
-                f"{col}_{stat}_{w}"
-                for w in self._windows
-                for col in self.sensor_cols_
-                for stat in ["rmean", "rstd", "rmin", "rmax"]
             ]
         if self.feature_set == "raw_plus_lag":
             return list(self.sensor_cols_) + [
@@ -177,6 +162,18 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         if self.feature_set == "rolling_std":
             return [
                 f"{col}_rstd_{w}"
+                for w in self._windows
+                for col in self.sensor_cols_
+            ]
+        if self.feature_set == "rolling_min":
+            return [
+                f"{col}_rmin_{w}"
+                for w in self._windows
+                for col in self.sensor_cols_
+            ]
+        if self.feature_set == "rolling_max":
+            return [
+                f"{col}_rmax_{w}"
                 for w in self._windows
                 for col in self.sensor_cols_
             ]
@@ -217,33 +214,6 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
                 )
         return pd.DataFrame(cols, index=X.index)
 
-    def _rolling_stats(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Compute per-engine rolling mean/std/min/max for each sensor and window.
-
-        Args:
-            X: Input DataFrame with ``engine_id`` and sensor columns.
-
-        Returns:
-            DataFrame of rolling-stat feature columns (mean, std, min, max).
-        """
-        cols: dict[str, pd.Series] = {}
-        for w in self._windows:
-            for col in self.sensor_cols_:
-                grp = X.groupby("engine_id")[col]
-                cols[f"{col}_rmean_{w}"] = grp.transform(
-                    lambda s, _w=w: s.rolling(_w, min_periods=1).mean()
-                )
-                cols[f"{col}_rstd_{w}"] = grp.transform(
-                    lambda s, _w=w: s.rolling(_w, min_periods=1).std()
-                ).fillna(0.0)
-                cols[f"{col}_rmin_{w}"] = grp.transform(
-                    lambda s, _w=w: s.rolling(_w, min_periods=1).min()
-                )
-                cols[f"{col}_rmax_{w}"] = grp.transform(
-                    lambda s, _w=w: s.rolling(_w, min_periods=1).max()
-                )
-        return pd.DataFrame(cols, index=X.index)
-
     def _lag_features(self, X: pd.DataFrame) -> pd.DataFrame:
         """Compute per-engine lagged sensor-value features.
 
@@ -271,8 +241,7 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         """Compute per-engine rolling standard deviation for each sensor and window.
 
         The first cycle of each engine yields a single-point window whose std
-        is ``NaN``; that value is filled with ``0.0`` to match the std handling
-        already applied in :meth:`_rolling_stats`.
+        is ``NaN``; that value is filled with ``0.0``.
 
         Args:
             X: Input DataFrame with ``engine_id`` and sensor columns.
@@ -287,6 +256,42 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
                 cols[f"{col}_rstd_{w}"] = grp.transform(
                     lambda s, _w=w: s.rolling(_w, min_periods=1).std()
                 ).fillna(0.0)
+        return pd.DataFrame(cols, index=X.index)
+
+    def _rolling_min(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-engine rolling minimum for each sensor and window.
+
+        Args:
+            X: Input DataFrame with ``engine_id`` and sensor columns.
+
+        Returns:
+            DataFrame of rolling-min feature columns (``{s}_rmin_{w}``).
+        """
+        cols: dict[str, pd.Series] = {}
+        for w in self._windows:
+            for col in self.sensor_cols_:
+                grp = X.groupby("engine_id")[col]
+                cols[f"{col}_rmin_{w}"] = grp.transform(
+                    lambda s, _w=w: s.rolling(_w, min_periods=1).min()
+                )
+        return pd.DataFrame(cols, index=X.index)
+
+    def _rolling_max(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-engine rolling maximum for each sensor and window.
+
+        Args:
+            X: Input DataFrame with ``engine_id`` and sensor columns.
+
+        Returns:
+            DataFrame of rolling-max feature columns (``{s}_rmax_{w}``).
+        """
+        cols: dict[str, pd.Series] = {}
+        for w in self._windows:
+            for col in self.sensor_cols_:
+                grp = X.groupby("engine_id")[col]
+                cols[f"{col}_rmax_{w}"] = grp.transform(
+                    lambda s, _w=w: s.rolling(_w, min_periods=1).max()
+                )
         return pd.DataFrame(cols, index=X.index)
 
     def _rolling_slope(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -322,10 +327,10 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         has no history are backfilled to the earliest available value, yielding
         a difference of ``0.0`` for the first cycle of each engine.
 
-        Note: ``rolling_delta`` is distinct from the ``lag`` family.  ``lag``
-        normalises by a rolling mean and is keyed to an arbitrary lag step
-        ``N``; ``rolling_delta`` is an un-normalised windowed difference keyed
-        directly to the rolling span ``w - 1``.
+        Note: ``rolling_delta`` is distinct from the ``lag`` family. ``lag``
+        emits shifted prior values keyed to an arbitrary lag step ``N``;
+        ``rolling_delta`` emits windowed differences keyed directly to the
+        rolling span ``w - 1``.
 
         Args:
             X: Input DataFrame with ``engine_id`` and sensor columns.
