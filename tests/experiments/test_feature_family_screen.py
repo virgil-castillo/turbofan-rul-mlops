@@ -11,7 +11,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import pytest
 import torch
@@ -26,6 +25,7 @@ from turbofan.experiments.feature_family_screen import (
     csv_path,
     enumerate_cells,
 )
+from turbofan.models.sequence_training import TrainingResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -418,9 +418,7 @@ def _install_run_cell_patches(
         "seed_everything": [],
         "build_sequence_model": [],
         "train_sequence_model": [],
-        "predict_windows": [],
         "resolve_device": [],
-        "regression_metrics": [],
     }
 
     fake_subset_cfg = _fake_subset_cfg(n_modes=n_modes)
@@ -441,10 +439,18 @@ def _install_run_cell_patches(
             return df
 
     fake_model = MagicMock(spec=torch.nn.Module)
-    fake_result = SimpleNamespace(
+    fake_history = pd.DataFrame(
+        {
+            "epoch": [1, 2, 3],
+            "validation_windows_rmse": [15.0, 13.0, 12.5],
+            "validation_windows_mae": [11.0, 10.0, 9.0],
+        }
+    )
+    fake_result = TrainingResult(
         model=fake_model,
-        best_epoch=7,
-        best_metric=12.3,
+        history=fake_history,
+        best_epoch=3,
+        best_metric=12.5,
     )
 
     def fake_load_config(path: Path) -> object:
@@ -493,30 +499,13 @@ def _install_run_cell_patches(
         calls["build_sequence_model"].append({"arch": arch, **kwargs})
         return fake_model
 
-    def fake_train_sequence_model(**kwargs: object) -> object:
+    def fake_train_sequence_model(**kwargs: object) -> TrainingResult:
         calls["train_sequence_model"].append(kwargs)
         return fake_result
-
-    def fake_predict_windows(
-        model: object,
-        loader: object,
-        device: object,
-        *,
-        max_rul: int,
-    ) -> npt.NDArray[np.float64]:
-        calls["predict_windows"].append({"max_rul": max_rul})
-        return np.ones(20, dtype=np.float64) * 18.0
 
     def fake_resolve_device(requested: object) -> torch.device:
         calls["resolve_device"].append(requested)
         return torch.device("cpu")
-
-    def fake_regression_metrics(
-        y_true: npt.NDArray[np.float64],
-        y_pred: npt.NDArray[np.float64],
-    ) -> dict[str, float]:
-        calls["regression_metrics"].append({"y_true": y_true, "y_pred": y_pred})
-        return {"rmse": 11.5, "mae": 9.2}
 
     monkeypatch.setattr(_screen_module, "load_config", fake_load_config)
     monkeypatch.setattr(_screen_module, "load_raw_train", fake_load_raw_train)
@@ -538,11 +527,7 @@ def _install_run_cell_patches(
     monkeypatch.setattr(
         _screen_module, "train_sequence_model", fake_train_sequence_model
     )
-    monkeypatch.setattr(_screen_module, "predict_windows", fake_predict_windows)
     monkeypatch.setattr(_screen_module, "resolve_device", fake_resolve_device)
-    monkeypatch.setattr(
-        _screen_module, "regression_metrics", fake_regression_metrics
-    )
 
     return calls
 
@@ -775,22 +760,27 @@ def test_run_cell_row_round_trips_through_csv(
 
 
 # ---------------------------------------------------------------------------
-# run_cell — val_rmse and val_mae come from regression_metrics
+# run_cell — val_rmse and val_mae come from TrainingResult, not extra inference
 # ---------------------------------------------------------------------------
 
 
-def test_run_cell_metrics_come_from_regression_metrics(
+def test_run_cell_metrics_come_from_training_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """val_rmse/val_mae must equal the values returned by regression_metrics."""
+    """val_rmse must equal result.best_metric; val_mae from history at best_epoch."""
     from turbofan.experiments.feature_family_screen import run_cell
 
     cell = _make_rolling_cell(seed=44)
     _install_run_cell_patches(monkeypatch, cell)
     row = run_cell(cell)
 
-    assert row["val_rmse"] == pytest.approx(11.5)
-    assert row["val_mae"] == pytest.approx(9.2)
+    assert row["val_rmse"] == pytest.approx(12.5), (
+        "val_rmse must equal result.best_metric (12.5)"
+    )
+    assert row["val_mae"] == pytest.approx(9.0), (
+        "val_mae must come from history row at best_epoch=3 (9.0)"
+    )
+    assert row["best_epoch"] == 3
 
 
 # ---------------------------------------------------------------------------

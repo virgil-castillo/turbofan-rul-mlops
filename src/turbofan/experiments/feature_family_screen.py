@@ -17,7 +17,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from turbofan.config.schema import (
@@ -29,10 +28,8 @@ from turbofan.config.schema import (
 from turbofan.data.loader import load_raw_train
 from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.models.evaluate import add_rul_column
-from turbofan.models.metrics import regression_metrics
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.models.sequence_training import (
-    predict_windows,
     resolve_device,
     seed_everything,
     train_sequence_model,
@@ -510,15 +507,10 @@ def run_cell(
     )
     duration = perf_counter() - started
 
-    # 6. Evaluate best model on validation windows.
-    val_loader = build_sequence_loader(
-        validation_windows, batch_size=BATCH_SIZE, shuffle=False
-    )
-    y_pred = np.clip(
-        predict_windows(result.model, val_loader, dev, max_rul=MAX_RUL), 0.0, None
-    )
-    y_true = validation_windows.y.astype(np.float64)
-    metrics = regression_metrics(y_true, y_pred)
+    # 6. Read metrics from training result (no extra forward pass).
+    val_rmse = float(result.best_metric)
+    best_row = result.history.loc[result.history["epoch"] == result.best_epoch]
+    val_mae = float(best_row["validation_windows_mae"].iloc[0])
 
     # 7. Build the result row.
     rw_val: int | str = "" if cell.rolling_window is None else cell.rolling_window
@@ -538,8 +530,8 @@ def run_cell(
         "n_train_windows": int(train_windows.X.shape[0]),
         "n_val_windows": int(validation_windows.X.shape[0]),
         "best_epoch": result.best_epoch,
-        "val_rmse": metrics["rmse"],
-        "val_mae": metrics["mae"],
+        "val_rmse": val_rmse,
+        "val_mae": val_mae,
         "training_duration_seconds": duration,
     }
 
