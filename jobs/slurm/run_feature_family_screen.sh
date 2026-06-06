@@ -76,6 +76,7 @@ else
     exit 1
 fi
 
+module load cuda
 conda activate "$CONDA_ENV"
 
 read -r -a SUBSET_ARGS       <<< "$SUBSETS"
