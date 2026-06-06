@@ -36,20 +36,27 @@ class TrainingResult:
     best_metric: float
 
 
-def resolve_device(requested: Literal["cpu", "cuda"] = "cpu") -> torch.device:
+def resolve_device(
+    requested: Literal["cpu", "cuda", "auto"] = "cpu",
+) -> torch.device:
     """Resolve a requested torch device.
 
     Args:
-        requested: Requested device name.
+        requested: Requested device name. ``"cpu"`` and ``"cuda"`` are honored
+            literally (``"cuda"`` raises if no GPU is present). ``"auto"``
+            selects CUDA when available and silently falls back to CPU
+            otherwise, so the same job can run unchanged on GPU and CPU nodes.
 
     Returns:
         Torch device for CPU or available CUDA.
 
     Raises:
-        ValueError: If CUDA is requested but unavailable.
+        ValueError: If ``"cuda"`` is requested explicitly but unavailable.
     """
     if requested == "cpu":
         return torch.device("cpu")
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
         return torch.device("cuda")
     raise ValueError("CUDA requested but not available.")

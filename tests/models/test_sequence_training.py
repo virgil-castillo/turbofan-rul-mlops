@@ -183,6 +183,24 @@ def test_resolve_device_cuda_unavailable_raises_clear_error(
         resolve_device("cuda")
 
 
+def test_resolve_device_auto_falls_back_to_cpu_without_gpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'auto' resolves to CPU (no error) when no GPU is visible."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    assert resolve_device("auto").type == "cpu"
+
+
+def test_resolve_device_auto_selects_cuda_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'auto' resolves to CUDA when a GPU is visible."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+    assert resolve_device("auto").type == "cuda"
+
+
 def test_predict_windows_returns_float64_prediction_per_window() -> None:
     """Window prediction returns one float64 numpy value per input window."""
     model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)

@@ -9,8 +9,9 @@ import pytest
 from turbofan.cli import run_feature_screen
 
 
-def test_defaults() -> None:
+def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """_build_parser().parse_args([]) yields the spec defaults."""
+    monkeypatch.delenv("DEVICE", raising=False)
     parser = run_feature_screen._build_parser()
     args = parser.parse_args([])
 
@@ -22,6 +23,16 @@ def test_defaults() -> None:
     assert args.sequence_windows == [30, 60]
     assert args.results_dir == Path("results")
     assert args.configs_dir == Path("configs/subsets")
+    assert args.device == "auto"
+
+
+def test_device_override() -> None:
+    """--device accepts cpu/cuda/auto and rejects anything else."""
+    parser = run_feature_screen._build_parser()
+    assert parser.parse_args(["--device", "cuda"]).device == "cuda"
+    assert parser.parse_args(["--device", "cpu"]).device == "cpu"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--device", "tpu"])
 
 
 def test_overrides() -> None:
@@ -78,6 +89,8 @@ def test_main_wiring() -> None:
                 "42",
                 "--sequence-windows",
                 "30",
+                "--device",
+                "cuda",
             ]
         )
 
@@ -90,3 +103,4 @@ def test_main_wiring() -> None:
     assert captured["lag_steps"] == [1, 5]
     assert captured["results_dir"] == Path("results")
     assert captured["configs_dir"] == Path("configs/subsets")
+    assert captured["device"] == "cuda"

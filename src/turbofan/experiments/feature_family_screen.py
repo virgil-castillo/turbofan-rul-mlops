@@ -15,7 +15,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -383,7 +383,9 @@ def run_cell(
         cell: The fully-specified sweep cell to execute.
         configs_dir: Directory containing per-subset YAML configs (each named
             ``{subset_lower}.yaml``, e.g. ``fd001.yaml``).
-        device: Torch device string (``"cpu"`` or ``"cuda"``).
+        device: Requested compute device (``"cpu"``, ``"cuda"``, or
+            ``"auto"``). ``"auto"`` resolves to CUDA when available and falls
+            back to CPU otherwise, so the same cell runs on GPU and CPU nodes.
 
     Returns:
         A dict with exactly the keys in :data:`CSV_COLUMNS`.  The
@@ -406,7 +408,12 @@ def run_cell(
         random_seed=SPLIT_SEED,
     )
 
-    # 3. Build SequenceConfig for training (all spec-fixed values).
+    # 3. Resolve the device first so "auto" collapses to a concrete name before
+    #    SequenceConfig (whose device field is a Pydantic-validated literal).
+    dev = resolve_device(device)  # type: ignore[arg-type]
+    device_name: Literal["cpu", "cuda"] = "cuda" if dev.type == "cuda" else "cpu"
+
+    # 4. Build SequenceConfig for training (all spec-fixed values).
     seq_cfg = SequenceConfig(
         architecture=cell.architecture,  # type: ignore[arg-type]
         window_size=cell.sequence_window,
@@ -417,12 +424,10 @@ def run_cell(
         learning_rate=LEARNING_RATE,
         epochs=EPOCHS,
         patience=PATIENCE,
-        device=device,  # type: ignore[arg-type]
+        device=device_name,
     )
 
-    dev = resolve_device(device)  # type: ignore[arg-type]
-
-    # 4. Data pipeline — split seed and pipeline random_state are ALWAYS 42.
+    # 5. Data pipeline — split seed and pipeline random_state are ALWAYS 42.
     train_raw = load_raw_train(data_cfg)
     train_labeled = add_rul_column(train_raw, max_rul=MAX_RUL)
     train_df, val_df = split_by_engine(
@@ -485,7 +490,7 @@ def run_cell(
         validation_windows, batch_size=BATCH_SIZE, shuffle=False
     )
 
-    # 5. Model — only cell.seed governs randomness from here on.
+    # 6. Model — only cell.seed governs randomness from here on.
     seed_everything(cell.seed)
     model = build_sequence_model(
         cell.architecture,
@@ -507,12 +512,12 @@ def run_cell(
     )
     duration = perf_counter() - started
 
-    # 6. Read metrics from training result (no extra forward pass).
+    # 7. Read metrics from training result (no extra forward pass).
     val_rmse = float(result.best_metric)
     best_row = result.history.loc[result.history["epoch"] == result.best_epoch]
     val_mae = float(best_row["validation_windows_mae"].iloc[0])
 
-    # 7. Build the result row.
+    # 8. Build the result row.
     rw_val: int | str = "" if cell.rolling_window is None else cell.rolling_window
     ls_val: int | str = "" if cell.lag_step is None else cell.lag_step
 
@@ -546,6 +551,7 @@ def run_screen(
     *,
     results_dir: Path = Path("results"),
     configs_dir: Path = Path("configs/subsets"),
+    device: str = "cpu",
 ) -> None:
     """Orchestrate the full feature-family sweep with CSV resume.
 
@@ -565,6 +571,8 @@ def run_screen(
         seeds: Random seeds for model init / training.
         results_dir: Root directory for result CSV files.
         configs_dir: Directory containing per-subset YAML configs.
+        device: Requested compute device (``"cpu"``, ``"cuda"``, or
+            ``"auto"``) forwarded to :func:`run_cell` for every cell.
     """
     cells = enumerate_cells(
         architectures=architectures,
@@ -586,27 +594,31 @@ def run_screen(
     for idx, cell in enumerate(cells, start=1):
         key = cell_key(cell)
         cache = done[(cell.architecture, cell.subset)]
+        # A cell's full identity is (config, rolling_window, lag_step,
+        # sequence_window, seed); log all of them so adjacent cells that share a
+        # feature_config (e.g. different rolling windows) are distinguishable.
+        cell_desc = (
+            f"{cell.architecture} {cell.subset} {cell.feature_config} "
+            f"rw={cell.rolling_window} lag={cell.lag_step} "
+            f"sw={cell.sequence_window} seed={cell.seed}"
+        )
         if key in cache:
-            logger.info(
-                "skipping completed cell %d/%d: %s %s %s",
-                idx,
-                total,
-                cell.architecture,
-                cell.subset,
-                cell.feature_config,
-            )
+            logger.info("skipping completed cell %d/%d: %s", idx, total, cell_desc)
             continue
 
         logger.info(
-            "running cell %d/%d: %s %s %s seed=%d",
-            idx,
-            total,
-            cell.architecture,
-            cell.subset,
-            cell.feature_config,
-            cell.seed,
+            "running cell %d/%d on device=%s: %s", idx, total, device, cell_desc
         )
-        row = run_cell(cell, configs_dir=configs_dir)
+        row = run_cell(cell, configs_dir=configs_dir, device=device)
         p = csv_path(results_dir, cell.architecture, cell.subset)
         append_row(p, row)
         cache.add(key)
+        logger.info(
+            "completed cell %d/%d: %s -> val_rmse=%.4f val_mae=%.4f (%.1fs)",
+            idx,
+            total,
+            cell_desc,
+            row["val_rmse"],
+            row["val_mae"],
+            row["training_duration_seconds"],
+        )

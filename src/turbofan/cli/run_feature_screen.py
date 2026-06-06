@@ -81,6 +81,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory containing per-subset YAML configs.",
     )
     parser.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default=os.environ.get("DEVICE", "auto"),
+        help=(
+            "Compute device. 'auto' (default) picks CUDA when available and "
+            "falls back to CPU, so the same job runs on GPU and CPU nodes; "
+            "'cuda' fails if no GPU is present. Falls back to the DEVICE env var."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
         default=os.environ.get("LOG_LEVEL", "INFO"),
@@ -103,10 +113,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     setup_logging(args.log_level)
     logger.info(
-        "starting feature-family screen: architectures=%s subsets=%s seeds=%s",
+        "starting feature-family screen: architectures=%s subsets=%s seeds=%s "
+        "device=%s",
         args.architectures,
         args.subsets,
         args.seeds,
+        args.device,
     )
     run_screen(
         architectures=args.architectures,
@@ -117,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         seeds=args.seeds,
         results_dir=args.results_dir,
         configs_dir=args.configs_dir,
+        device=args.device,
     )
     return 0
 
