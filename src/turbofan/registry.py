@@ -190,7 +190,9 @@ class SequenceFinalWindowModel(PythonModel):
             None.
         """
         self._payload = torch.load(
-            context.artifacts[_SEQUENCE_ARTIFACT_KEY], map_location="cpu"
+            context.artifacts[_SEQUENCE_ARTIFACT_KEY],
+            map_location="cpu",
+            weights_only=False,
         )
 
     def predict(

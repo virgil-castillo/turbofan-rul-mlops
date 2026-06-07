@@ -541,8 +541,9 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     # --- the registered checkpoint carries the operating-mode normalizer payload ---
     local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
     checkpoint = next(local_dir.rglob("model.pt"))
-    payload = _torch.load(checkpoint, map_location="cpu")
+    payload = _torch.load(checkpoint, map_location="cpu", weights_only=False)
     assert payload["normalizer_type"] == "operating_mode"
+    assert "feature_pipeline" in payload
     assert "normalizer_payload" in payload
     assert payload["normalizer_payload"]["schema_version"] == 1
     assert "normalizer_means" not in payload

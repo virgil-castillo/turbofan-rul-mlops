@@ -17,6 +17,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
+from sklearn.pipeline import Pipeline
 
 from turbofan.inference.schemas import (
     CANONICAL_COLUMNS,
@@ -83,18 +84,19 @@ def sequence_final_window_predictions(
     """Run the final-window inference path for any sequence architecture.
 
     Reads the architecture from the payload's ``sequence_config``, rebuilds the
-    matching recurrent module via the registry, restores the normalizer, then
-    normalizes, builds one final window per engine, runs the forward pass,
-    rescales by ``max_rul``, and clips to be non-negative (the ``final_window``
-    prediction scope). The path is identical across RNNs, so this single
-    function serves both the in-process sequence path and the MLflow sequence
-    pyfunc wrapper.
+    matching recurrent module via the registry, applies the fitted feature
+    pipeline when present (or the legacy normalizer-only payload otherwise),
+    builds one final window per engine, runs the forward pass, rescales by
+    ``max_rul``, and clips to be non-negative (the ``final_window`` prediction
+    scope). The path is identical across RNNs, so this single function serves
+    both the in-process sequence path and the MLflow sequence pyfunc wrapper.
 
     Args:
         payload: Sequence checkpoint payload with ``model_state_dict``,
             ``feature_cols``, ``sequence_config`` (``architecture``,
             ``window_size``, ``hidden_size``, ``num_layers``, ``dropout``),
-            ``normalizer_payload``, and ``max_rul``.
+            optional ``feature_pipeline``, legacy ``normalizer_payload``, and
+            ``max_rul``.
         frame: Validated canonical rows (``engine_id``, ``cycle``, features),
             each engine at least ``window_size`` cycles long.
 
@@ -122,8 +124,23 @@ def sequence_final_window_predictions(
     )
     model.to("cpu")
     model.eval()
-    normalizer = _normalizer_from_payload(payload, feature_cols)
     max_rul = _positive_int(payload, "max_rul")
+    feature_pipeline = payload.get("feature_pipeline")
+    if feature_pipeline is not None:
+        if not isinstance(feature_pipeline, Pipeline):
+            raise ValueError(
+                "sequence checkpoint field 'feature_pipeline' must be a fitted "
+                "sklearn Pipeline."
+            )
+        return _sequence_pipeline_window_inference(
+            model=model,
+            feature_pipeline=feature_pipeline,
+            feature_cols=feature_cols,
+            window_size=window_size,
+            max_rul=max_rul,
+            frame=frame,
+        )
+    normalizer = _normalizer_from_payload(payload, feature_cols)
     return _sequence_window_inference(
         model=model,
         normalizer=normalizer,
@@ -186,6 +203,60 @@ def _sequence_window_inference(
     normalized = normalizer.transform(frame)
     windows = build_final_windows(
         normalized,
+        feature_cols,
+        window_size,
+        target_col=None,
+    )
+    with torch.no_grad():
+        tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
+        lengths_tensor = torch.as_tensor(
+            windows.lengths, dtype=torch.int64, device="cpu"
+        )
+        raw_predictions = model(tensor, lengths_tensor).detach().cpu().numpy()
+    rescaled = np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * max_rul
+    predictions = _clip_predictions(rescaled)
+    metadata = windows.metadata[["engine_id", "cycle"]].reset_index(drop=True)
+    return metadata, predictions
+
+
+def _sequence_pipeline_window_inference(
+    *,
+    model: SequenceRULRegressor,
+    feature_pipeline: Pipeline,
+    feature_cols: Sequence[str],
+    window_size: int,
+    max_rul: int,
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Apply the fitted feature pipeline before sequence window inference.
+
+    Args:
+        model: Loaded, evaluation-mode sequence model.
+        feature_pipeline: Fitted feature engineering pipeline from training.
+        feature_cols: Ordered feature column names.
+        window_size: Sequence window size.
+        max_rul: Maximum-RUL cap used to rescale raw model output.
+        frame: Validated canonical raw rows ready for transformation.
+
+    Returns:
+        Tuple of the final-window metadata rows (``engine_id``, ``cycle``) and
+        the aligned non-negative predictions.
+
+    Raises:
+        ValueError: If the fitted pipeline does not return a DataFrame.
+    """
+    features = feature_pipeline.transform(frame)
+    if not isinstance(features, pd.DataFrame):
+        raise ValueError("sequence feature pipeline must return a DataFrame.")
+    engineered = pd.concat(
+        [
+            frame[["engine_id", "cycle"]].reset_index(drop=True),
+            features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
+    windows = build_final_windows(
+        engineered,
         feature_cols,
         window_size,
         target_col=None,

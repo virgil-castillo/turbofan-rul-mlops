@@ -219,6 +219,7 @@ def _model_payload(
     return {
         "model_state_dict": model.state_dict(),
         "feature_cols": feature_cols,
+        "feature_pipeline": pipeline,
         "sequence_config": cfg.sequence.model_dump(mode="json"),
         "normalizer_type": "operating_mode",
         "normalizer_payload": normalizer.to_payload(),
