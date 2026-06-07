@@ -16,25 +16,21 @@ features:
     - s_20
     - s_21
   n_modes: 6
-  # Ridge: best-config feature engineering from the feature sweep.
-  # GRU: selected config from the Stage 2 capacity sweep (docs/gru_capacity_sweep_report.md).
-  # NOTE: FD004's selected GRU early-stops at epoch ~2 (flagged in the report as
-  # weak-convergence/unresolved); treat this artifact as provisional.
+  # Model feature settings from the latest Ridge sweep and sequence
+  # feature-family screen.
   ridge:
     feature_families: [raw, rolling_mean]
     windows: [8]
   gru:
     feature_families: [raw, rolling_mean]
-    windows: [10]
-  # LSTM: seeded from the GRU-tuned values; a dedicated LSTM feature sweep is a
-  # possible follow-up and may diverge these from GRU.
+    windows: [20]
   lstm:
     feature_families: [raw, rolling_mean]
-    windows: [10]
+    windows: [20]
 
-# GRU sequence hyperparameters selected by the Stage 2 capacity sweep.
+# Sequence hyperparameters from the sequence feature-family screen.
 # device inherits `cpu` from default.yaml.
 sequence:
-  window_size: 45
+  window_size: 30
   hidden_size: 64
   learning_rate: 0.001
