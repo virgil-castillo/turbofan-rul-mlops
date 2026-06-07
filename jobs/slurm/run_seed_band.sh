@@ -27,14 +27,11 @@
 
 #SBATCH -J rul_seed_band
 # Partition is cluster-specific; override with --partition= on the sbatch command line.
-#SBATCH --partition=gpu_short
+#SBATCH --partition=cluster_short
 #SBATCH -N 1
 #SBATCH --ntasks=1
-# Request one GPU; ignored on CPU nodes if you override with --gres=NONE.
-#SBATCH --gres=gpu:1
-# Change to 48 for cluster_short, which has 48-CPU nodes; 52 for cluster_gpu_long.
-#SBATCH --cpus-per-task=52
-#SBATCH --time=2:00:00
+#SBATCH --cpus-per-task=48
+#SBATCH --time=4:00:00
 #SBATCH --output=outputs/logs/seed_band.%j.out
 
 set -euo pipefail
