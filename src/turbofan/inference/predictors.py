@@ -42,31 +42,45 @@ _MODEL_SCOPES: dict[ModelType, PredictionScope] = {
 }
 
 
+#: Default maximum-RUL cap for Ridge predictions. The C-MAPSS RUL labels are
+#: capped at 125 cycles (piecewise-linear scheme) across every subset config and
+#: every experiment, so the Ridge inference path caps its predictions to the same
+#: ceiling. This matches the committed Ridge training-eval
+#: (``train_baseline.py``), whose logged official metrics reflect the capped
+#: predictions; without it the serving path would diverge from those numbers.
+DEFAULT_MAX_RUL: int = 125
+
+
 def ridge_engine_predictions(
     pipeline: object,
     frame: pd.DataFrame,
+    *,
+    max_rul: int = DEFAULT_MAX_RUL,
 ) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
     """Score validated rows with a Ridge pipeline and select per-engine outputs.
 
-    Scores every row, clips predictions to be non-negative, and keeps the
+    Scores every row, clips predictions to ``[0, max_rul]``, and keeps the
     last-cycle prediction per engine (the ``engine`` prediction scope). This is
     the pure compute shared by the in-process Ridge path and the MLflow Ridge
-    pyfunc wrapper.
+    pyfunc wrapper. The upper cap mirrors the piecewise-linear RUL ceiling used
+    in training so serving reproduces the logged Ridge official metrics.
 
     Args:
         pipeline: Fitted sklearn-compatible pipeline exposing ``predict``.
         frame: Validated canonical rows (``engine_id``, ``cycle``, features),
             already sorted by engine and cycle.
+        max_rul: Maximum-RUL ceiling applied to predictions. Defaults to
+            :data:`DEFAULT_MAX_RUL` (125), the cap used by every subset config.
 
     Returns:
         Tuple of the per-engine metadata rows (``engine_id``, ``cycle``, sorted
-        by ``engine_id``) and the aligned non-negative predictions.
+        by ``engine_id``) and the aligned predictions clipped to ``[0, max_rul]``.
 
     Raises:
         ValueError: If the pipeline returns a mismatched number of predictions.
     """
     raw_predictions = pipeline.predict(frame)  # type: ignore[attr-defined]
-    predictions = _clip_predictions(raw_predictions)
+    predictions = _clip_predictions(raw_predictions, max_value=float(max_rul))
     if len(predictions) != len(frame):
         raise ValueError("Ridge pipeline returned an unexpected prediction count.")
     scored = frame.copy()
@@ -428,9 +442,25 @@ def _prediction_rows_from_output(
     ]
 
 
-def _clip_predictions(values: object) -> npt.NDArray[np.float64]:
+def _clip_predictions(
+    values: object,
+    *,
+    max_value: float | None = None,
+) -> npt.NDArray[np.float64]:
+    """Clip predictions to be non-negative, with an optional upper cap.
+
+    Args:
+        values: Raw predictions to clip.
+        max_value: Optional upper cap. ``None`` (the default) leaves predictions
+            uncapped above zero, which the sequence path relies on; the Ridge
+            path passes ``max_rul`` to cap at the RUL ceiling.
+
+    Returns:
+        Float64 predictions clipped to ``[0, max_value]`` (or ``[0, ∞)`` when
+        ``max_value`` is ``None``).
+    """
     array = np.asarray(values, dtype=np.float64).reshape(-1)
-    return np.clip(array, a_min=0.0, a_max=None)
+    return np.clip(array, a_min=0.0, a_max=max_value)
 
 
 def _mapping(payload: Mapping[str, object], key: str) -> Mapping[str, object]:

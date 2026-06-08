@@ -50,6 +50,29 @@ class _NegativeRidgePipeline:
         return [-float(index + 1) for index in range(len(rows))]
 
 
+class _ConstantRidgePipeline:
+    """Small estimator returning a fixed value for every row."""
+
+    def __init__(self, value: float) -> None:
+        """Store the constant prediction value.
+
+        Args:
+            value: Prediction returned for every input row.
+        """
+        self._value = value
+
+    def predict(self, rows: pd.DataFrame) -> list[float]:
+        """Return the constant value once per row.
+
+        Args:
+            rows: Validated inference rows.
+
+        Returns:
+            The stored constant for each row.
+        """
+        return [self._value for _ in range(len(rows))]
+
+
 def _record(
     *,
     engine_id: int = 1,
@@ -163,6 +186,25 @@ def test_ridge_engine_predictions_returns_clipped_last_cycle_per_engine() -> Non
     assert metadata["cycle"].tolist() == [3, 2]
     # Negative pipeline outputs are clipped to the non-negative floor.
     assert np.allclose(predictions, [0.0, 0.0])
+
+
+def test_ridge_engine_predictions_caps_at_max_rul() -> None:
+    """Ridge predictions above the RUL ceiling are capped at ``max_rul``."""
+    records = pd.DataFrame(
+        [_record(engine_id=1, cycle=1), _record(engine_id=2, cycle=1)]
+    )
+    validated = validate_raw_records(records)
+
+    _, default_capped = ridge_engine_predictions(
+        _ConstantRidgePipeline(500.0), validated.records
+    )
+    _, custom_capped = ridge_engine_predictions(
+        _ConstantRidgePipeline(500.0), validated.records, max_rul=80
+    )
+
+    # 500 is clipped to the default ceiling (125) and to an explicit one (80).
+    assert np.allclose(default_capped, [125.0, 125.0])
+    assert np.allclose(custom_capped, [80.0, 80.0])
 
 
 def test_gru_final_window_predictions_one_per_eligible_engine() -> None:
