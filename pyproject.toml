@@ -45,6 +45,7 @@ turbofan-serve-api = "turbofan.cli.serve_api:main"
 turbofan-promote = "turbofan.cli.promote_model:main"
 turbofan-models = "turbofan.cli.list_models:main"
 turbofan-feature-screen = "turbofan.cli.run_feature_screen:main"
+turbofan-export-eval = "turbofan.cli.export_official_eval:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
