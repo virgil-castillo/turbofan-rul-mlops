@@ -64,11 +64,11 @@ def test_log_params_stringifies_values(tmp_path: Path) -> None:
     mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
     with mlflow.start_run():
         tracking.log_params(
-            {"alpha": 0.5, "feature_set": "raw", "windows": (5, 10)}
+            {"alpha": 0.5, "feature_families": ["raw"], "windows": (5, 10)}
         )
     runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
     assert runs.loc[0, "params.alpha"] == "0.5"
-    assert runs.loc[0, "params.feature_set"] == "raw"
+    assert runs.loc[0, "params.feature_families"] == "['raw']"
     assert runs.loc[0, "params.windows"] == "(5, 10)"
 
 

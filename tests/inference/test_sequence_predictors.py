@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.inference.predictors import (
     _MODEL_SCOPES,
     gru_final_window_predictions,
@@ -178,6 +179,51 @@ def test_sequence_final_window_gru_still_works() -> None:
 
     assert metadata["engine_id"].tolist() == [1]
     assert np.allclose(predictions, [0.0])
+
+
+def test_sequence_final_window_applies_fitted_feature_pipeline() -> None:
+    """Engineered-feature payloads transform raw records before windowing."""
+    raw_frame = pd.DataFrame(_records_for_engine(1, 4, feature_value=1.0))
+    pipeline = build_feature_pipeline(
+        feature_families=["raw", "rolling_slope"],
+        windows=[2],
+    )
+    pipeline.fit(raw_frame)
+    feature_cols = pipeline.named_steps["feature_engineer"].feature_cols_
+    model = build_sequence_model(
+        "gru",
+        input_size=len(feature_cols),
+        hidden_size=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    for parameter in model.parameters():
+        parameter.data.zero_()
+    model.regressor.bias.data.fill_(0.1)
+    payload = {
+        "model_state_dict": model.state_dict(),
+        "sequence_config": {
+            "architecture": "gru",
+            "window_size": 3,
+            "hidden_size": 4,
+            "num_layers": 1,
+            "dropout": 0.0,
+        },
+        "feature_cols": feature_cols,
+        "feature_pipeline": pipeline,
+        "normalizer_type": "operating_mode",
+        "normalizer_payload": _make_normalizer_payload(FEATURE_COLUMNS),
+        "max_rul": 125,
+    }
+
+    validated = validate_raw_records(raw_frame)
+    metadata, predictions = sequence_final_window_predictions(
+        payload, validated.records
+    )
+
+    assert metadata["engine_id"].tolist() == [1]
+    assert metadata["cycle"].tolist() == [4]
+    assert np.allclose(predictions, [12.5])
 
 
 def test_sequence_final_window_unknown_architecture_raises() -> None:

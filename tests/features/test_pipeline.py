@@ -6,6 +6,7 @@ import io
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 from turbofan.features.pipeline import SensorColumnSelector, build_feature_pipeline
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
@@ -48,21 +49,28 @@ def _make_test_df() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_pipeline_has_four_named_steps() -> None:
-    """Pipeline has the four expected named steps."""
+def test_pipeline_has_five_named_steps() -> None:
+    """Pipeline has the five expected named steps."""
     pipe = build_feature_pipeline()
     assert list(pipe.named_steps) == [
         "sensor_dropper",
         "normalizer",
         "sensor_selector",
         "feature_engineer",
+        "scaler",
     ]
 
 
+def test_scaler_step_is_standard_scaler() -> None:
+    """Final pipeline step is StandardScaler."""
+    pipe = build_feature_pipeline()
+    assert isinstance(pipe.named_steps["scaler"], StandardScaler)
+
+
 def test_output_contains_only_sensor_columns_for_raw() -> None:
-    """feature_set=raw output contains only s_* columns."""
+    """feature_families=[raw] output contains only s_* columns."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert all(c.startswith("s_") for c in result.columns)
 
@@ -70,7 +78,7 @@ def test_output_contains_only_sensor_columns_for_raw() -> None:
 def test_op_cols_absent_from_output() -> None:
     """op_1, op_2, op_3 are not in the pipeline output."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert "op_1" not in result.columns
     assert "op_2" not in result.columns
@@ -80,7 +88,7 @@ def test_op_cols_absent_from_output() -> None:
 def test_engine_id_absent_from_output() -> None:
     """engine_id is not in the pipeline output."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert "engine_id" not in result.columns
 
@@ -88,15 +96,15 @@ def test_engine_id_absent_from_output() -> None:
 def test_sensor_drop_removes_listed_sensor() -> None:
     """Sensor listed in sensor_drop is absent from output."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(sensor_drop=["s_2"], feature_set="raw")
+    pipe = build_feature_pipeline(sensor_drop=["s_2"], feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert "s_2" not in result.columns
 
 
 def test_fit_transform_no_nans_raw() -> None:
-    """Pipeline output has no NaN values for feature_set=raw."""
+    """Pipeline output has no NaN values for feature_families=[raw]."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert not result.isna().any().any()
 
@@ -105,16 +113,16 @@ def test_transform_test_no_nans() -> None:
     """Fit on train, transform test produces no NaNs."""
     train = _make_train_df()
     test = _make_test_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     pipe.fit(train)
     result = pipe.transform(test)
     assert not result.isna().any().any()
 
 
 def test_rolling_mean_columns_in_output() -> None:
-    """feature_set=rolling_mean produces rmean columns in output."""
+    """feature_families=[rolling_mean] produces rmean columns in output."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="rolling_mean", windows=[5])
+    pipe = build_feature_pipeline(feature_families=["rolling_mean"], windows=[5])
     result = pipe.fit_transform(train)
     assert "s_1_rmean_5" in result.columns
     assert "engine_id" not in result.columns
@@ -130,7 +138,7 @@ def test_rolling_respects_engine_boundaries() -> None:
         "op_3": [0.0, 0.0, 0.0, 0.0],
         "s_1": [100.0, 200.0, 5.0, 10.0],
     })
-    pipe = build_feature_pipeline(feature_set="rolling_mean", windows=[5])
+    pipe = build_feature_pipeline(feature_families=["rolling_mean"], windows=[5])
     result = pipe.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -145,7 +153,7 @@ def test_lag_no_cross_engine_bleed() -> None:
         "op_3": [0.0] * 4,
         "s_1": [10.0, 20.0, 100.0, 200.0],
     })
-    pipe = build_feature_pipeline(feature_set="lag", lag_steps=[1])
+    pipe = build_feature_pipeline(feature_families=["lag"], lag_steps=[1])
     result = pipe.fit_transform(df)
     assert not result.isna().any().any()
 
@@ -160,7 +168,7 @@ def test_normalizer_step_is_operating_mode_normalizer() -> None:
 def test_output_is_dataframe() -> None:
     """Pipeline returns a pandas DataFrame."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     result = pipe.fit_transform(train)
     assert isinstance(result, pd.DataFrame)
 
@@ -168,7 +176,7 @@ def test_output_is_dataframe() -> None:
 def test_joblib_serialization() -> None:
     """Fitted pipeline survives joblib round-trip."""
     train = _make_train_df()
-    pipe = build_feature_pipeline(feature_set="raw")
+    pipe = build_feature_pipeline(feature_families=["raw"])
     pipe.fit(train)
     buffer = io.BytesIO()
     joblib.dump(pipe, buffer)
@@ -223,6 +231,6 @@ def test_multi_condition_pipeline() -> None:
                 "s_1": op * 100 + rng.normal(0, 1.0),
             })
     df = pd.DataFrame(rows)
-    pipe = build_feature_pipeline(n_modes=2, feature_set="raw", random_state=7)
+    pipe = build_feature_pipeline(n_modes=2, feature_families=["raw"], random_state=7)
     result = pipe.fit_transform(df)
     assert not result.isna().any().any()

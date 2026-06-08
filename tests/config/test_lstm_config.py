@@ -57,11 +57,11 @@ def test_load_config_accepts_lstm_sequence_architecture(tmp_path: Path) -> None:
 
 def test_for_model_lstm_returns_shared_defaults_without_override() -> None:
     """With no LSTM override block, LSTM receives the shared settings."""
-    fc = FeatureConfig(feature_set="rolling_mean", windows=[10], lag_steps=[1])
+    fc = FeatureConfig(feature_families=["rolling_mean"], windows=[10], lag_steps=[1])
 
     resolved = fc.for_model("lstm")
 
-    assert resolved.feature_set == "rolling_mean"
+    assert resolved.feature_families == ["rolling_mean"]
     assert resolved.windows == [10]
     assert resolved.lag_steps == [1]
 
@@ -69,27 +69,27 @@ def test_for_model_lstm_returns_shared_defaults_without_override() -> None:
 def test_for_model_lstm_applies_its_own_override() -> None:
     """The ``features.lstm`` block overrides shared settings for LSTM only."""
     fc = FeatureConfig(
-        feature_set="rolling_mean",
+        feature_families=["rolling_mean"],
         windows=[10],
         lag_steps=[1],
         gru=ModelFeatureConfig(windows=[20]),
-        lstm=ModelFeatureConfig(feature_set="raw_plus_rolling_mean", windows=[5]),
+        lstm=ModelFeatureConfig(feature_families=["raw", "rolling_mean"], windows=[5]),
     )
 
     lstm = fc.for_model("lstm")
-    assert lstm.feature_set == "raw_plus_rolling_mean"
+    assert lstm.feature_families == ["raw", "rolling_mean"]
     assert lstm.windows == [5]
 
     # The LSTM override must not leak into the GRU resolution.
     gru = fc.for_model("gru")
-    assert gru.feature_set == "rolling_mean"
+    assert gru.feature_families == ["rolling_mean"]
     assert gru.windows == [20]
 
 
 def test_for_model_lstm_partial_override_inherits_unset_fields() -> None:
     """Fields left unset on the LSTM override inherit the shared value."""
     fc = FeatureConfig(
-        feature_set="rolling_mean",
+        feature_families=["rolling_mean"],
         windows=[10],
         lag_steps=[3],
         lstm=ModelFeatureConfig(windows=[7]),
@@ -97,7 +97,7 @@ def test_for_model_lstm_partial_override_inherits_unset_fields() -> None:
 
     lstm = fc.for_model("lstm")
     assert lstm.windows == [7]
-    assert lstm.feature_set == "rolling_mean"
+    assert lstm.feature_families == ["rolling_mean"]
     assert lstm.lag_steps == [3]
 
 

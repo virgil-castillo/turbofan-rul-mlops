@@ -1,73 +1,170 @@
 # Turbofan Remaining Useful Life Prediction
 
-This repository is a reproducible ML project for estimating turbofan engine Remaining Useful Life (RUL) using NASA C-MAPSS data. EDA, per-subset configuration, and model training are complete for all four C-MAPSS subsets (FD001–FD004).
+This repository implements an end-to-end machine learning workflow for estimating
+turbofan engine Remaining Useful Life (RUL) from NASA C-MAPSS run-to-failure
+data. It covers data preparation, exploratory analysis, feature engineering,
+baseline and sequence models, experiment tracking, model registry operations,
+batch inference, API serving, Docker deployment, and tests.
 
-## What this repo contains
+## Problem
 
-- Configuration-driven training experiments with Pydantic-validated YAML configs
-- Ridge regression baseline modeling
-- Recurrent sequence modeling (GRU and LSTM) for temporal degradation patterns, selected by config through a shared architecture registry
-- Evaluation with RMSE, MAE, and PHM08 score
-- Hyperparameter sweep experiments (Ridge alpha, GRU architecture, feature selection)
-- Unified feature-engineering sweep running Ridge and GRU on identical features across all four C-MAPSS subsets
-- Cross-model feature-engineering analysis (Ridge vs GRU) with findings reports grounded in the sweep data and EDA
-- Exploratory data analysis utilities and notebooks
-- Saved model artifacts and experiment outputs
-- Tests for core project components
-- Batch prediction, FastAPI serving, and Docker serving interfaces
+Remaining Useful Life prediction estimates how many operating cycles remain
+before an engine reaches failure. In the C-MAPSS dataset, each engine is observed
+over multiple cycles with operating settings and sensor readings. The modeling
+task is to predict RUL for unseen engines from their multivariate time series.
 
-## Current Scope
+This project works across all four C-MAPSS subsets:
 
-| Dataset | EDA | Config | Training |
-|---|---|---|---|
-| FD001 | Done | Done | Done |
-| FD002 | Done | Done | Done |
-| FD003 | Done | Done | Done |
-| FD004 | Done | Done | Done |
+| Subset | Fault modes | Operating conditions | Notes |
+|---|---:|---:|---|
+| FD001 | 1 | 1 | Single-condition baseline case |
+| FD002 | 1 | 6 | Multi-condition operating regime |
+| FD003 | 2 | 1 | Multiple fault modes, single condition |
+| FD004 | 2 | 6 | Multiple fault modes and operating regimes |
 
-## Key findings
+RUL labels are capped at 125 cycles with a piecewise-linear scheme, reflecting
+the usual assumption that early-life degradation is not directly observable.
+Validation uses an engine-level split. Official test evaluation uses one
+prediction per held-out test engine at its final observed cycle.
 
-Production models evaluated on both the engine-level validation split and the
-official C-MAPSS test set. Both models were retrained on CPU (2026-06-01) from
-their per-subset selected configs — GRU from the Stage 2 capacity sweep, Ridge
-from its best feature-sweep config. The Ridge numbers reproduce the prior deployed
-values exactly (Ridge is deterministic given the same config and seed):
+## Repository Contents
 
-| Subset | Ridge val RMSE | Ridge test RMSE | GRU val RMSE | GRU test RMSE |
-|--------|---:|---:|---:|---:|
-| FD001 | 20.72 | 21.58 | 10.19 | 15.40 |
-| FD002 | 19.35 | 31.31 | 12.78 | 25.08 |
-| FD003 | 17.07 | 23.01 | 10.07 | 14.16 |
-| FD004 | 18.47 | 32.88 | 14.73 | 25.58 |
+- Dataset download and validation CLI for the C-MAPSS files.
+- EDA utilities and notebooks for all four subsets.
+- Pydantic-validated YAML configuration with recursive `_base_` composition.
+- Per-subset configs for FD001-FD004, including model-specific feature settings.
+- Shared preprocessing pipeline for sensor dropping, operating-mode
+  normalization, sensor selection, and feature engineering.
+- Ridge regression baseline training and evaluation.
+- GRU and LSTM sequence model support through a shared RNN architecture registry.
+- Hyperparameter and feature-engineering sweep tooling.
+- Analysis reports linked to the sweep result CSVs under `results/`.
+- MLflow tracking and local model registry integration.
+- Registered-model promotion and listing CLIs.
+- Batch prediction, FastAPI serving, and Docker serving paths.
+- Unit and smoke tests for data, config, features, models, inference, tracking,
+  CLI behavior, and experiment harnesses.
 
-- The GRU roughly **halves** validation RMSE versus the Ridge baseline on the same features; the gap narrows on official test but GRU still leads by 20–38%.
-- The optimal rolling-mean window is **opposite** for the two models — Ridge favors
-  short windows (2–4), the GRU favors long ones (~15) — because Ridge is memoryless
-  while the GRU already models the sequence.
-- Lag-difference features are counterproductive: additive-neutral for Ridge, and they
-  prevent the GRU from converging.
-- Multi-condition subsets (FD002, FD004) show larger val→test gaps for both models.
+## Results and Findings
 
-LSTM is now supported as a sequence architecture alongside GRU (selected by
-`sequence.architecture`), but no LSTM has been trained yet — LSTM rows are
-**pending training** and a cross-model GRU-vs-LSTM benchmark is deferred. The
-table above reports only the models that have actually been trained.
+The tables below compare the selected Ridge, GRU, and LSTM configurations for
+each C-MAPSS subset. Ridge uses the best feature configuration from the Ridge
+feature sweep; GRU and LSTM use the winning feature/sequence cells from the
+sequence feature-family screen. The numbers can be regenerated by
+`turbofan-export-eval`, which trains each configuration and evaluates it on the
+official C-MAPSS test set, writing `results/latest_official_eval_per_run.csv`
+(one row per model/subset/seed) and `results/latest_official_eval_summary.csv`.
+GRU and LSTM are reported as `mean ± sd` over five model seeds (42-46); Ridge is
+deterministic apart from the split/normalizer seed and is reported at the single
+production seed (42).
 
-Full sweep analysis:
-[Ridge feature sweep](docs/feature_sweep_ridge_report.md) ·
-[Ridge vs GRU](docs/feature_sweep_ridge_vs_gru.md) ·
-[GRU two-stage capacity sweep](docs/gru_capacity_sweep_report.md)
-(the earlier fixed-capacity [GRU feature sweep](docs/archive/feature_sweep_gru_report.md) is archived)
+Validation RMSE:
+
+| Subset | Ridge | GRU | LSTM |
+|---|---:|---:|---:|
+| FD001 | 20.72 | 10.39 ± 0.33 | 9.72 ± 0.41 |
+| FD002 | 19.35 | 13.08 ± 0.15 | 13.19 ± 0.23 |
+| FD003 | 17.07 | 10.46 ± 0.22 | 10.53 ± 0.33 |
+| FD004 | 18.48 | 14.96 ± 0.10 | 15.04 ± 0.20 |
+
+Official test set:
+
+| Subset | Ridge RMSE | Ridge PHM08 | GRU RMSE | GRU PHM08 | LSTM RMSE | LSTM PHM08 |
+|---|---:|---:|---:|---:|---:|---:|
+| FD001 | 21.58 | 1,316 | 14.29 ± 0.11 | 330 ± 13 | 14.99 ± 0.20 | 334 ± 23 |
+| FD002 | 31.30 | 17,700 | 24.34 ± 0.40 | 4,992 ± 501 | 25.05 ± 0.60 | 5,470 ± 907 |
+| FD003 | 23.01 | 2,491 | 14.22 ± 0.17 | 414 ± 22 | 13.98 ± 0.30 | 332 ± 29 |
+| FD004 | 32.88 | 9,643 | 26.00 ± 0.41 | 4,603 ± 507 | 26.11 ± 0.56 | 4,531 ± 399 |
+
+Main findings:
+
+- Sequence models substantially outperform Ridge on both validation and
+  official-test evaluation.
+- GRU is the best official-test RMSE model on FD001, FD002, and FD004; LSTM
+  slightly leads on FD003.
+- Ridge's selected feature set is consistently `raw+rolling_mean`, with short to
+  medium rolling windows.
+- GRU prefers `raw+rolling_slope` on FD001/FD002, `raw` on FD003, and
+  `raw+rolling_mean` on FD004.
+- LSTM prefers `raw+rolling_slope` on FD001/FD002, `raw+rolling_delta` on FD003,
+  and `raw+rolling_mean` on FD004.
+
+## Analysis Reports
+
+The detailed experiment design, tables, interpretation, and limitations are in the project reports:
+
+| Report | Purpose |
+|---|---|
+| [Ridge feature sweep](docs/feature_sweep_ridge_report.md) | Feature-family and rolling-window analysis for Ridge |
+| [Ridge vs GRU comparison](docs/feature_sweep_ridge_vs_gru.md) | Cross-model feature-engineering comparison and official test results |
+| [GRU capacity sweep](docs/gru_capacity_sweep_report.md) | Two-stage temporal-context and capacity selection for GRU |
+| [Sequence feature-family screen](docs/feature_family_screen_report.md) | GRU/LSTM feature-family screen with seed-noise replication |
+
+Archived reports are kept under [docs/archive](docs/archive/README.md) when a
+newer analysis supersedes the original result.
+
+## System Design
+
+The project is organized around reproducible, configuration-driven experiments:
+
+- **Configuration:** Shared defaults live in `configs/default.yaml`; subset
+  configs override only the values that differ. GRU and LSTM configs are explicit
+  version-controlled files, for example `configs/subsets/fd001_gru.yaml` and
+  `configs/subsets/fd001_lstm.yaml`.
+- **Preprocessing contract:** All models use the same sklearn-compatible
+  pipeline: `SensorDropper -> OperatingModeNormalizer -> SensorColumnSelector ->
+  FeatureEngineer`.
+- **Feature selection:** Feature families are selected by config and can differ
+  per model through `features.ridge`, `features.gru`, and `features.lstm`.
+- **Modeling:** Ridge provides a linear baseline. GRU and LSTM share the same
+  sequence training and inference path, with `sequence.architecture` selecting
+  the recurrent cell.
+- **Experiment tracking:** Production runs and sweeps log params, metrics,
+  artifacts, and per-epoch curves to a local MLflow SQLite store.
+- **Model registry:** Serving resolves models by registered name and alias, not
+  by a local artifact path. Promotion and rollback are handled by registry alias
+  updates.
+- **Serving:** Batch prediction, FastAPI, and Docker all use the same registry
+  resolution path.
+
+## Project Structure
+
+```text
+configs/
+  default.yaml                        # Shared base configuration
+  subsets/                            # Per-subset and per-architecture configs
+data/                                 # Raw, interim, and processed dataset files
+docs/                                 # Analysis reports and design notes
+notebooks/                            # EDA notebooks for FD001-FD004
+results/                              # Sweep and benchmark summary CSVs
+mlflow.db                             # Local MLflow run + registry store (git-ignored)
+artifacts/                            # Per-run records; model bytes live in MLflow
+jobs/slurm/                           # SLURM job scripts for HPC experiments
+scripts/                              # Local helper scripts
+src/turbofan/
+  cli/                                # Command-line entrypoints
+  config/                             # Pydantic config schema
+  data/                               # C-MAPSS loading, parsing, labels
+  eda/                                # EDA utilities
+  experiments/                        # Sweep and screen harnesses
+  features/                           # Preprocessing and feature engineering
+  inference/                          # Prediction, schemas, service layer
+  models/                             # Baseline, sequence models, metrics
+  preprocessing/                      # Normalization components
+  sequences/                          # Windowing, datasets, feature selection
+  utils/                              # Shared utilities
+tests/                                # Unit and smoke tests
+```
 
 ## Quickstart
 
-Install the project dependencies:
+Use Python 3.12. To install with pip:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Or use the conda environment:
+Or create the conda environment:
 
 ```bash
 conda env create -f environment.yml
@@ -75,7 +172,7 @@ conda activate mlops
 pip install -e ".[dev]"
 ```
 
-Download and prepare the C-MAPSS dataset:
+Download and verify the C-MAPSS dataset:
 
 ```bash
 # Requires Kaggle API credentials (~/.kaggle/kaggle.json)
@@ -85,7 +182,9 @@ turbofan-download-data --kaggle
 turbofan-download-data --check
 ```
 
-This downloads all four C-MAPSS subsets (FD001–FD004) into `data/raw/`.
+This downloads all four C-MAPSS subsets into `data/raw/`.
+
+## Common Workflows
 
 Train the Ridge baseline:
 
@@ -93,216 +192,34 @@ Train the Ridge baseline:
 turbofan-train-baseline --config configs/subsets/fd001.yaml
 ```
 
-Train a sequence model (GRU or LSTM). The architecture is read from
-`sequence.architecture` (`gru` or `lstm`) in the config and built through a
-shared RNN architecture registry, so one entrypoint trains either:
+Train a sequence model. The architecture is read from
+`sequence.architecture` in the config:
 
 ```bash
-turbofan-train-sequence --config configs/subsets/fd001_gru.yaml    # GRU
-turbofan-train-sequence --config configs/subsets/fd001_lstm.yaml   # LSTM
+turbofan-train-sequence --config configs/subsets/fd001_gru.yaml
+turbofan-train-sequence --config configs/subsets/fd001_lstm.yaml
 ```
 
-Each subset ships an explicit `fd00X_gru.yaml` and `fd00X_lstm.yaml` config (both
-`_base_`-referencing the shared `fd00X.yaml`), so the architecture is always
-selected by a named, version-controlled config rather than relying on the
-default. The bare `fd00X.yaml` still loads (defaulting to GRU via
-`sequence.architecture`), but prefer the explicit variant when training.
-
-The `turbofan-train-sequence-gru` console script is retained as a
-backward-compatible alias for the same entrypoint (it also honors
-`sequence.architecture`, defaulting to GRU):
+The legacy GRU command remains as a backward-compatible alias:
 
 ```bash
 turbofan-train-sequence-gru --config configs/subsets/fd001_gru.yaml
 ```
 
-Model training logs and registers the fitted model in the local MLflow store and
-writes a timestamped run directory under `artifacts/models/<model_type>/<timestamp>/`
-holding lightweight run records (config snapshot, metrics, training history, and
-prediction CSVs). The MLflow registry — not the run directory — is the
-authoritative model store: each production run auto-registers a new version of
-`turbofan-<model_type>-<subset>` (e.g. `turbofan-gru-fd001`, `turbofan-lstm-fd001`)
-linked to its run. LSTM models register under their own `turbofan-lstm-<subset>`
-name with an independent `@production` alias, so GRU and LSTM versions are
-promoted and served separately. Model bytes are no longer written to the run
-directory.
-
-Cross-run experiment summaries (sweep result CSVs) are written to `results/`. Run
-metadata — params, metrics, and per-epoch GRU training curves — is logged to the
-same local MLflow store (`mlflow.db`, SQLite) under two experiments,
-`turbofan-training` (production runs) and `turbofan-sweeps` (hyperparameter
-sweeps). Browse runs and registered models with
-`mlflow ui --backend-store-uri sqlite:///mlflow.db`.
-
-Promote a registered version to production (immediate, no approval gate), and
-list registered models with their production alias and key metric:
+Browse MLflow runs and registered models:
 
 ```bash
-turbofan-promote turbofan-gru-fd001 3 --to production   # roll back by promoting an earlier version
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+Promote or inspect registered models:
+
+```bash
+turbofan-promote turbofan-gru-fd001 3 --to production
 turbofan-models
 ```
 
-The CLIs keep diagnostics separate from results: progress and lifecycle
-diagnostics go to **stderr** via leveled `logging` (control verbosity with
-`--log-level DEBUG|INFO|WARNING|ERROR`, or the `LOG_LEVEL` env var), while
-genuine results (run directory, validation metrics) print to **stdout**. The two
-production training CLIs additionally capture a per-run `run.log` and attach it
-as an MLflow artifact under `logs/run.log`.
-
-## Project Structure
-
-```text
-configs/
-  default.yaml                        # Shared base configuration
-  subsets/                            # Per-subset overrides (fd001–fd004)
-data/                                 # Raw, interim, and processed dataset files
-docs/                                 # Analysis reports and documentation
-notebooks/                            # Exploratory analysis notebooks
-results/                              # Cross-run experiment summary CSVs (sweep results)
-mlflow.db                             # Local MLflow run + registry store (SQLite, git-ignored)
-artifacts/                            # Per-run records: metrics, configs, histories, and prediction CSVs (model bytes live in MLflow; git-ignored)
-src/turbofan/
-  cli/                                # Command-line entrypoints
-  config/                             # Pydantic configuration schema
-  data/                               # Dataset loading, parsing, and label logic
-  eda/                                # Exploratory data analysis utilities
-  features/                           # Feature engineering pipeline
-  models/                             # Model definitions, training, and evaluation
-  sequences/                          # Sequence windowing and DataLoader builders
-  inference/                          # Prediction, model-loading, and serving
-  experiments/                        # Hyperparameter sweeps and comparisons
-  utils/                              # Shared utilities
-jobs/slurm/                           # SLURM job scripts for HPC experiments
-tests/                                # Unit and smoke tests
-```
-
-## CLI Commands
-
-All commands are installed as entry points via `pyproject.toml`:
-
-| Command | Purpose |
-|---|---|
-| `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files exist |
-| `turbofan-train-baseline` | Train Ridge regression baseline |
-| `turbofan-train-sequence` | Train a sequence model (GRU or LSTM), architecture from `sequence.architecture` in config |
-| `turbofan-train-sequence-gru` | Backward-compatible alias for `turbofan-train-sequence` (also honors `sequence.architecture`, defaults to GRU) |
-| `turbofan-predict` | Batch prediction and optional official-label evaluation, resolving the production model by name |
-| `turbofan-serve-api` | FastAPI inference server |
-| `turbofan-promote` | Promote a registered model version to an alias (e.g. `@production`); rollback by promoting an earlier version |
-| `turbofan-models` | List registered models, versions, the `@production` alias, key metric, and run link |
-
-## Configuration
-
-`configs/default.yaml` holds all shared settings. Per-subset configs in `configs/subsets/` override only what differs using a `_base_` composition key:
-
-```yaml
-# configs/subsets/fd002.yaml
-_base_: ../default.yaml
-
-data:
-  fd_subset: FD002
-
-features:
-  sensor_cols_to_drop:    # EDA-derived drop list for FD002
-    - s_1
-    - s_5
-    - s_10
-    - s_18
-    - s_19
-  n_modes: 6              # 6 operating conditions
-  ridge:                  # Ridge's best feature config (from the sweep)
-    feature_set: raw_plus_rolling_mean
-    windows: [4]
-  gru:                    # GRU's best feature config (from the sweep)
-    feature_set: rolling_mean
-    windows: [15]
-```
-
-Pass a subset config directly to any training CLI:
-
-```bash
-turbofan-train-baseline --config configs/subsets/fd002.yaml
-turbofan-train-sequence --config configs/subsets/fd002_gru.yaml     # GRU
-turbofan-train-sequence --config configs/subsets/fd002_lstm.yaml    # LSTM
-```
-
-Each subset ships dedicated `configs/subsets/fd00{1-4}_gru.yaml` and
-`configs/subsets/fd00{1-4}_lstm.yaml` configs. These inherit everything from
-their `fd00{1-4}.yaml` base via `_base_` composition and set only
-`sequence.architecture`, so GRU and LSTM training for each subset are both
-selected by an explicit, version-controlled config. (`_base_` references resolve
-recursively, so an `_gru`/`_lstm` config extending a subset config that itself
-extends `default.yaml` is fully composed.)
-
-The `sensor_cols_to_drop` lists are derived from the EDA notebooks (`notebooks/eda_fd00{1-4}.ipynb`) and represent the authoritative drop decision for each subset.
-
-The optional `features.ridge`, `features.gru`, and `features.lstm` blocks set per-model feature engineering: the top-level `feature_set`/`windows` are shared fallbacks, and each model's training CLI resolves its own block (inheriting the shared values for anything left unset). The committed Ridge and GRU values are each model's best configuration from the feature sweep; the `features.lstm` block is currently seeded from the GRU-tuned values (a dedicated LSTM feature sweep is a possible follow-up).
-
-## Dataset
-
-The project uses NASA's C-MAPSS turbofan degradation dataset. Each subset contains multivariate time-series data where engines are observed over multiple operating cycles. The goal is to estimate how many cycles remain before failure from operating settings and sensor measurements.
-
-| Subset | Fault modes | Operating conditions |
-|---|---|---|
-| FD001 | 1 | 1 |
-| FD002 | 1 | 6 |
-| FD003 | 2 | 1 |
-| FD004 | 2 | 6 |
-
-RUL labels are capped at 125 cycles using a piecewise-linear scheme, reflecting the assumption that degradation is not detectable in early engine life.
-
-## Modeling Approach
-
-The project includes both baseline and neural sequence modeling approaches.
-
-| Model | Description |
-|---|---|
-| Ridge Regression | Linear baseline trained on engineered tabular features |
-| GRU | Recurrent sequence model trained on sliding windows of sensor readings |
-| LSTM | Recurrent sequence model trained on the same sliding windows; shares the GRU's hyperparameter surface and training/inference path, differing only in the recurrent cell |
-
-The two recurrent architectures (GRU, LSTM) are interchangeable through a shared
-RNN architecture registry: a single `SequenceRULRegressor` owns the encoder,
-regression head, and packed-sequence path, and the recurrent layer is selected by
-`sequence.architecture` (`gru` or `lstm`). They train through the same
-`turbofan-train-sequence` entrypoint and serve through the same inference path.
-
-Both architectures share one training-hyperparameter surface in `SequenceConfig`
-(`window_size`, `hidden_size`, `num_layers`, `dropout`, `learning_rate`,
-`weight_decay`, `batch_size`, `epochs`, `patience`). `weight_decay` (Adam L2,
-default `0.0`) is the regularizer to reach for when overfitting on the smaller
-subsets — note that inter-layer `dropout` only takes effect when
-`num_layers > 1`, so at the default single layer `weight_decay` is the sole
-explicit regularizer.
-
-All models share the same preprocessing contract: a 4-step sklearn Pipeline (`SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer`). The `feature_set` config key selects which engineered features the models receive — `raw`, `rolling_mean`, `rolling_stats`, `raw_plus_rolling_mean`, `raw_plus_rolling_stats`, `lag`, or `raw_plus_lag`. Rolling and lag features are computed per engine without crossing engine boundaries; `lag` is a normalized lag-difference `(x[t] - x[t-N]) / rolling_mean(x, N)`. Feature settings can differ per model via the `features.ridge` / `features.gru` / `features.lstm` config blocks.
-
-## Evaluation
-
-Models are evaluated using:
-
-| Metric | Purpose |
-|---|---|
-| RMSE | Penalizes larger prediction errors |
-| MAE | Measures average absolute prediction error |
-| PHM08 score | Asymmetric scoring function from the prognostics community — penalizes late predictions more heavily than early ones. Computed on the official test set only |
-
-Validation and sweep ranking use RMSE and MAE; the PHM08 score is computed only
-on the official test set. Sequence training (GRU or LSTM) reports RMSE and MAE on
-an engine-level validation split. When the official test files for the configured subset are
-present (e.g. `test_FD001.txt` with `RUL_FD001.txt`), training also evaluates
-against them and reports RMSE, MAE, and the PHM08 score.
-
-Per-run metrics and prediction CSVs are saved in the run directory under `artifacts/models/<model_type>/<timestamp>/`. Cross-run summaries are saved under `results/`.
-
-## Inference and Serving
-
-Batch prediction, FastAPI serving, and Docker serving resolve the production
-model **by name** from the MLflow registry — there is no path-based artifact or
-manifest to point at.
-
-Run batch prediction against a registered model (resolves `@production` by
-default):
+Run batch prediction with the production model alias:
 
 ```bash
 turbofan-predict \
@@ -312,128 +229,212 @@ turbofan-predict \
   --metadata-output metadata.json
 ```
 
-The same command serves an LSTM model by pointing `--model` at its
-`turbofan-lstm-<subset>` registered name — LSTM models are served through the
-identical predict/serving path. Pass `--alias <alias>` to resolve a
-non-production alias, or pass an explicit `models:/<name>@<alias>` URI to
-`--model`. When `--data-dir data/raw --subset
-FD001` are provided and the matching `RUL_FD001.txt` labels align with the
-prediction count, the CLI also reports RMSE, MAE, and PHM08 score and writes them
-to the metadata JSON.
+When `--data-dir data/raw --subset FD001` are provided and official labels
+align with the prediction count, the prediction CLI also reports RMSE, MAE, and
+PHM08 score.
 
-Start the FastAPI server locally (resolving `models:/<name>@production`):
+## CLI Commands
+
+All commands are installed as entry points via `pyproject.toml`:
+
+| Command | Purpose |
+|---|---|
+| `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files |
+| `turbofan-train-baseline` | Train the Ridge regression baseline |
+| `turbofan-train-sequence` | Train GRU or LSTM based on `sequence.architecture` |
+| `turbofan-train-sequence-gru` | Backward-compatible GRU training alias |
+| `turbofan-feature-screen` | Run the sequence feature-family screen |
+| `turbofan-export-eval` | Train and officially evaluate the selected configs across seeds into the eval CSVs |
+| `turbofan-predict` | Run batch prediction and optional official-label evaluation |
+| `turbofan-serve-api` | Start the FastAPI inference server |
+| `turbofan-promote` | Promote a registered model version to an alias |
+| `turbofan-models` | List registered models, versions, aliases, and metrics |
+
+CLI diagnostics go to stderr through leveled stdlib logging. Result values such
+as run directories and validation metrics are printed to stdout. Production
+training commands also attach `logs/run.log` to the MLflow run.
+
+## Configuration
+
+`configs/default.yaml` holds shared settings. Subset configs use `_base_`
+composition and override only subset-specific values:
+
+```yaml
+# configs/subsets/fd002.yaml
+_base_: ../default.yaml
+
+data:
+  fd_subset: FD002
+
+features:
+  sensor_cols_to_drop:
+    - s_1
+    - s_5
+    - s_10
+    - s_18
+    - s_19
+  n_modes: 6
+  ridge:
+    feature_families: [raw, rolling_mean]
+    windows: [4]
+  gru:
+    feature_families: [rolling_mean]
+    windows: [15]
+```
+
+Each subset also has explicit GRU and LSTM configs:
+
+```bash
+configs/subsets/fd001_gru.yaml
+configs/subsets/fd001_lstm.yaml
+configs/subsets/fd002_gru.yaml
+configs/subsets/fd002_lstm.yaml
+configs/subsets/fd003_gru.yaml
+configs/subsets/fd003_lstm.yaml
+configs/subsets/fd004_gru.yaml
+configs/subsets/fd004_lstm.yaml
+```
+
+The `sensor_cols_to_drop` lists come from the EDA notebooks. Model-specific
+feature blocks override the shared feature settings only where needed.
+
+## Modeling
+
+| Model | Role |
+|---|---|
+| Ridge Regression | Linear baseline over engineered tabular features |
+| GRU | Recurrent sequence model for temporal degradation patterns |
+| LSTM | Alternative recurrent architecture on the same sequence path |
+
+The sequence path uses a single `SequenceRULRegressor` for the encoder,
+regression head, packed-sequence handling, training loop, and inference contract.
+Only the recurrent cell changes between GRU and LSTM.
+
+Sequence models share one training-hyperparameter surface:
+`window_size`, `hidden_size`, `num_layers`, `dropout`, `learning_rate`,
+`weight_decay`, `batch_size`, `epochs`, and `patience`. Inter-layer `dropout`
+only applies when `num_layers > 1`; for a single recurrent layer, `weight_decay`
+is the explicit regularizer.
+
+Feature families are computed per engine without crossing engine boundaries.
+Supported families include `raw`, `rolling_mean`, `lag`, `rolling_std`,
+`rolling_min`, `rolling_max`, `rolling_slope`, and `rolling_delta`.
+
+## Evaluation
+
+| Metric | Purpose |
+|---|---|
+| RMSE | Primary ranking metric; emphasizes larger errors |
+| MAE | Average absolute prediction error |
+| PHM08 score | Asymmetric prognostics score; penalizes late predictions more heavily |
+
+Validation and sweep ranking use RMSE and MAE. PHM08 is computed only on the
+official test set, where each test engine contributes one prediction. Per-run
+metrics and prediction CSVs are written under
+`artifacts/models/<model_type>/<timestamp>/`; cross-run summaries are written
+under `results/`.
+
+## Inference and Serving
+
+Batch prediction, FastAPI serving, and Docker serving resolve registered models
+by name from MLflow:
 
 ```bash
 turbofan-serve-api --model turbofan-gru-fd001 --host 127.0.0.1 --port 8000
 ```
 
-The server exposes two endpoints:
+The server exposes:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/health` | GET | Returns loaded model metadata and status |
-| `/predict` | POST | Accepts engine sensor records and returns RUL predictions |
+| `/health` | GET | Return loaded model metadata and status |
+| `/predict` | POST | Return RUL predictions for engine sensor records |
 
-The served model is selected by `--model`/`--alias`, or by the
-`TURBOFAN_MODEL_NAME` (and optional `TURBOFAN_MODEL_ALIAS`, default `production`)
-environment variables. Point `MLFLOW_TRACKING_URI` at the registry store.
+The served model can be selected with `--model` and `--alias`, or through
+`TURBOFAN_MODEL_NAME` and `TURBOFAN_MODEL_ALIAS`. Set `MLFLOW_TRACKING_URI` when
+using a non-default registry store.
 
 ### Docker
 
-A `docker-compose.yml` is included for containerized deployment. It mounts the
-MLflow registry store (the SQLite db and its artifacts) into the container at
-`/models/` and resolves the model by name.
-
-Build and start the server:
+Build and start the API:
 
 ```bash
 docker compose up --build
 ```
 
-By default this serves `turbofan-gru-fd001@production`. To point at a different
-model or store:
+By default this serves `turbofan-gru-fd001@production`. Override the model or
+registry store with environment variables:
 
 ```bash
 TURBOFAN_MODEL_NAME=turbofan-ridge-fd001 \
 MLFLOW_STORE_DIR=./mlflow_store docker compose up
 ```
 
-Verify the container is healthy and the model loaded:
+Check health:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-To send test data and compare predictions against true RUL labels:
+Query the API with C-MAPSS test data:
 
 ```bash
-python scripts/query_api.py                        # FD001 (default)
-python scripts/query_api.py --subset FD002         # other subsets
+python scripts/query_api.py
+python scripts/query_api.py --subset FD002
 ```
 
-This reads `data/raw/test_FD001.txt`, POSTs all engine records to `/predict`, and prints a per-engine prediction table with RMSE and MAE. The reported RMSE should match `official_test rmse` from the training run.
+The helper reads the matching `data/raw/test_FD00X.txt`, posts engine records to
+`/predict`, and prints a per-engine prediction table with RMSE and MAE when
+labels are available.
 
 ## Reproducibility
 
-The project is designed to make experiments reproducible through:
+The workflow is designed to be reproducible through:
 
-- Scripted data download
-- Configuration-driven training
-- Deterministic random seeds
-- Versioned models in the MLflow registry, each linked to its run
-- Saved evaluation outputs
-- Documented command-line workflows
+- Scripted data acquisition and file checks.
+- Version-controlled YAML configs.
+- Deterministic random seeds where supported.
+- Engine-level validation splits.
+- MLflow run tracking and registry versions.
+- Saved metrics, prediction CSVs, and sweep summaries.
+- Documented command-line workflows.
 
-Exact numerical results may vary slightly across hardware and dependency versions, especially for neural-network training.
+Neural-network results can still vary slightly across hardware and dependency
+versions.
 
-## Tests
+## Tests and Quality Checks
 
-Run the test suite with:
+Run the full test suite:
 
 ```bash
 pytest
 ```
 
-Tests use synthetic data fixtures and cover data loading, feature engineering, model training, sequence windowing, inference schemas, CLI commands, and experiment sweeps. Test coverage will continue to expand as support for additional C-MAPSS subsets is added.
-
-## Lint and Type-Check
+Run linting and type checking:
 
 ```bash
-ruff check src/ tests/          # lint (E, F, W, I, UP, ANN rules)
-mypy src/turbofan               # strict type checking
+ruff check src/ tests/
+mypy src/turbofan
 ```
 
-## Roadmap
+Tests use synthetic fixtures and cover data loading, labels, feature
+engineering, normalization, model training, sequence windowing, metrics,
+inference schemas, CLI commands, MLflow tracking, registry behavior, and
+experiment harnesses.
 
-- [x] FD001 data download and preparation
-- [x] FD001 baseline modeling (Ridge)
-- [x] GRU sequence model
-- [x] Hyperparameter sweep experiments
-- [x] RMSE, MAE, and PHM08 evaluation
-- [x] Validate batch prediction end-to-end
-- [x] Validate FastAPI serving end-to-end
-- [x] Fix known inference bugs (GRU rescaling, Ridge prediction scope, predict CLI evaluation)
-- [x] Remove official test-set evaluation from GRU sweeps
-- [x] Validate Docker serving end-to-end
-- [x] Operating-mode normalization (OperatingModeNormalizer, self-contained GRU artifacts)
-- [x] Config-driven sensor dropping (EDA-derived explicit drop list replaces runtime std-threshold)
-- [x] EDA notebooks for all four subsets with correlation-based sensor filter
-- [x] Per-subset configs with `_base_` composition (sensor drop lists and n_modes from EDA)
-- [x] Unified feature pipeline — Ridge and GRU share the same 4-step preprocessing contract; `feature_set` is config-driven
-- [x] Unified feature-engineering sweep with Ridge vs GRU analysis across all four subsets
-- [x] Train and persist baseline and GRU production artifacts on FD002–FD004
-- [x] Cross-dataset benchmark table from persisted models
-- [x] Left-zero-pad short engines in GRU windowing (packed sequences; no engine skipped)
-- [x] Two-stage GRU temporal-context and capacity sweep (sequence window vs. hidden-size/LR cross); short engines left-zero-padded
-- [x] MLflow experiment tracking — local SQLite store; Ridge and GRU runs log params, metrics, and per-epoch curves; replaces JSONL audit log
-- [x] Structured logging — leveled stdlib logging to stderr; `run.log` captured as MLflow artifact; results stay on stdout
-- [x] Model registry — MLflow registry over local store; `turbofan-promote` and `turbofan-models` CLIs; name-based resolution replaces path/manifest layer
-- [x] LSTM sequence model (shared RNN architecture registry; selected by `sequence.architecture`) — training real LSTM artifacts and the GRU-vs-LSTM benchmark deferred
-- [ ] Transformer-based sequence model
-- [ ] Advanced feature engineering
+## Current Status
 
-See [docs/roadmap.md](docs/roadmap.md) for detailed priorities and design decisions.
+Completed work includes the full FD001-FD004 workflow, EDA, Ridge baseline,
+GRU sequence model, LSTM architecture support, feature-engineering sweeps,
+selected production Ridge/GRU runs, MLflow tracking and registry operations,
+batch prediction, FastAPI serving, Docker serving, and tests.
 
+The next step is Bayesian modeling of the feature-engineering results: estimate
+feature-family, architecture, subset, window, sequence-length, and seed effects
+jointly before spending more compute on a narrower confirmation sweep. Current
+follow-up areas also include production LSTM benchmarking and transformer-based
+sequence modeling. See [docs/roadmap.md](docs/roadmap.md) for detailed status
+and design decisions.
 
 ## License
 

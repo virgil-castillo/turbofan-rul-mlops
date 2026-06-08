@@ -190,6 +190,49 @@ def test_feature_config_loads_custom_values(tmp_path: Path) -> None:
     assert cfg.features.sensor_cols_to_drop == ["s_1", "s_5", "s_16"]
 
 
+def test_feature_config_loads_feature_families(tmp_path: Path) -> None:
+    """Feature config accepts composable feature family lists."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "features": {
+                "feature_families": ["raw", "lag", "rolling_mean"],
+                "windows": [5, 10],
+                "lag_steps": [1, 2],
+            },
+        },
+    )
+    cfg = load_config(cfg_file)
+    resolved = cfg.features.for_model("ridge")
+    assert resolved.feature_families == ["raw", "lag", "rolling_mean"]
+    assert resolved.windows == [5, 10]
+    assert resolved.lag_steps == [1, 2]
+
+
+def test_feature_config_rejects_legacy_feature_set(tmp_path: Path) -> None:
+    """The removed feature_set key is rejected instead of silently ignored."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "features": {"feature_set": "raw"},
+        },
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_file)
+
+
 def test_invalid_feature_config_raises() -> None:
     """Non-positive n_modes is rejected."""
     with pytest.raises(ValidationError):
@@ -301,8 +344,8 @@ def test_invalid_model_alpha_raises(tmp_path: Path) -> None:
         load_config(cfg_file)
 
 
-def test_invalid_model_feature_set_raises(tmp_path: Path) -> None:
-    """Unsupported feature sets are rejected."""
+def test_invalid_model_feature_families_raises(tmp_path: Path) -> None:
+    """Unsupported feature families are rejected."""
     cfg_file = _write_config(
         tmp_path,
         {
@@ -312,7 +355,7 @@ def test_invalid_model_feature_set_raises(tmp_path: Path) -> None:
                 "processed_dir": "data/processed",
                 "interim_dir": "data/interim",
             },
-            "features": {"feature_set": "ops"},
+            "features": {"feature_families": ["ops"]},
         },
     )
     with pytest.raises(ValidationError):
@@ -527,3 +570,30 @@ def test_base_key_not_present_in_validated_config(tmp_path: Path) -> None:
 
     cfg = load_config(override)
     assert not hasattr(cfg, "_base_")
+
+
+# ── new rolling-family FeatureFamilyName values ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "feature_families",
+    ["rolling_std", "rolling_slope", "rolling_delta", "rolling_min", "rolling_max"],
+)
+def test_new_feature_families_names_accepted_in_feature_config(
+    tmp_path: Path, feature_families: str
+) -> None:
+    """New modular rolling families are valid FeatureFamilyName values."""
+    cfg_file = _write_config(
+        tmp_path,
+        {
+            "project_name": "test-project",
+            "data": {
+                "raw_dir": "data/raw",
+                "processed_dir": "data/processed",
+                "interim_dir": "data/interim",
+            },
+            "features": {"feature_families": [feature_families]},
+        },
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.features.feature_families == [feature_families]

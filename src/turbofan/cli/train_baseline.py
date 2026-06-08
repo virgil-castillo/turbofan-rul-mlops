@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from time import perf_counter
 
 import mlflow
 import numpy as np
@@ -192,10 +193,11 @@ def main() -> None:
             X_train, y_train = split_features_target(train_df)
             X_val, y_val = split_features_target(val_df)
 
+            rf = cfg.features.for_model("ridge")
             estimator = build_baseline_pipeline(
                 model_name=cfg.model.name,
                 alpha=cfg.model.alpha,
-                feature_set=(rf := cfg.features.for_model("ridge")).feature_set,
+                feature_families=rf.feature_families,
                 windows=rf.windows,
                 lag_steps=rf.lag_steps,
                 sensor_drop=cfg.features.sensor_cols_to_drop or None,
@@ -203,7 +205,9 @@ def main() -> None:
                 random_state=cfg.data.random_seed,
             )
             logger.info("fitting %s baseline pipeline", cfg.model.name)
+            training_started = perf_counter()
             estimator.fit(X_train, y_train)
+            training_duration_seconds = perf_counter() - training_started
 
             val_pred = _predict_with_clipping(
                 estimator,
@@ -222,6 +226,7 @@ def main() -> None:
                 run_metrics: dict[str, float] = {
                     "val_rmse": val_metrics["rmse"],
                     "val_mae": val_metrics["mae"],
+                    "training_duration_seconds": training_duration_seconds,
                 }
 
                 official = _evaluate_official_test(cfg, estimator)
@@ -251,7 +256,7 @@ def main() -> None:
                 tracking.log_params(
                     {
                         "alpha": cfg.model.alpha,
-                        "feature_set": rf.feature_set,
+                        "feature_families": rf.feature_families,
                         "windows": rf.windows,
                         "lag_steps": rf.lag_steps,
                         "seed": cfg.data.random_seed,

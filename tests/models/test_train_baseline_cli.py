@@ -109,9 +109,10 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     assert row["tags.run_type"] == "production"
     assert "tags.run_dir" in row
     assert row["params.alpha"] == "1.0"
-    assert row["params.feature_set"] == "raw"
+    assert row["params.feature_families"] == "['raw']"
     assert row["metrics.val_rmse"] >= 0.0
     assert row["metrics.val_mae"] >= 0.0
+    assert row["metrics.training_duration_seconds"] >= 0.0
     assert row["metrics.official_rmse"] >= 0.0
 
     # --- a registered model version linked to the run + prediction artifacts ---
@@ -215,7 +216,7 @@ def _write_minimal_baseline_config(tmp_path: Path) -> Path:
                 "  alpha: 1.0",
                 f"  artifact_dir: {artifact_dir.as_posix()}",
                 "features:",
-                "  feature_set: raw",
+                "  feature_families: [raw]",
             ]
         )
     )

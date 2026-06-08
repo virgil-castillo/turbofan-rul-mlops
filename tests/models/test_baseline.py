@@ -65,6 +65,7 @@ def test_features_step_is_pipeline() -> None:
         "normalizer",
         "sensor_selector",
         "feature_engineer",
+        "scaler",
     ]
 
 
@@ -78,17 +79,17 @@ def test_configures_sensor_drop() -> None:
 def test_pipeline_can_fit_and_predict() -> None:
     """Synthetic data can be fit and predicted without NaNs."""
     X, y = _make_df()
-    pipe = build_baseline_pipeline(feature_set="raw")
+    pipe = build_baseline_pipeline(feature_families=["raw"])
     pipe.fit(X, y)
     preds = pipe.predict(X)
     assert len(preds) == len(y)
     assert not np.isnan(preds).any()
 
 
-def test_rolling_mean_feature_set() -> None:
-    """feature_set=rolling_mean produces rolling mean columns for Ridge."""
+def test_rolling_mean_feature_family() -> None:
+    """feature_families=[rolling_mean] produces rolling mean columns for Ridge."""
     X, y = _make_df()
-    pipe = build_baseline_pipeline(feature_set="rolling_mean", windows=[3])
+    pipe = build_baseline_pipeline(feature_families=["rolling_mean"], windows=[3])
     pipe.fit(X, y)
     assert any("_rmean_" in c for c in pipe.named_steps["model"].feature_names_in_)
 
@@ -96,7 +97,7 @@ def test_rolling_mean_feature_set() -> None:
 def test_model_receives_dataframe_feature_names() -> None:
     """Ridge keeps sklearn feature_names_in_ metadata."""
     X, y = _make_df()
-    pipe = build_baseline_pipeline(feature_set="raw")
+    pipe = build_baseline_pipeline(feature_families=["raw"])
     pipe.fit(X, y)
     assert hasattr(pipe.named_steps["model"], "feature_names_in_")
     assert "engine_id" not in set(pipe.named_steps["model"].feature_names_in_)

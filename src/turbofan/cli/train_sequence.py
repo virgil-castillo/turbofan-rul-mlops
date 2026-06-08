@@ -13,6 +13,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from time import perf_counter
 
 import mlflow
 import numpy as np
@@ -218,6 +219,7 @@ def _model_payload(
     return {
         "model_state_dict": model.state_dict(),
         "feature_cols": feature_cols,
+        "feature_pipeline": pipeline,
         "sequence_config": cfg.sequence.model_dump(mode="json"),
         "normalizer_type": "operating_mode",
         "normalizer_payload": normalizer.to_payload(),
@@ -253,7 +255,9 @@ def main() -> None:
                 sensor_drop=cfg.features.sensor_cols_to_drop or None,
                 n_modes=cfg.features.n_modes,
                 random_state=cfg.data.random_seed,
-                feature_set=(sf := cfg.features.for_model(architecture)).feature_set,
+                feature_families=(
+                    sf := cfg.features.for_model(architecture)
+                ).feature_families,
                 windows=sf.windows,
                 lag_steps=sf.lag_steps,
             )
@@ -310,6 +314,7 @@ def main() -> None:
             logger.info(
                 "training %s for up to %d epochs", architecture, cfg.sequence.epochs
             )
+            training_started = perf_counter()
             result = train_sequence_model(
                 model=model,
                 train_loader=train_loader,
@@ -319,6 +324,7 @@ def main() -> None:
                 random_seed=cfg.data.random_seed,
                 max_rul=cfg.data.max_rul,
             )
+            training_duration_seconds = perf_counter() - training_started
 
             window_metrics, window_predictions = _evaluate_windows(
                 result.model,
@@ -340,6 +346,7 @@ def main() -> None:
                 run_metrics: dict[str, float] = {
                     "val_rmse": window_metrics["rmse"],
                     "val_mae": window_metrics["mae"],
+                    "training_duration_seconds": training_duration_seconds,
                 }
 
                 official = _evaluate_official_test(
@@ -391,7 +398,7 @@ def main() -> None:
                         "batch_size": cfg.sequence.batch_size,
                         "epochs": cfg.sequence.epochs,
                         "patience": cfg.sequence.patience,
-                        "feature_set": sf.feature_set,
+                        "feature_families": sf.feature_families,
                         "windows": sf.windows,
                         "lag_steps": sf.lag_steps,
                         "seed": cfg.data.random_seed,

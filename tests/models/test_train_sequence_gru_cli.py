@@ -465,9 +465,10 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     assert row["params.hidden_size"] == "6"
     assert row["params.learning_rate"] == "0.002"
     assert row["params.seed"] == "123"
-    assert "params.feature_set" in row
+    assert row["params.feature_families"] == "['raw']"
     assert row["metrics.val_rmse"] == 1.0
     assert row["metrics.val_mae"] == 2.0
+    assert row["metrics.training_duration_seconds"] >= 0.0
 
 
 def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
@@ -540,8 +541,9 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     # --- the registered checkpoint carries the operating-mode normalizer payload ---
     local_dir = Path(mlflow.artifacts.download_artifacts(f"models:/{name}/1"))
     checkpoint = next(local_dir.rglob("model.pt"))
-    payload = _torch.load(checkpoint, map_location="cpu")
+    payload = _torch.load(checkpoint, map_location="cpu", weights_only=False)
     assert payload["normalizer_type"] == "operating_mode"
+    assert "feature_pipeline" in payload
     assert "normalizer_payload" in payload
     assert payload["normalizer_payload"]["schema_version"] == 1
     assert "normalizer_means" not in payload

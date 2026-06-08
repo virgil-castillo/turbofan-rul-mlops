@@ -17,6 +17,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
+from sklearn.pipeline import Pipeline
 
 from turbofan.inference.schemas import (
     CANONICAL_COLUMNS,
@@ -41,31 +42,45 @@ _MODEL_SCOPES: dict[ModelType, PredictionScope] = {
 }
 
 
+#: Default maximum-RUL cap for Ridge predictions. The C-MAPSS RUL labels are
+#: capped at 125 cycles (piecewise-linear scheme) across every subset config and
+#: every experiment, so the Ridge inference path caps its predictions to the same
+#: ceiling. This matches the committed Ridge training-eval
+#: (``train_baseline.py``), whose logged official metrics reflect the capped
+#: predictions; without it the serving path would diverge from those numbers.
+DEFAULT_MAX_RUL: int = 125
+
+
 def ridge_engine_predictions(
     pipeline: object,
     frame: pd.DataFrame,
+    *,
+    max_rul: int = DEFAULT_MAX_RUL,
 ) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
     """Score validated rows with a Ridge pipeline and select per-engine outputs.
 
-    Scores every row, clips predictions to be non-negative, and keeps the
+    Scores every row, clips predictions to ``[0, max_rul]``, and keeps the
     last-cycle prediction per engine (the ``engine`` prediction scope). This is
     the pure compute shared by the in-process Ridge path and the MLflow Ridge
-    pyfunc wrapper.
+    pyfunc wrapper. The upper cap mirrors the piecewise-linear RUL ceiling used
+    in training so serving reproduces the logged Ridge official metrics.
 
     Args:
         pipeline: Fitted sklearn-compatible pipeline exposing ``predict``.
         frame: Validated canonical rows (``engine_id``, ``cycle``, features),
             already sorted by engine and cycle.
+        max_rul: Maximum-RUL ceiling applied to predictions. Defaults to
+            :data:`DEFAULT_MAX_RUL` (125), the cap used by every subset config.
 
     Returns:
         Tuple of the per-engine metadata rows (``engine_id``, ``cycle``, sorted
-        by ``engine_id``) and the aligned non-negative predictions.
+        by ``engine_id``) and the aligned predictions clipped to ``[0, max_rul]``.
 
     Raises:
         ValueError: If the pipeline returns a mismatched number of predictions.
     """
     raw_predictions = pipeline.predict(frame)  # type: ignore[attr-defined]
-    predictions = _clip_predictions(raw_predictions)
+    predictions = _clip_predictions(raw_predictions, max_value=float(max_rul))
     if len(predictions) != len(frame):
         raise ValueError("Ridge pipeline returned an unexpected prediction count.")
     scored = frame.copy()
@@ -83,18 +98,19 @@ def sequence_final_window_predictions(
     """Run the final-window inference path for any sequence architecture.
 
     Reads the architecture from the payload's ``sequence_config``, rebuilds the
-    matching recurrent module via the registry, restores the normalizer, then
-    normalizes, builds one final window per engine, runs the forward pass,
-    rescales by ``max_rul``, and clips to be non-negative (the ``final_window``
-    prediction scope). The path is identical across RNNs, so this single
-    function serves both the in-process sequence path and the MLflow sequence
-    pyfunc wrapper.
+    matching recurrent module via the registry, applies the fitted feature
+    pipeline when present (or the legacy normalizer-only payload otherwise),
+    builds one final window per engine, runs the forward pass, rescales by
+    ``max_rul``, and clips to be non-negative (the ``final_window`` prediction
+    scope). The path is identical across RNNs, so this single function serves
+    both the in-process sequence path and the MLflow sequence pyfunc wrapper.
 
     Args:
         payload: Sequence checkpoint payload with ``model_state_dict``,
             ``feature_cols``, ``sequence_config`` (``architecture``,
             ``window_size``, ``hidden_size``, ``num_layers``, ``dropout``),
-            ``normalizer_payload``, and ``max_rul``.
+            optional ``feature_pipeline``, legacy ``normalizer_payload``, and
+            ``max_rul``.
         frame: Validated canonical rows (``engine_id``, ``cycle``, features),
             each engine at least ``window_size`` cycles long.
 
@@ -122,8 +138,23 @@ def sequence_final_window_predictions(
     )
     model.to("cpu")
     model.eval()
-    normalizer = _normalizer_from_payload(payload, feature_cols)
     max_rul = _positive_int(payload, "max_rul")
+    feature_pipeline = payload.get("feature_pipeline")
+    if feature_pipeline is not None:
+        if not isinstance(feature_pipeline, Pipeline):
+            raise ValueError(
+                "sequence checkpoint field 'feature_pipeline' must be a fitted "
+                "sklearn Pipeline."
+            )
+        return _sequence_pipeline_window_inference(
+            model=model,
+            feature_pipeline=feature_pipeline,
+            feature_cols=feature_cols,
+            window_size=window_size,
+            max_rul=max_rul,
+            frame=frame,
+        )
+    normalizer = _normalizer_from_payload(payload, feature_cols)
     return _sequence_window_inference(
         model=model,
         normalizer=normalizer,
@@ -186,6 +217,60 @@ def _sequence_window_inference(
     normalized = normalizer.transform(frame)
     windows = build_final_windows(
         normalized,
+        feature_cols,
+        window_size,
+        target_col=None,
+    )
+    with torch.no_grad():
+        tensor = torch.as_tensor(windows.X, dtype=torch.float32, device="cpu")
+        lengths_tensor = torch.as_tensor(
+            windows.lengths, dtype=torch.int64, device="cpu"
+        )
+        raw_predictions = model(tensor, lengths_tensor).detach().cpu().numpy()
+    rescaled = np.asarray(raw_predictions, dtype=np.float64).reshape(-1) * max_rul
+    predictions = _clip_predictions(rescaled)
+    metadata = windows.metadata[["engine_id", "cycle"]].reset_index(drop=True)
+    return metadata, predictions
+
+
+def _sequence_pipeline_window_inference(
+    *,
+    model: SequenceRULRegressor,
+    feature_pipeline: Pipeline,
+    feature_cols: Sequence[str],
+    window_size: int,
+    max_rul: int,
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
+    """Apply the fitted feature pipeline before sequence window inference.
+
+    Args:
+        model: Loaded, evaluation-mode sequence model.
+        feature_pipeline: Fitted feature engineering pipeline from training.
+        feature_cols: Ordered feature column names.
+        window_size: Sequence window size.
+        max_rul: Maximum-RUL cap used to rescale raw model output.
+        frame: Validated canonical raw rows ready for transformation.
+
+    Returns:
+        Tuple of the final-window metadata rows (``engine_id``, ``cycle``) and
+        the aligned non-negative predictions.
+
+    Raises:
+        ValueError: If the fitted pipeline does not return a DataFrame.
+    """
+    features = feature_pipeline.transform(frame)
+    if not isinstance(features, pd.DataFrame):
+        raise ValueError("sequence feature pipeline must return a DataFrame.")
+    engineered = pd.concat(
+        [
+            frame[["engine_id", "cycle"]].reset_index(drop=True),
+            features.reset_index(drop=True),
+        ],
+        axis=1,
+    )
+    windows = build_final_windows(
+        engineered,
         feature_cols,
         window_size,
         target_col=None,
@@ -357,9 +442,25 @@ def _prediction_rows_from_output(
     ]
 
 
-def _clip_predictions(values: object) -> npt.NDArray[np.float64]:
+def _clip_predictions(
+    values: object,
+    *,
+    max_value: float | None = None,
+) -> npt.NDArray[np.float64]:
+    """Clip predictions to be non-negative, with an optional upper cap.
+
+    Args:
+        values: Raw predictions to clip.
+        max_value: Optional upper cap. ``None`` (the default) leaves predictions
+            uncapped above zero, which the sequence path relies on; the Ridge
+            path passes ``max_rul`` to cap at the RUL ceiling.
+
+    Returns:
+        Float64 predictions clipped to ``[0, max_value]`` (or ``[0, ∞)`` when
+        ``max_value`` is ``None``).
+    """
     array = np.asarray(values, dtype=np.float64).reshape(-1)
-    return np.clip(array, a_min=0.0, a_max=None)
+    return np.clip(array, a_min=0.0, a_max=max_value)
 
 
 def _mapping(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
