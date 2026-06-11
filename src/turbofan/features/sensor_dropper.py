@@ -22,7 +22,7 @@ class SensorDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     def __init__(self, drop: list[str] | None = None) -> None:
         self.drop = drop
 
-    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Record the drop list for sklearn pipeline compatibility.
 
         Args:

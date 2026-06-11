@@ -70,7 +70,7 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         self.windows = windows
         self.lag_steps = lag_steps
 
-    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Record input sensor columns and compute output column names.
 
         Args:

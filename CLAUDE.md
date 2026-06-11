@@ -38,5 +38,5 @@ Use conventional commits: `type(scope): message` (e.g. `feat(features): add roll
   where applicable.
 - **Type annotations.** All function signatures must be fully annotated;
   `mypy --strict` must pass.
-- **Ruff** enforces `E`, `F`, `W`, `I`, `UP`, and `ANN` rules at line
-  length 88. Fix lint errors before committing.
+- **Ruff** enforces `E`, `F`, `W`, `I`, `UP`, `ANN`, `B`, `BLE`, `ARG`,
+  `C4`, and `SIM` rules at line length 88. Fix lint errors before committing.

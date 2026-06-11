@@ -21,7 +21,7 @@ class SensorColumnSelector(BaseEstimator, TransformerMixin):  # type: ignore[mis
     can compute per-engine rolling and lag features.
     """
 
-    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Record sensor column names from training data.
 
         Args:
@@ -78,7 +78,7 @@ class _AutoSensorNormalizer(OperatingModeNormalizer):
             random_state=random_state,
         )
 
-    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Fit using only s_* columns present in X as feature_cols.
 
         Args:
@@ -92,7 +92,7 @@ class _AutoSensorNormalizer(OperatingModeNormalizer):
         self.feature_cols = sensor_cols
         return super().fit(X, None)
 
-    def get_params(self, deep: bool = True) -> dict[str, Any]:
+    def get_params(self, deep: bool = True) -> dict[str, Any]:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Return estimator parameters.
 
         Args:

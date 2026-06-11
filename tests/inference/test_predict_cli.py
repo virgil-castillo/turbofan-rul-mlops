@@ -43,7 +43,7 @@ def _record(
     return {
         "engine_id": engine_id,
         "cycle": cycle,
-        **{column: feature_value for column in FEATURE_COLUMNS},
+        **dict.fromkeys(FEATURE_COLUMNS, feature_value),
     }
 
 

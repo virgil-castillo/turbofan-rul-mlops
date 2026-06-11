@@ -318,7 +318,7 @@ def test_csv_columns_order() -> None:
         "val_mae",
         "training_duration_seconds",
     ]
-    assert CSV_COLUMNS == expected
+    assert expected == CSV_COLUMNS
 
 
 # ---------------------------------------------------------------------------

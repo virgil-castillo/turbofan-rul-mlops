@@ -152,7 +152,7 @@ def _record() -> dict[str, object]:
     return {
         "engine_id": 1,
         "cycle": 2,
-        **{column: 1.0 for column in FEATURE_COLUMNS},
+        **dict.fromkeys(FEATURE_COLUMNS, 1.0),
     }
 
 

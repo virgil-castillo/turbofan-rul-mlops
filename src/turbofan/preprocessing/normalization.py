@@ -149,7 +149,7 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
     # mode_means_: dict[int, pd.Series[Any]]
     # mode_stds_: dict[int, pd.Series[Any]]
 
-    def fit(self, X: pd.DataFrame, y: pd.Series[Any] | None = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: pd.Series[Any] | None = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Compute per-mode statistics from ``X``.
 
         Args:
