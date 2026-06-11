@@ -80,4 +80,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto"
+addopts = "-n auto --basetemp=.pytest_tmp"

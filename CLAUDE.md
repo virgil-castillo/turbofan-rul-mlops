@@ -24,7 +24,7 @@ conda activate mlops
 ruff check src/ tests/                 # lint
 mypy src/turbofan                       # type-check
 
-pytest                                  # all tests
+pytest                                  # all tests (temp written to .pytest_tmp/ — workspace-local, agent/Windows safe)
 pytest tests/test_file.py               # single file
 pytest -k "test_name"                   # single test by name
 ```
