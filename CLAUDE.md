@@ -24,7 +24,7 @@ conda activate mlops
 ruff check src/ tests/                 # lint
 mypy src/turbofan                       # type-check
 
-pytest                                  # all tests (temp written to .pytest_tmp/ — workspace-local, agent/Windows safe)
+pytest                                  # all tests; reports line coverage for `turbofan` and fails if total drops below 93%
 pytest tests/test_file.py               # single file
 pytest -k "test_name"                   # single test by name
 ```

@@ -83,4 +83,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto --basetemp=.pytest_tmp"
+addopts = "-n auto --basetemp=.pytest_tmp --cov=turbofan --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["turbofan"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 93
