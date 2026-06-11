@@ -33,6 +33,7 @@ dev = [
     "nbformat",
     "jupyter",
     "scipy",
+    "pre-commit",
 ]
 
 [project.scripts]

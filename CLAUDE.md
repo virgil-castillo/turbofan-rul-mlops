@@ -29,6 +29,20 @@ pytest tests/test_file.py               # single file
 pytest -k "test_name"                   # single test by name
 ```
 
+## Pre-commit
+
+Run once after cloning to enable the git hook:
+
+```bash
+pre-commit install
+```
+
+To run all hooks manually against every file:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Commit style
 Use conventional commits: `type(scope): message` (e.g. `feat(features): add rolling window`, `fix(train): correct loss accumulation`).
 
