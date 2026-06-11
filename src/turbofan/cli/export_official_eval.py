@@ -234,8 +234,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         records = _read_records(per_run_path)
         summary = build_summary_frame(records)
         summary.to_csv(summary_path, index=False)
-    except Exception as exc:  # noqa: BLE001 - surface any failure as exit 1
+    except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1
         logger.error(str(exc))
+        logger.debug("Traceback for the error above:", exc_info=True)
         return 1
 
     logger.info("wrote %d per-run rows to %s", len(records), per_run_path)

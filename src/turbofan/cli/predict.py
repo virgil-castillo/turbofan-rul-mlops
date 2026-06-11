@@ -49,8 +49,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if isinstance(meta, dict):
                 meta["evaluation"] = evaluation
         _write_metadata(args.metadata_output, payload)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1
         logger.error(str(exc))
+        logger.debug("Traceback for the error above:", exc_info=True)
         return 1
 
     metadata = result.metadata

@@ -1,6 +1,8 @@
 """Tests for the turbofan-models command."""
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import mlflow
 import pandas as pd
 import pytest
@@ -95,4 +97,36 @@ def test_list_models_shows_placeholder_without_production_alias(
     out = capsys.readouterr().out
     assert name in out
     assert "-" in out
+
+
+def test_list_models_error_emits_traceback_at_debug_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """At --log-level DEBUG, the traceback is included in stderr on failure."""
+    with patch(
+        "turbofan.cli.list_models.registry.list_registered",
+        side_effect=RuntimeError("injected failure"),
+    ):
+        code = list_models.main(["--log-level", "DEBUG"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "injected failure" in err
+    assert "Traceback" in err
+
+
+def test_list_models_error_suppresses_traceback_at_info_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """At default INFO level, only the error message appears (no traceback)."""
+    with patch(
+        "turbofan.cli.list_models.registry.list_registered",
+        side_effect=RuntimeError("injected failure"),
+    ):
+        code = list_models.main(["--log-level", "INFO"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "injected failure" in err
+    assert "Traceback" not in err
 

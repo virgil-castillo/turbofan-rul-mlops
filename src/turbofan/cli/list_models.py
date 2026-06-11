@@ -36,8 +36,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     tracking.configure_mlflow()
     try:
         models = registry.list_registered()
-    except Exception as exc:  # noqa: BLE001 - surface any MLflow error as exit 1
+    except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1
         logger.error(str(exc))
+        logger.debug("Traceback for the error above:", exc_info=True)
         return 1
 
     if not models:
