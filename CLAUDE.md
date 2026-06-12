@@ -31,12 +31,6 @@ pytest -k "test_name"                   # single test by name
 
 ## Pre-commit
 
-Run once after cloning to enable the git hook:
-
-```bash
-pre-commit install
-```
-
 To run all hooks manually against every file:
 
 ```bash
