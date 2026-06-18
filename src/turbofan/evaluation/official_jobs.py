@@ -6,13 +6,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from turbofan import workflows
-from turbofan.config.schema import ProjectConfig, load_config
+from turbofan.config.schema import (
+    DeviceRequest,
+    FDSubset,
+    ModelName,
+    ProjectConfig,
+    SequenceArchitecture,
+    load_config,
+)
 from turbofan.models.evaluate import split_features_target
 from turbofan.models.metrics import official_test_metrics, regression_metrics
 from turbofan.models.sequence_training import resolve_device
 
-SUBSETS: tuple[str, ...] = ("FD001", "FD002", "FD003", "FD004")
-SEQUENCE_MODELS: tuple[str, ...] = ("gru", "lstm")
+SUBSETS: tuple[FDSubset, ...] = ("FD001", "FD002", "FD003", "FD004")
+SEQUENCE_MODELS: tuple[SequenceArchitecture, ...] = ("gru", "lstm")
 RIDGE_SEEDS: tuple[int, ...] = (42,)
 
 # The engine split and feature-pipeline random_state are held at this seed for
@@ -21,7 +28,7 @@ RIDGE_SEEDS: tuple[int, ...] = (42,)
 SPLIT_SEED = 42
 
 # Display order for the model column: baseline first, then sequence models.
-MODEL_ORDER: dict[str, int] = {"ridge": 0, "gru": 1, "lstm": 2}
+MODEL_ORDER: dict[ModelName, int] = {"ridge": 0, "gru": 1, "lstm": 2}
 
 
 @dataclass(frozen=True)
@@ -45,8 +52,8 @@ class RunRecord:
         official_phm08: Official-test PHM08 score.
     """
 
-    model: str
-    subset: str
+    model: ModelName
+    subset: FDSubset
     seed: int
     feature_config: str
     rolling_window: str
@@ -72,8 +79,8 @@ class Job:
         seed: Model-init/training seed.
     """
 
-    model: str
-    subset: str
+    model: ModelName
+    subset: FDSubset
     config_path: Path
     seed: int
 
@@ -81,7 +88,7 @@ class Job:
 def build_jobs(
     *,
     configs_dir: Path,
-    models: Sequence[str],
+    models: Sequence[ModelName],
     sequence_seeds: Sequence[int],
 ) -> list[Job]:
     """Enumerate the train/eval jobs for the requested models and subsets.
@@ -119,7 +126,7 @@ def build_jobs(
     return jobs
 
 
-def run_job(job: Job, *, device: str) -> RunRecord:
+def run_job(job: Job, *, device: DeviceRequest) -> RunRecord:
     """Train and officially evaluate one job.
 
     Args:
@@ -173,7 +180,7 @@ def join_lag_steps(
     return "|".join(str(step) for step in (lag_steps or []))
 
 
-def config_path_for(configs_dir: Path, model: str, subset: str) -> Path:
+def config_path_for(configs_dir: Path, model: ModelName, subset: FDSubset) -> Path:
     """Return the config path for a model/subset pair.
 
     Args:
@@ -240,9 +247,11 @@ def _evaluate_ridge(cfg: ProjectConfig, job: Job) -> RunRecord:
     )
 
 
-def _evaluate_sequence(cfg: ProjectConfig, job: Job, *, device: str) -> RunRecord:
+def _evaluate_sequence(
+    cfg: ProjectConfig, job: Job, *, device: DeviceRequest
+) -> RunRecord:
     """Train a sequence model and evaluate it on the official test set."""
-    dev = resolve_device(device)  # type: ignore[arg-type]
+    dev = resolve_device(device)
     max_rul = cfg.data.max_rul
     sf = cfg.features.for_model(cfg.sequence.architecture)
 

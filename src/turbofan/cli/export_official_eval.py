@@ -1,13 +1,14 @@
 """Generate the multi-seed official-evaluation CSVs for selected models.
 
-This is the committed, version-controlled replacement for the untracked process
-that previously produced ``results/latest_official_eval_*.csv``. For every
-production configuration shipped in ``configs/subsets`` it trains the model and
-evaluates it on the official C-MAPSS test set, then writes:
+This is the reproducible replacement for the ad hoc process that produced the
+committed benchmark snapshots under ``results/baselines/``. For every production
+configuration shipped in ``configs/subsets`` it trains the model and evaluates
+it on the official C-MAPSS test set, then writes:
 
-- ``results/latest_official_eval_per_run.csv``: one row per model, subset, seed.
-- ``results/latest_official_eval_summary.csv``: aggregate metrics per model and
-  subset.
+- ``outputs/results/latest_official_eval_per_run.csv``: one row per model,
+  subset, seed.
+- ``outputs/results/latest_official_eval_summary.csv``: aggregate metrics per
+  model and subset.
 
 The per-run CSV is written incrementally and the run is resumable: an existing
 row for a model/subset/seed is skipped, so an interrupted sweep can be restarted
@@ -51,7 +52,7 @@ from turbofan.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
-_DEFAULT_OUTPUT_DIR = Path("results")
+_DEFAULT_OUTPUT_DIR = Path("outputs/results")
 _DEFAULT_CONFIGS_DIR = Path("configs/subsets")
 _PER_RUN_FILENAME = "latest_official_eval_per_run.csv"
 _SUMMARY_FILENAME = "latest_official_eval_summary.csv"
@@ -169,7 +170,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=_DEFAULT_OUTPUT_DIR,
-        help="Directory to write the official-eval CSVs (defaults to results/).",
+        help=(
+            "Directory to write the official-eval CSVs "
+            "(defaults to outputs/results/)."
+        ),
     )
     parser.add_argument(
         "--configs-dir",

@@ -16,6 +16,7 @@ from turbofan.inference.schemas import (
     RawRecords,
     validate_raw_records,
 )
+from turbofan.sklearn_types import DataFramePredictor
 
 _MODEL_SCOPES: dict[ModelType, PredictionScope] = {
     "ridge": "engine",
@@ -35,7 +36,7 @@ class PyfuncPredictor:
 
     def __init__(
         self,
-        model: object,
+        model: DataFramePredictor,
         *,
         model_type: ModelType,
         artifact_id: str,
@@ -85,7 +86,9 @@ class PyfuncPredictor:
         del allow_partial
         input_rows = len(records)
         frame = _records_to_frame(records)
-        output = self._model.predict(frame)  # type: ignore[attr-defined]
+        output = self._model.predict(frame)
+        if not isinstance(output, pd.DataFrame):
+            raise ValueError("Pyfunc model predict() must return a DataFrame.")
         prediction_rows = _prediction_rows_from_output(
             output,
             model_type=self._metadata.model_type,

@@ -10,8 +10,8 @@
 
 Source files:
 
-- `results/archive/gru_sweep.csv`
-- `results/training_log.jsonl` for training duration
+- `results/baselines/archive/gru_sweep.csv`
+- `results/baselines/training_log.jsonl` for training duration
 
 Ranking is by validation RMSE (lower is better); the PHM08 score is not used to
 rank validation runs.

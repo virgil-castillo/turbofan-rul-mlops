@@ -6,12 +6,20 @@ re-exporting the original public helpers for compatibility.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
 
 from turbofan import workflows
-from turbofan.config.schema import DataConfig, SequenceConfig, load_config
+from turbofan.config.schema import (
+    DataConfig,
+    DeviceRequest,
+    FDSubset,
+    SequenceArchitecture,
+    SequenceConfig,
+    load_config,
+)
 from turbofan.experiments.feature_family_grid import (
     ScreenCell,
     cell_key,
@@ -85,7 +93,7 @@ def run_cell(
     cell: ScreenCell,
     *,
     configs_dir: Path = Path("configs/subsets"),
-    device: str = "cpu",
+    device: DeviceRequest = "cpu",
 ) -> dict[str, Any]:
     """Train one cell and return a result row matching :data:`CSV_COLUMNS`.
 
@@ -111,17 +119,17 @@ def run_cell(
         raw_dir=subset_cfg.data.raw_dir,
         processed_dir=subset_cfg.data.processed_dir,
         interim_dir=subset_cfg.data.interim_dir,
-        fd_subset=cell.subset,  # type: ignore[arg-type]
+        fd_subset=cell.subset,
         max_rul=MAX_RUL,
         test_size=TEST_SIZE,
         random_seed=SPLIT_SEED,
     )
 
-    dev = resolve_device(device)  # type: ignore[arg-type]
+    dev = resolve_device(device)
     device_name: Literal["cpu", "cuda"] = "cuda" if dev.type == "cuda" else "cpu"
 
     seq_cfg = SequenceConfig(
-        architecture=cell.architecture,  # type: ignore[arg-type]
+        architecture=cell.architecture,
         window_size=cell.sequence_window,
         batch_size=BATCH_SIZE,
         hidden_size=HIDDEN_SIZE,
@@ -192,16 +200,16 @@ def run_cell(
 
 
 def run_screen(
-    architectures: list[str],
-    subsets: list[str],
-    sequence_windows: list[int],
-    rolling_windows: list[int],
-    lag_steps: list[int],
-    seeds: list[int],
+    architectures: Sequence[SequenceArchitecture],
+    subsets: Sequence[FDSubset],
+    sequence_windows: Sequence[int],
+    rolling_windows: Sequence[int],
+    lag_steps: Sequence[int],
+    seeds: Sequence[int],
     *,
-    results_dir: Path = Path("results"),
+    results_dir: Path = Path("outputs/results"),
     configs_dir: Path = Path("configs/subsets"),
-    device: str = "cpu",
+    device: DeviceRequest = "cpu",
 ) -> None:
     """Orchestrate the full feature-family sweep with CSV resume.
 
@@ -212,7 +220,7 @@ def run_screen(
         rolling_windows: Rolling window sizes for rolling feature configs.
         lag_steps: Lag steps for the lag config.
         seeds: Random seeds for model init and training.
-        results_dir: Root directory for result CSV files.
+        results_dir: Root directory for generated result CSV files.
         configs_dir: Directory containing per-subset YAML configs.
         device: Requested compute device forwarded to :func:`run_cell`.
     """

@@ -13,13 +13,14 @@ from sklearn.pipeline import Pipeline
 from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.sequences.windowing import build_final_windows
+from turbofan.sklearn_types import DataFramePredictor
 
 DEFAULT_MAX_RUL: int = 125
 """Default maximum-RUL cap for Ridge predictions."""
 
 
 def ridge_engine_predictions(
-    pipeline: object,
+    pipeline: DataFramePredictor,
     frame: pd.DataFrame,
     *,
     max_rul: int = DEFAULT_MAX_RUL,
@@ -40,7 +41,7 @@ def ridge_engine_predictions(
     Raises:
         ValueError: If the pipeline returns a mismatched prediction count.
     """
-    raw_predictions = pipeline.predict(frame)  # type: ignore[attr-defined]
+    raw_predictions = pipeline.predict(frame)
     predictions = _clip_predictions(raw_predictions, max_value=float(max_rul))
     if len(predictions) != len(frame):
         raise ValueError("Ridge pipeline returned an unexpected prediction count.")

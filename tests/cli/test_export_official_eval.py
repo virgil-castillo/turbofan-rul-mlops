@@ -102,6 +102,14 @@ def test_build_jobs_missing_config_raises(tmp_path: Path) -> None:
         )
 
 
+def test_parser_defaults_to_ignored_output_dir() -> None:
+    """Default CSV output goes under the ignored runtime output tree."""
+    parser = export._build_parser()
+    args = parser.parse_args([])
+
+    assert args.output_dir == Path("outputs/results")
+
+
 # ---------------------------------------------------------------------------
 # CSV round-trip and resume
 # ---------------------------------------------------------------------------

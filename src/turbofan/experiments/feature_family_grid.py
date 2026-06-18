@@ -1,9 +1,10 @@
 """Grid definitions for the sequence feature-family screen."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from turbofan.config.schema import FeatureFamilyName
+from turbofan.config.schema import FDSubset, FeatureFamilyName, SequenceArchitecture
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,8 @@ class ScreenCell:
         seed: Random seed for model initialization and training.
     """
 
-    architecture: str
-    subset: str
+    architecture: SequenceArchitecture
+    subset: FDSubset
     feature_config: str
     feature_families: list[FeatureFamilyName]
     rolling_window: int | None
@@ -52,12 +53,12 @@ _FEATURE_CONFIGS: list[tuple[str, list[FeatureFamilyName], str]] = [
 
 
 def enumerate_cells(
-    architectures: list[str],
-    subsets: list[str],
-    sequence_windows: list[int],
-    rolling_windows: list[int],
-    lag_steps: list[int],
-    seeds: list[int],
+    architectures: Sequence[SequenceArchitecture],
+    subsets: Sequence[FDSubset],
+    sequence_windows: Sequence[int],
+    rolling_windows: Sequence[int],
+    lag_steps: Sequence[int],
+    seeds: Sequence[int],
 ) -> list[ScreenCell]:
     """Enumerate every cell of the feature-family sweep grid.
 

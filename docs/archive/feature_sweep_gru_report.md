@@ -12,7 +12,7 @@
 
 # GRU Feature-Engineering Sweep
 
-Analysis of `results/archive/feature_sweep_gru_fd00{1-4}.csv`.
+Analysis of `results/baselines/archive/feature_sweep_gru_fd00{1-4}.csv`.
 
 ## Method
 

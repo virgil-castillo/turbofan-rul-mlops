@@ -6,12 +6,15 @@ import statistics
 from collections.abc import Sequence
 from dataclasses import fields
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
+from turbofan.config.schema import FDSubset, ModelName
 from turbofan.evaluation.official_jobs import MODEL_ORDER, RunRecord
 
 PER_RUN_COLUMNS: list[str] = [field.name for field in fields(RunRecord)]
+_VALID_SUBSETS: frozenset[str] = frozenset(("FD001", "FD002", "FD003", "FD004"))
 SUMMARY_COLUMNS: list[str] = [
     "model",
     "subset",
@@ -192,8 +195,8 @@ def record_from_row(row: dict[str, str]) -> RunRecord:
         The parsed record.
     """
     return RunRecord(
-        model=row["model"],
-        subset=row["subset"],
+        model=_parse_model_name(row["model"]),
+        subset=_parse_fd_subset(row["subset"]),
         seed=int(row["seed"]),
         feature_config=row.get("feature_config", ""),
         rolling_window=row.get("rolling_window", "") or "",
@@ -242,4 +245,53 @@ def group_sort_key(row: dict[str, object]) -> tuple[int, str]:
     Returns:
         Tuple of model order and subset.
     """
-    return (MODEL_ORDER.get(str(row["model"]), 99), str(row["subset"]))
+    return (_model_order(row["model"]), str(row["subset"]))
+
+
+def _parse_model_name(value: str) -> ModelName:
+    """Validate a CSV model cell and return the narrowed model name.
+
+    Args:
+        value: Raw CSV model value.
+
+    Returns:
+        Supported model name.
+
+    Raises:
+        ValueError: If ``value`` is not a supported model name.
+    """
+    if value not in MODEL_ORDER:
+        raise ValueError(f"Unsupported model in official-eval CSV: {value!r}")
+    return value
+
+
+def _parse_fd_subset(value: str) -> FDSubset:
+    """Validate a CSV subset cell and return the narrowed subset name.
+
+    Args:
+        value: Raw CSV subset value.
+
+    Returns:
+        Supported C-MAPSS subset name.
+
+    Raises:
+        ValueError: If ``value`` is not a supported subset.
+    """
+    if value not in _VALID_SUBSETS:
+        raise ValueError(f"Unsupported subset in official-eval CSV: {value!r}")
+    return cast(FDSubset, value)
+
+
+def _model_order(value: object) -> int:
+    """Return display order for a model value, falling back after known models.
+
+    Args:
+        value: Model value from a summary row.
+
+    Returns:
+        Integer display order.
+    """
+    text = str(value)
+    if text not in MODEL_ORDER:
+        return 99
+    return MODEL_ORDER[text]

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from csv import DictReader
 from pathlib import Path
 from types import ModuleType
@@ -176,20 +175,15 @@ def _run_cli(
 
     Args:
         cfg_path: YAML config path.
-        monkeypatch: pytest monkeypatch fixture for sys.argv injection.
+        monkeypatch: pytest monkeypatch fixture.
         capsys: pytest capsys fixture for stdout/stderr capture.
 
     Returns:
         CLI result with returncode, stdout, and stderr.
     """
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["turbofan.cli.train_sequence_gru", "--config", str(cfg_path)],
-    )
-    gru_main()
+    returncode = gru_main(["--config", str(cfg_path)])
     captured = capsys.readouterr()
-    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
+    return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
 def _load_train_sequence_gru_module() -> ModuleType:
@@ -271,7 +265,9 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "config.yaml", log_level="INFO"
+        ),
     )
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(
@@ -325,7 +321,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     torch.manual_seed(999)
-    module.main()
+    assert module.main() == 0
 
     torch.manual_seed(seed)
     expected = GRURULRegressor(
@@ -410,7 +406,9 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "config.yaml", log_level="INFO"
+        ),
     )
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
@@ -452,7 +450,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     )
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
     tracking.configure_mlflow()
     runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
@@ -657,7 +655,9 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "c.yaml", log_level="INFO"
+        ),
     )
     monkeypatch.setattr(module, "load_config", lambda p: cfg)
     monkeypatch.setattr(
@@ -706,7 +706,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     )
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
     assert captured, "build_feature_pipeline was never called"
     assert captured[0]["n_modes"] == 1  # FD001 → 1 mode

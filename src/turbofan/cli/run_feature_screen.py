@@ -71,8 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results"),
-        help="Root directory for result CSV files.",
+        default=Path("outputs/results"),
+        help="Root directory for generated result CSV files.",
     )
     parser.add_argument(
         "--configs-dir",

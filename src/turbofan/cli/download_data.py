@@ -10,7 +10,7 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from turbofan.utils.logging import get_logger, setup_logging
@@ -49,14 +49,14 @@ def check(raw_dir: Path = RAW_DIR) -> bool:
     return all_present
 
 
-def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
+def download_kaggle(raw_dir: Path = RAW_DIR) -> bool:
     """Download the dataset via the Kaggle API.
-
-    Prints manual instructions and exits with code 1 if the Kaggle API
-    key is not configured.
 
     Args:
         raw_dir: Directory to download files into.
+
+    Returns:
+        True when the download command succeeds, False otherwise.
     """
     kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
     if not kaggle_json.exists():
@@ -65,7 +65,7 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
         logger.warning("  1. Go to %s", MANUAL_URL)
         logger.warning("  2. Click 'Download' to get the dataset zip")
         logger.warning("  3. Extract all .txt files into: %s/", raw_dir)
-        sys.exit(1)
+        return False
 
     raw_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Downloading %s into %s ...", KAGGLE_DATASET, raw_dir)
@@ -86,7 +86,7 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
         logger.error(
             "Download failed. Check your Kaggle API credentials and connection."
         )
-        sys.exit(1)
+        return False
 
     # Flatten directory structure if files extracted to subdirectory
     cmaps_dir = raw_dir / "CMaps"
@@ -96,10 +96,15 @@ def download_kaggle(raw_dir: Path = RAW_DIR) -> None:
         shutil.rmtree(cmaps_dir)
 
     logger.info("Download complete.")
+    return True
 
 
-def main() -> None:
-    """Entry point for the download script."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the download CLI.
+
+    Returns:
+        Configured argument parser.
+    """
     parser = argparse.ArgumentParser(
         description="Manage the NASA C-MAPSS turbofan dataset",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -121,19 +126,35 @@ def main() -> None:
         default=os.environ.get("LOG_LEVEL", "INFO"),
         help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point for the download script.
+
+    Args:
+        argv: Optional command-line arguments.
+
+    Returns:
+        Process exit code.
+    """
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     setup_logging(args.log_level)
 
     if args.check:
         logger.info("Checking data files in %s ...", RAW_DIR)
         all_present = check(RAW_DIR)
-        sys.exit(0 if all_present else 1)
+        return 0 if all_present else 1
 
     if args.kaggle:
-        download_kaggle(RAW_DIR)
+        if not download_kaggle(RAW_DIR):
+            return 1
         logger.info("Verifying downloaded files ...")
-        check(RAW_DIR)
+        return 0 if check(RAW_DIR) else 1
+
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

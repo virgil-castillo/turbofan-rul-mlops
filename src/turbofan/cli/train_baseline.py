@@ -5,6 +5,7 @@ import argparse
 import os
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 
@@ -28,8 +29,12 @@ from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
 logger = get_logger(__name__)
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments.
+
+    Args:
+        argv: Optional command-line arguments. Uses ``sys.argv[1:]`` when
+            ``None``.
 
     Returns:
         Parsed argparse namespace.
@@ -47,7 +52,7 @@ def _parse_args() -> argparse.Namespace:
         default=os.environ.get("LOG_LEVEL", "INFO"),
         help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _config_to_dict(cfg: ProjectConfig) -> dict[str, object]:
@@ -156,9 +161,16 @@ def _evaluate_official_test(
     return metrics, predictions
 
 
-def main() -> None:
-    """Train, evaluate, and persist a baseline model run."""
-    args = _parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    """Train, evaluate, and persist a baseline model run.
+
+    Args:
+        argv: Optional command-line arguments.
+
+    Returns:
+        Process exit code (0 on success).
+    """
+    args = _parse_args(argv)
     setup_logging(args.log_level)
     cfg = load_config(args.config)
 
@@ -272,7 +284,8 @@ def main() -> None:
                 print(f"validation mae: {val_metrics['mae']:.6f}")
     finally:
         shutil.rmtree(tmp_log_dir, ignore_errors=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

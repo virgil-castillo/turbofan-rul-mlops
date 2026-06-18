@@ -4,16 +4,16 @@ from __future__ import annotations
 from typing import Any, Self
 
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from turbofan.features.engineering import FeatureEngineer, FeatureFamily
 from turbofan.features.sensor_dropper import SensorDropper
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
+from turbofan.sklearn_types import BaseEstimator, TransformerMixin
 
 
-class SensorColumnSelector(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+class SensorColumnSelector(BaseEstimator, TransformerMixin):
     """Select normalized sensor columns and keep engine_id for downstream grouping.
 
     ``fit`` records which columns start with ``s_``. ``transform`` returns

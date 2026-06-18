@@ -2,11 +2,11 @@
 
 Source files:
 
-- `results/stage2_capacity_sweep_fd001.csv`
-- `results/stage2_capacity_sweep_fd002.csv`
-- `results/stage2_capacity_sweep_fd003.csv`
-- `results/stage2_capacity_sweep_fd004.csv`
-- `results/training_log.jsonl` (training durations and best epoch; last 48 entries)
+- `results/baselines/stage2_capacity_sweep_fd001.csv`
+- `results/baselines/stage2_capacity_sweep_fd002.csv`
+- `results/baselines/stage2_capacity_sweep_fd003.csv`
+- `results/baselines/stage2_capacity_sweep_fd004.csv`
+- `results/baselines/training_log.jsonl` (training durations and best epoch; last 48 entries)
 
 Ranking is by validation RMSE (lower is better). The PHM08 score is computed only
 on the official test set and is not used to rank validation runs.
@@ -28,7 +28,7 @@ swept in Stage 2.
 
 ### Stage 1 bases promoted into Stage 2
 
-These are the two top-RMSE rows of each `results/stage1_temporal_sweep_<fd>.csv`.
+These are the two top-RMSE rows of each `results/baselines/stage1_temporal_sweep_<fd>.csv`.
 Note the feature family already differs by subset (Stage 1's own grid was
 subset-specific), so the bases are not directly comparable across subsets:
 

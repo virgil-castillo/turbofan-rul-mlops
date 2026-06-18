@@ -2,9 +2,9 @@
 
 Source files:
 
-- `results/feature_family_screen_gru_FD00{1,2,3,4}.csv`
-- `results/feature_family_screen_lstm_FD00{1,2,3,4}.csv`
-- `results/feature_family_seed_band.csv` (seed-noise replication of the eight winning cells)
+- `results/baselines/feature_family_screen_gru_FD00{1,2,3,4}.csv`
+- `results/baselines/feature_family_screen_lstm_FD00{1,2,3,4}.csv`
+- `results/baselines/feature_family_seed_band.csv` (seed-noise replication of the eight winning cells)
 
 Ranking is by validation RMSE (lower is better). This report evaluates sequence-model and feature-engineering choices for the case where operating-condition identifiers are **not** provided to the model. All per-configuration figures come from the single-seed (42) screen; the seed-noise band re-ran the eight winning cells across five seeds to confirm that the conclusions are not seed artifacts.
 

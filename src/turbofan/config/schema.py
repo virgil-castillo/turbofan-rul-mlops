@@ -8,6 +8,11 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 PositiveWindow = Annotated[int, Field(gt=0)]
+FDSubset = Literal["FD001", "FD002", "FD003", "FD004"]
+ModelName = Literal["ridge", "gru", "lstm"]
+SequenceArchitecture = Literal["gru", "lstm"]
+DeviceName = Literal["cpu", "cuda"]
+DeviceRequest = Literal["cpu", "cuda", "auto"]
 
 
 class DataConfig(BaseModel):
@@ -26,7 +31,7 @@ class DataConfig(BaseModel):
     raw_dir: Path
     processed_dir: Path
     interim_dir: Path
-    fd_subset: Literal["FD001", "FD002", "FD003", "FD004"] = "FD001"
+    fd_subset: FDSubset = "FD001"
     max_rul: int = Field(default=125, gt=0)
     test_size: float = Field(default=0.2, gt=0.0, lt=1.0)
     random_seed: int = 42
@@ -122,7 +127,7 @@ class FeatureConfig(BaseModel):
     lstm: ModelFeatureConfig | None = None
 
     def for_model(
-        self, model: Literal["ridge", "gru", "lstm"]
+        self, model: ModelName
     ) -> ResolvedFeatureConfig:
         """Resolve effective feature settings for a model.
 
@@ -197,7 +202,7 @@ class SequenceConfig(BaseModel):
         artifact_dir: Directory for local sequence run artifacts.
     """
 
-    architecture: Literal["gru", "lstm"] = "gru"
+    architecture: SequenceArchitecture = "gru"
     window_size: int = Field(default=45, gt=0)
     batch_size: int = Field(default=64, gt=0)
     hidden_size: int = Field(default=64, gt=0)
@@ -207,7 +212,7 @@ class SequenceConfig(BaseModel):
     weight_decay: float = Field(default=0.0, ge=0.0)
     epochs: int = Field(default=50, gt=0)
     patience: int = Field(default=8, gt=0)
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: DeviceName = "cpu"
     artifact_dir: Path = Path("artifacts/models")
 
 

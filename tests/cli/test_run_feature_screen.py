@@ -21,7 +21,7 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert args.rolling_windows == [5, 20]
     assert args.lag_steps == [1, 5]
     assert args.sequence_windows == [30, 60]
-    assert args.results_dir == Path("results")
+    assert args.results_dir == Path("outputs/results")
     assert args.configs_dir == Path("configs/subsets")
     assert args.device == "auto"
 
@@ -101,6 +101,6 @@ def test_main_wiring() -> None:
     assert captured["sequence_windows"] == [30]
     assert captured["rolling_windows"] == [5, 20]
     assert captured["lag_steps"] == [1, 5]
-    assert captured["results_dir"] == Path("results")
+    assert captured["results_dir"] == Path("outputs/results")
     assert captured["configs_dir"] == Path("configs/subsets")
     assert captured["device"] == "cuda"

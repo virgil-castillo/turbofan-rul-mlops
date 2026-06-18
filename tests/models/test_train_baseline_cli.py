@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import NamedTuple
@@ -241,14 +240,9 @@ def _run_baseline_cli(
     Returns:
         CLI result with returncode, stdout, and stderr.
     """
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["turbofan.cli.train_baseline", "--config", str(cfg_path), *extra_args],
-    )
-    baseline_main()
+    returncode = baseline_main(["--config", str(cfg_path), *extra_args])
     captured = capsys.readouterr()
-    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
+    return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
 def test_predict_with_clipping_debug_line_respects_log_level(

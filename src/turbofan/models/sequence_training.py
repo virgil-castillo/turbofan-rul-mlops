@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -12,7 +11,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from turbofan.config.schema import SequenceConfig
+from turbofan.config.schema import DeviceRequest, SequenceConfig
 from turbofan.models.metrics import regression_metrics
 
 type SequenceBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -37,7 +36,7 @@ class TrainingResult:
 
 
 def resolve_device(
-    requested: Literal["cpu", "cuda", "auto"] = "cpu",
+    requested: DeviceRequest = "cpu",
 ) -> torch.device:
     """Resolve a requested torch device.
 

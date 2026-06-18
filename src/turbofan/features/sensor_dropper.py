@@ -4,11 +4,12 @@ from __future__ import annotations
 from typing import Self
 
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from turbofan.sklearn_types import BaseEstimator, TransformerMixin
 
-class SensorDropper(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+
+class SensorDropper(BaseEstimator, TransformerMixin):
     """Drop an explicit list of sensor columns determined during EDA.
 
     The drop list is injected via config — no statistics are computed

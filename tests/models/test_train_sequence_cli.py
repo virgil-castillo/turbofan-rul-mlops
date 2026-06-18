@@ -1,7 +1,6 @@
 """Smoke tests for the generalized turbofan.cli.train_sequence entrypoint."""
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 from types import ModuleType
 from typing import NamedTuple
@@ -163,17 +162,10 @@ def test_train_sequence_cli_trains_and_registers_lstm(
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path, architecture="lstm")
 
     module = _load_module()
-    import sys
-
-    monkeypatch_argv = ["turbofan.cli.train_sequence", "--config", str(cfg_path)]
-    old_argv = sys.argv
-    sys.argv = monkeypatch_argv
-    try:
-        module.main()
-    finally:
-        sys.argv = old_argv
+    code = module.main(["--config", str(cfg_path)])
     out = capsys.readouterr().out
 
+    assert code == 0
     assert "validation_windows rmse" in out
 
     tracking.configure_mlflow()
@@ -251,7 +243,9 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
+        lambda argv=None: module.argparse.Namespace(
+            config=tmp_path / "c.yaml", log_level="INFO"
+        ),
     )
     monkeypatch.setattr(module, "load_config", lambda p: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda r: torch.device("cpu"))
@@ -281,7 +275,7 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
     monkeypatch.setattr(module.registry, "log_and_register", fake_log_and_register)
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
     assert built_architectures == ["lstm"]
     assert captured_model_types == ["lstm"]

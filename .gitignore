@@ -43,6 +43,12 @@ outputs/*
 !outputs/figures/.gitkeep
 !outputs/logs/.gitkeep
 
+# Reviewed benchmark snapshots live under results/baselines.
+results/*
+!results/README.md
+!results/baselines/
+!results/baselines/**
+
 # Model artifacts
 artifacts/
 

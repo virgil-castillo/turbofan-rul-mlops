@@ -1,6 +1,6 @@
 # Ridge Feature-Engineering Sweep
 
-Analysis of `results/feature_sweep_ridge_fd00{1-4}.csv`.
+Analysis of `results/baselines/feature_sweep_ridge_fd00{1-4}.csv`.
 
 ## Method
 
