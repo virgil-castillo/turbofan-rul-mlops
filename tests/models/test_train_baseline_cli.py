@@ -12,6 +12,7 @@ import numpy.typing as npt
 import pandas as pd
 import pytest
 
+from turbofan import workflows
 from turbofan.cli.train_baseline import main as baseline_main
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
 from turbofan.utils.logging import setup_logging
@@ -288,9 +289,9 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
             "s_1": [1.0, 2.0, 3.0, 10.0, 20.0],
         }
     )
-    monkeypatch.setattr(module, "load_raw_test", lambda cfg: test_raw)
+    monkeypatch.setattr(workflows, "load_raw_test", lambda cfg: test_raw)
     monkeypatch.setattr(
-        module,
+        workflows,
         "load_rul_labels",
         lambda cfg: pd.Series([10.0, 20.0], name="rul"),
     )

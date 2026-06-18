@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 import torch
 
+from turbofan import workflows
 from turbofan.cli.train_sequence_gru import main as gru_main
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 from turbofan.models.gru import GRURULRegressor
@@ -282,26 +283,26 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
     )
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        workflows, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(workflows, "load_raw_train", lambda data_config: _fake_df)
+    monkeypatch.setattr(workflows, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
-        module,
+        workflows,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
     monkeypatch.setattr(
-        module,
+        workflows,
         "build_sliding_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
-        module,
+        workflows,
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(workflows, "train_sequence_model", fake_train_gru_model)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
@@ -417,26 +418,26 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch.setattr(module, "load_config", lambda path: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda requested: torch.device("cpu"))
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        workflows, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(workflows, "load_raw_train", lambda data_config: _fake_df)
+    monkeypatch.setattr(workflows, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
-        module,
+        workflows,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
     monkeypatch.setattr(
-        module,
+        workflows,
         "build_sliding_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
-        module,
+        workflows,
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(workflows, "train_sequence_model", fake_train_gru_model)
     monkeypatch.setattr(module, "_evaluate_windows", fake_evaluate_windows)
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "create_run_dir", fake_create_run_dir)
@@ -665,21 +666,21 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
     )
-    monkeypatch.setattr(module, "build_feature_pipeline", _capturing_pipeline)
-    monkeypatch.setattr(module, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(workflows, "build_feature_pipeline", _capturing_pipeline)
+    monkeypatch.setattr(workflows, "load_raw_train", lambda c: _fake_df)
+    monkeypatch.setattr(workflows, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
-        module,
+        workflows,
         "split_by_engine",
         lambda f, test_size, random_seed: (f, f),
     )
     monkeypatch.setattr(
-        module, "build_sliding_windows", lambda *a, **k: object()
+        workflows, "build_sliding_windows", lambda *a, **k: object()
     )
     monkeypatch.setattr(
-        module, "build_sequence_loader", lambda *a, **k: object()
+        workflows, "build_sequence_loader", lambda *a, **k: object()
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train)
+    monkeypatch.setattr(workflows, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",

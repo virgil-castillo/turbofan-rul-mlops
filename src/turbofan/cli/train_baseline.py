@@ -14,23 +14,15 @@ import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from turbofan import registry, tracking
+from turbofan import registry, tracking, workflows
 from turbofan.config.schema import ProjectConfig, load_config
-from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
 from turbofan.models.artifacts import (
     create_run_dir,
     save_json,
     save_predictions,
 )
-from turbofan.models.baseline import build_baseline_pipeline
-from turbofan.models.evaluate import (
-    add_rul_column,
-    align_official_test_labels,
-    select_last_cycle_per_engine,
-    split_features_target,
-)
+from turbofan.models.evaluate import split_features_target
 from turbofan.models.metrics import official_test_metrics, regression_metrics
-from turbofan.models.split import split_by_engine
 from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
 
 logger = get_logger(__name__)
@@ -101,6 +93,9 @@ def _clip_rul_predictions(
 ) -> npt.NDArray[np.float64]:
     """Clip raw predictions into the configured RUL range.
 
+    Thin wrapper over :func:`turbofan.workflows.clip_rul_predictions` retained
+    as the module-local clipping helper.
+
     Args:
         values: Raw model predictions.
         rul_cap: Maximum allowed RUL value.
@@ -108,7 +103,7 @@ def _clip_rul_predictions(
     Returns:
         Float64 predictions clipped to ``[0, rul_cap]``.
     """
-    return np.clip(np.asarray(values, dtype=np.float64), 0.0, float(rul_cap))
+    return workflows.clip_rul_predictions(values, max_rul=rul_cap)
 
 
 def _predict_with_clipping(
@@ -119,6 +114,8 @@ def _predict_with_clipping(
 ) -> npt.NDArray[np.float64]:
     """Predict rows, log raw prediction range, and clip to valid RUL bounds.
 
+    Thin wrapper over :func:`turbofan.workflows.predict_with_clipping`.
+
     Args:
         estimator: Fitted sklearn estimator.
         rows: Feature rows to predict.
@@ -128,11 +125,9 @@ def _predict_with_clipping(
     Returns:
         Float64 predictions clipped to ``[0, rul_cap]``.
     """
-    raw = np.asarray(estimator.predict(rows), dtype=np.float64)
-    logger.debug(
-        "%s raw prediction min/max: %.6f/%.6f", label, raw.min(), raw.max()
+    return workflows.predict_with_clipping(
+        estimator, rows, max_rul=rul_cap, label=label
     )
-    return _clip_rul_predictions(raw, rul_cap=rul_cap)
 
 
 def _evaluate_official_test(
@@ -149,25 +144,15 @@ def _evaluate_official_test(
         Metrics and prediction rows, or None when official files are missing.
     """
     try:
-        test_raw = load_raw_test(cfg.data)
-        rul_labels = load_rul_labels(cfg.data)
+        official = workflows.predict_ridge_official(
+            cfg.data, estimator=estimator, max_rul=cfg.data.max_rul
+        )
     except FileNotFoundError:
         return None
-
-    last_rows = select_last_cycle_per_engine(test_raw)
-    y_true = align_official_test_labels(last_rows, rul_labels)
-    all_pred = _predict_with_clipping(
-        estimator,
-        test_raw,
-        rul_cap=cfg.data.max_rul,
-        label="official_test",
+    metrics = official_test_metrics(official.y_true, official.y_pred)
+    predictions = _prediction_frame(
+        official.last_rows, official.y_true, official.y_pred
     )
-    pred_rows = test_raw[["engine_id", "cycle"]].copy()
-    pred_rows["prediction"] = all_pred
-    last_pred_rows = select_last_cycle_per_engine(pred_rows)
-    y_pred = last_pred_rows["prediction"].to_numpy(dtype=np.float64)
-    metrics = official_test_metrics(y_true, y_pred)
-    predictions = _prediction_frame(last_rows, y_true, y_pred)
     return metrics, predictions
 
 
@@ -182,27 +167,19 @@ def main() -> None:
     try:
         with run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
-            train_raw = load_raw_train(cfg.data)
-            train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
-            train_df, val_df = split_by_engine(
-                train_labeled,
+            frames = workflows.load_and_split(
+                cfg.data,
+                max_rul=cfg.data.max_rul,
                 test_size=cfg.data.test_size,
-                random_seed=cfg.data.random_seed,
+                split_seed=cfg.data.random_seed,
             )
 
-            X_train, y_train = split_features_target(train_df)
-            X_val, y_val = split_features_target(val_df)
+            X_train, y_train = split_features_target(frames.train)
+            X_val, y_val = split_features_target(frames.val)
 
             rf = cfg.features.for_model("ridge")
-            estimator = build_baseline_pipeline(
-                model_name=cfg.model.name,
-                alpha=cfg.model.alpha,
-                feature_families=rf.feature_families,
-                windows=rf.windows,
-                lag_steps=rf.lag_steps,
-                sensor_drop=cfg.features.sensor_cols_to_drop or None,
-                n_modes=cfg.features.n_modes,
-                random_state=cfg.data.random_seed,
+            estimator = workflows.build_ridge_estimator(
+                cfg, seed=cfg.data.random_seed
             )
             logger.info("fitting %s baseline pipeline", cfg.model.name)
             training_started = perf_counter()

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import torch
 
+from turbofan import workflows
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.models.sequence_training import TrainingResult
@@ -255,17 +256,17 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
     monkeypatch.setattr(module, "load_config", lambda p: cfg)
     monkeypatch.setattr(module, "resolve_device", lambda r: torch.device("cpu"))
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        workflows, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(workflows, "load_raw_train", lambda c: _fake_df)
+    monkeypatch.setattr(workflows, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
-        module, "split_by_engine", lambda f, test_size, random_seed: (f, f)
+        workflows, "split_by_engine", lambda f, test_size, random_seed: (f, f)
     )
-    monkeypatch.setattr(module, "build_sliding_windows", lambda *a, **k: object())
-    monkeypatch.setattr(module, "build_sequence_loader", lambda *a, **k: object())
-    monkeypatch.setattr(module, "build_sequence_model", fake_build_sequence_model)
-    monkeypatch.setattr(module, "train_sequence_model", fake_train)
+    monkeypatch.setattr(workflows, "build_sliding_windows", lambda *a, **k: object())
+    monkeypatch.setattr(workflows, "build_sequence_loader", lambda *a, **k: object())
+    monkeypatch.setattr(workflows, "build_sequence_model", fake_build_sequence_model)
+    monkeypatch.setattr(workflows, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",

@@ -16,6 +16,7 @@ import pytest
 import torch
 
 import turbofan.experiments.feature_family_screen as _screen_module
+from turbofan import workflows
 from turbofan.experiments.feature_family_screen import (
     CSV_COLUMNS,
     ScreenCell,
@@ -508,24 +509,24 @@ def _install_run_cell_patches(
         return torch.device("cpu")
 
     monkeypatch.setattr(_screen_module, "load_config", fake_load_config)
-    monkeypatch.setattr(_screen_module, "load_raw_train", fake_load_raw_train)
-    monkeypatch.setattr(_screen_module, "add_rul_column", fake_add_rul_column)
-    monkeypatch.setattr(_screen_module, "split_by_engine", fake_split_by_engine)
+    monkeypatch.setattr(workflows, "load_raw_train", fake_load_raw_train)
+    monkeypatch.setattr(workflows, "add_rul_column", fake_add_rul_column)
+    monkeypatch.setattr(workflows, "split_by_engine", fake_split_by_engine)
     monkeypatch.setattr(
-        _screen_module, "build_feature_pipeline", fake_build_feature_pipeline
+        workflows, "build_feature_pipeline", fake_build_feature_pipeline
     )
     monkeypatch.setattr(
-        _screen_module, "build_sliding_windows", fake_build_sliding_windows
+        workflows, "build_sliding_windows", fake_build_sliding_windows
     )
     monkeypatch.setattr(
-        _screen_module, "build_sequence_loader", fake_build_sequence_loader
+        workflows, "build_sequence_loader", fake_build_sequence_loader
     )
-    monkeypatch.setattr(_screen_module, "seed_everything", fake_seed_everything)
+    monkeypatch.setattr(workflows, "seed_everything", fake_seed_everything)
     monkeypatch.setattr(
-        _screen_module, "build_sequence_model", fake_build_sequence_model
+        workflows, "build_sequence_model", fake_build_sequence_model
     )
     monkeypatch.setattr(
-        _screen_module, "train_sequence_model", fake_train_sequence_model
+        workflows, "train_sequence_model", fake_train_sequence_model
     )
     monkeypatch.setattr(_screen_module, "resolve_device", fake_resolve_device)
 

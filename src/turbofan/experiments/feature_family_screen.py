@@ -17,26 +17,14 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
 
-import pandas as pd
-
+from turbofan import workflows
 from turbofan.config.schema import (
     DataConfig,
     FeatureFamilyName,
     SequenceConfig,
     load_config,
 )
-from turbofan.data.loader import load_raw_train
-from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models.evaluate import add_rul_column
-from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
-    resolve_device,
-    seed_everything,
-    train_sequence_model,
-)
-from turbofan.models.split import split_by_engine
-from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.windowing import build_sliding_windows
+from turbofan.models.sequence_training import resolve_device
 from turbofan.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -360,12 +348,6 @@ def append_row(path: Path, row: dict[str, Any]) -> None:
         fh.flush()
 
 
-# ---------------------------------------------------------------------------
-# Identity columns joined during the pipeline data-flow
-# ---------------------------------------------------------------------------
-_ID_COLS: list[str] = ["engine_id", "cycle", "rul"]
-
-
 def run_cell(
     cell: ScreenCell,
     *,
@@ -427,14 +409,7 @@ def run_cell(
         device=device_name,
     )
 
-    # 5. Data pipeline — split seed and pipeline random_state are ALWAYS 42.
-    train_raw = load_raw_train(data_cfg)
-    train_labeled = add_rul_column(train_raw, max_rul=MAX_RUL)
-    train_df, val_df = split_by_engine(
-        train_labeled, test_size=TEST_SIZE, random_seed=SPLIT_SEED
-    )
-
-    # Build per-cell pipeline arguments.
+    # 5. Build per-cell pipeline arguments.
     windows: list[int] | None = (
         [cell.rolling_window] if cell.rolling_window is not None else None
     )
@@ -442,82 +417,38 @@ def run_cell(
         [cell.lag_step] if cell.lag_step is not None else None
     )
 
-    pipeline = build_feature_pipeline(
-        sensor_drop=sensor_cols_to_drop or None,
-        n_modes=n_modes,
-        random_state=SPLIT_SEED,
+    # 6. Data pipeline — split seed and pipeline random_state are ALWAYS 42.
+    prepared = workflows.prepare_sequence_data(
+        data_cfg,
         feature_families=cell.feature_families,
         windows=windows,
         lag_steps=lag_steps,
-    )
-
-    train_features = pipeline.fit_transform(train_df)
-    val_features = pipeline.transform(val_df)
-    feature_cols: list[str] = (
-        pipeline.named_steps["feature_engineer"].feature_cols_
-    )
-
-    train_normalized = pd.concat(
-        [
-            train_df[_ID_COLS].reset_index(drop=True),
-            train_features.reset_index(drop=True),
-        ],
-        axis=1,
-    )
-    val_normalized = pd.concat(
-        [
-            val_df[_ID_COLS].reset_index(drop=True),
-            val_features.reset_index(drop=True),
-        ],
-        axis=1,
-    )
-
-    train_windows = build_sliding_windows(
-        train_normalized,
-        feature_cols=feature_cols,
+        sensor_drop=sensor_cols_to_drop or None,
+        n_modes=n_modes,
+        data_seed=SPLIT_SEED,
+        max_rul=MAX_RUL,
+        test_size=TEST_SIZE,
         window_size=cell.sequence_window,
-    )
-    validation_windows = build_sliding_windows(
-        val_normalized,
-        feature_cols=feature_cols,
-        window_size=cell.sequence_window,
+        batch_size=BATCH_SIZE,
     )
 
-    train_loader = build_sequence_loader(
-        train_windows, batch_size=BATCH_SIZE, shuffle=True
-    )
-    validation_windows_loader = build_sequence_loader(
-        validation_windows, batch_size=BATCH_SIZE, shuffle=False
-    )
-
-    # 6. Model — only cell.seed governs randomness from here on.
-    seed_everything(cell.seed)
-    model = build_sequence_model(
-        cell.architecture,
-        input_size=len(feature_cols),
-        hidden_size=HIDDEN_SIZE,
-        num_layers=NUM_LAYERS,
-        dropout=DROPOUT,
-    )
-
+    # 7. Model — only cell.seed governs randomness from here on.
     started = perf_counter()
-    result = train_sequence_model(
-        model=model,
-        train_loader=train_loader,
-        validation_windows_loader=validation_windows_loader,
-        config=seq_cfg,
+    result = workflows.train_prepared_sequence(
+        prepared,
+        seq_cfg,
         device=dev,
-        random_seed=cell.seed,
+        model_seed=cell.seed,
         max_rul=MAX_RUL,
     )
     duration = perf_counter() - started
 
-    # 7. Read metrics from training result (no extra forward pass).
+    # 8. Read metrics from training result (no extra forward pass).
     val_rmse = float(result.best_metric)
     best_row = result.history.loc[result.history["epoch"] == result.best_epoch]
     val_mae = float(best_row["validation_windows_mae"].iloc[0])
 
-    # 8. Build the result row.
+    # 9. Build the result row.
     rw_val: int | str = "" if cell.rolling_window is None else cell.rolling_window
     ls_val: int | str = "" if cell.lag_step is None else cell.lag_step
 
@@ -531,9 +462,9 @@ def run_cell(
         "hidden_size": HIDDEN_SIZE,
         "learning_rate": LEARNING_RATE,
         "seed": cell.seed,
-        "n_features": len(feature_cols),
-        "n_train_windows": int(train_windows.X.shape[0]),
-        "n_val_windows": int(validation_windows.X.shape[0]),
+        "n_features": len(prepared.feature_cols),
+        "n_train_windows": int(prepared.train_windows.X.shape[0]),
+        "n_val_windows": int(prepared.val_windows.X.shape[0]),
         "best_epoch": result.best_epoch,
         "val_rmse": val_rmse,
         "val_mae": val_mae,

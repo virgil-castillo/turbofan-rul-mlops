@@ -46,35 +46,13 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from time import perf_counter
 
-import numpy as np
-import numpy.typing as npt
 import pandas as pd
-import torch
-from sklearn.pipeline import Pipeline
-from torch import nn
 
+from turbofan import workflows
 from turbofan.config.schema import ProjectConfig, load_config
-from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
-from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models.baseline import build_baseline_pipeline
-from turbofan.models.evaluate import (
-    add_rul_column,
-    align_official_test_labels,
-    select_last_cycle_per_engine,
-    split_features_target,
-)
+from turbofan.models.evaluate import split_features_target
 from turbofan.models.metrics import official_test_metrics, regression_metrics
-from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
-    predict_windows,
-    resolve_device,
-    seed_everything,
-    train_sequence_model,
-)
-from turbofan.models.split import split_by_engine
-from turbofan.models.test_evaluation import align_labels_to_eligible_engines
-from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.windowing import build_final_windows, build_sliding_windows
+from turbofan.models.sequence_training import resolve_device
 from turbofan.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -96,8 +74,6 @@ _SPLIT_SEED = 42
 
 #: Display order for the ``model`` column (baseline first, then sequence models).
 _MODEL_ORDER: dict[str, int] = {"ridge": 0, "gru": 1, "lstm": 2}
-
-_ID_COLS: list[str] = ["engine_id", "cycle", "rul"]
 
 
 @dataclass(frozen=True)
@@ -317,30 +293,27 @@ def _evaluate_ridge(cfg: ProjectConfig, job: _Job) -> RunRecord:
         The populated :class:`RunRecord`.
     """
     max_rul = cfg.data.max_rul
-    train_raw = load_raw_train(cfg.data)
-    train_labeled = add_rul_column(train_raw, max_rul=max_rul)
-    train_df, val_df = split_by_engine(
-        train_labeled, test_size=cfg.data.test_size, random_seed=job.seed
+    frames = workflows.load_and_split(
+        cfg.data,
+        max_rul=max_rul,
+        test_size=cfg.data.test_size,
+        split_seed=job.seed,
     )
-    x_train, y_train = split_features_target(train_df)
-    x_val, y_val = split_features_target(val_df)
+    x_train, y_train = split_features_target(frames.train)
+    x_val, y_val = split_features_target(frames.val)
 
     rf = cfg.features.for_model("ridge")
-    estimator = build_baseline_pipeline(
-        model_name=cfg.model.name,
-        alpha=cfg.model.alpha,
-        feature_families=rf.feature_families,
-        windows=rf.windows,
-        lag_steps=rf.lag_steps,
-        sensor_drop=cfg.features.sensor_cols_to_drop or None,
-        n_modes=cfg.features.n_modes,
-        random_state=job.seed,
-    )
+    estimator = workflows.build_ridge_estimator(cfg, seed=job.seed)
     estimator.fit(x_train, y_train)
 
-    val_pred = _clip(estimator.predict(x_val), max_rul)
+    val_pred = workflows.predict_with_clipping(
+        estimator, x_val, max_rul=max_rul, label="validation"
+    )
     val_metrics = regression_metrics(y_val, val_pred)
-    official = _evaluate_ridge_official(cfg, estimator, max_rul=max_rul)
+    official = workflows.predict_ridge_official(
+        cfg.data, estimator=estimator, max_rul=max_rul
+    )
+    official_metrics = official_test_metrics(official.y_true, official.y_pred)
     return _build_record(
         job,
         feature_families=rf.feature_families,
@@ -350,36 +323,8 @@ def _evaluate_ridge(cfg: ProjectConfig, job: _Job) -> RunRecord:
         hidden_size="",
         learning_rate="",
         val_metrics=val_metrics,
-        official=official,
+        official=official_metrics,
     )
-
-
-def _evaluate_ridge_official(
-    cfg: ProjectConfig,
-    estimator: Pipeline,
-    *,
-    max_rul: int,
-) -> dict[str, float]:
-    """Evaluate a fitted Ridge estimator on the official test set.
-
-    Args:
-        cfg: Loaded project config (for data paths and ``max_rul``).
-        estimator: Fitted Ridge pipeline.
-        max_rul: Maximum-RUL ceiling for clipping predictions.
-
-    Returns:
-        Official-test metric dict (``rmse``, ``mae``, ``phm08_score``).
-    """
-    test_raw = load_raw_test(cfg.data)
-    rul_labels = load_rul_labels(cfg.data)
-    last_rows = select_last_cycle_per_engine(test_raw)
-    y_true = align_official_test_labels(last_rows, rul_labels)
-    all_pred = _clip(estimator.predict(test_raw), max_rul)
-    pred_rows = test_raw[["engine_id", "cycle"]].copy()
-    pred_rows["prediction"] = all_pred
-    last_pred = select_last_cycle_per_engine(pred_rows)
-    y_pred = last_pred["prediction"].to_numpy(dtype=np.float64)
-    return official_test_metrics(y_true, y_pred)
 
 
 def _evaluate_sequence(cfg: ProjectConfig, job: _Job, *, device: str) -> RunRecord:
@@ -397,76 +342,49 @@ def _evaluate_sequence(cfg: ProjectConfig, job: _Job, *, device: str) -> RunReco
     Returns:
         The populated :class:`RunRecord`.
     """
-    architecture = cfg.sequence.architecture
     dev = resolve_device(device)  # type: ignore[arg-type]
     max_rul = cfg.data.max_rul
-    sf = cfg.features.for_model(architecture)
+    sf = cfg.features.for_model(cfg.sequence.architecture)
 
-    train_raw = load_raw_train(cfg.data)
-    train_labeled = add_rul_column(train_raw, max_rul=max_rul)
-    train_df, val_df = split_by_engine(
-        train_labeled, test_size=cfg.data.test_size, random_seed=_SPLIT_SEED
-    )
-
-    pipeline = build_feature_pipeline(
-        sensor_drop=cfg.features.sensor_cols_to_drop or None,
-        n_modes=cfg.features.n_modes,
-        random_state=_SPLIT_SEED,
+    prepared = workflows.prepare_sequence_data(
+        cfg.data,
         feature_families=sf.feature_families,
         windows=sf.windows,
         lag_steps=sf.lag_steps,
-    )
-    train_features = pipeline.fit_transform(train_df)
-    val_features = pipeline.transform(val_df)
-    feature_cols = pipeline.named_steps["feature_engineer"].feature_cols_
-
-    train_windows = build_sliding_windows(
-        _join_ids(train_df, train_features),
-        feature_cols=feature_cols,
+        sensor_drop=cfg.features.sensor_cols_to_drop or None,
+        n_modes=cfg.features.n_modes,
+        data_seed=_SPLIT_SEED,
+        max_rul=max_rul,
+        test_size=cfg.data.test_size,
         window_size=cfg.sequence.window_size,
+        batch_size=cfg.sequence.batch_size,
     )
-    val_windows = build_sliding_windows(
-        _join_ids(val_df, val_features),
-        feature_cols=feature_cols,
-        window_size=cfg.sequence.window_size,
-    )
-    train_loader = build_sequence_loader(
-        train_windows, batch_size=cfg.sequence.batch_size, shuffle=True
-    )
-    val_loader = build_sequence_loader(
-        val_windows, batch_size=cfg.sequence.batch_size, shuffle=False
-    )
-
-    seed_everything(job.seed)
-    model = build_sequence_model(
-        architecture,
-        input_size=len(feature_cols),
-        hidden_size=cfg.sequence.hidden_size,
-        num_layers=cfg.sequence.num_layers,
-        dropout=cfg.sequence.dropout,
-    )
-    result = train_sequence_model(
-        model=model,
-        train_loader=train_loader,
-        validation_windows_loader=val_loader,
-        config=cfg.sequence,
+    result = workflows.train_prepared_sequence(
+        prepared,
+        cfg.sequence,
         device=dev,
-        random_seed=job.seed,
+        model_seed=job.seed,
         max_rul=max_rul,
     )
 
-    val_pred = np.clip(
-        predict_windows(result.model, val_loader, dev, max_rul=max_rul), 0.0, None
-    )
-    val_metrics = regression_metrics(val_windows.y.astype(np.float64), val_pred)
-    official = _evaluate_sequence_official(
-        cfg,
+    val_metrics, _, _ = workflows.evaluate_window_metrics(
         result.model,
-        pipeline,
-        feature_cols,
-        dev,
+        prepared.val_loader,
+        prepared.val_windows,
+        device=dev,
         max_rul=max_rul,
     )
+    official = workflows.predict_sequence_official(
+        cfg.data,
+        pipeline=prepared.pipeline,
+        feature_cols=prepared.feature_cols,
+        model=result.model,
+        device=dev,
+        window_size=cfg.sequence.window_size,
+        batch_size=cfg.sequence.batch_size,
+        max_rul=max_rul,
+    )
+    official_metrics = official_test_metrics(official.y_true, official.y_pred)
     return _build_record(
         job,
         feature_families=sf.feature_families,
@@ -476,57 +394,8 @@ def _evaluate_sequence(cfg: ProjectConfig, job: _Job, *, device: str) -> RunReco
         hidden_size=str(cfg.sequence.hidden_size),
         learning_rate=str(cfg.sequence.learning_rate),
         val_metrics=val_metrics,
-        official=official,
+        official=official_metrics,
     )
-
-
-def _evaluate_sequence_official(
-    cfg: ProjectConfig,
-    model: nn.Module,
-    pipeline: Pipeline,
-    feature_cols: list[str],
-    device: torch.device,
-    *,
-    max_rul: int,
-) -> dict[str, float]:
-    """Evaluate a trained sequence model on the official test set.
-
-    Args:
-        cfg: Loaded project config (for data paths and sequence settings).
-        model: Trained sequence model.
-        pipeline: Fitted feature pipeline used during training.
-        feature_cols: Feature columns produced by the pipeline.
-        device: Torch device for inference.
-        max_rul: Maximum-RUL cap used to rescale raw model output.
-
-    Returns:
-        Official-test metric dict (``rmse``, ``mae``, ``phm08_score``).
-    """
-    test_raw = load_raw_test(cfg.data)
-    rul_labels = load_rul_labels(cfg.data)
-    id_cols = [c for c in ("engine_id", "cycle") if c in test_raw.columns]
-    test_features = pipeline.transform(test_raw)
-    test_df = pd.concat(
-        [
-            test_raw[id_cols].reset_index(drop=True),
-            test_features.reset_index(drop=True),
-        ],
-        axis=1,
-    )
-    test_windows = build_final_windows(
-        test_df,
-        feature_cols=feature_cols,
-        window_size=cfg.sequence.window_size,
-        target_col=None,
-    )
-    loader = build_sequence_loader(
-        test_windows, batch_size=cfg.sequence.batch_size, shuffle=False
-    )
-    y_pred = np.clip(
-        predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
-    )
-    y_true = align_labels_to_eligible_engines(test_windows.metadata, rul_labels)
-    return official_test_metrics(y_true, y_pred)
 
 
 def _build_record(
@@ -622,38 +491,6 @@ def build_summary_frame(records: Sequence[RunRecord]) -> pd.DataFrame:
         )
     rows.sort(key=_group_sort_key)
     return pd.DataFrame(rows, columns=_SUMMARY_COLUMNS)
-
-
-def _clip(values: object, max_rul: int) -> npt.NDArray[np.float64]:
-    """Clip predictions to ``[0, max_rul]`` as float64.
-
-    Args:
-        values: Raw predictions.
-        max_rul: Maximum-RUL ceiling.
-
-    Returns:
-        Float64 predictions clipped to ``[0, max_rul]``.
-    """
-    return np.clip(np.asarray(values, dtype=np.float64), 0.0, float(max_rul))
-
-
-def _join_ids(rows: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
-    """Concatenate identifier columns with engineered features.
-
-    Args:
-        rows: Source rows carrying ``engine_id``/``cycle``/``rul``.
-        features: Engineered feature frame aligned to ``rows``.
-
-    Returns:
-        Combined frame with identifiers followed by features.
-    """
-    return pd.concat(
-        [
-            rows[_ID_COLS].reset_index(drop=True),
-            features.reset_index(drop=True),
-        ],
-        axis=1,
-    )
 
 
 def _sample_sd(values: list[float]) -> str:
