@@ -3,7 +3,7 @@
 This module hosts the train/evaluate building blocks that were previously
 duplicated across the production training CLIs
 (:mod:`turbofan.cli.train_sequence`, :mod:`turbofan.cli.train_baseline`), the
-official-evaluation sweep (:mod:`turbofan.cli.export_official_eval`), and the
+official-evaluation sweep (:mod:`turbofan.cli.regenerate_official_baselines`), and the
 experiment harness (:mod:`turbofan.experiments.feature_family_screen`). Sharing
 them keeps production training, official evaluation, and experiment sweeps from
 drifting apart.

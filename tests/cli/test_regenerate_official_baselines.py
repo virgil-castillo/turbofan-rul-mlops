@@ -1,4 +1,4 @@
-"""Tests for the turbofan-export-eval multi-seed official-eval sweep."""
+"""Tests for the turbofan-regenerate-baselines multi-seed official-eval sweep."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from turbofan.cli import export_official_eval as export
+from turbofan.cli import regenerate_official_baselines as export
 from turbofan.evaluation.official_jobs import (
     Job,
     RunRecord,

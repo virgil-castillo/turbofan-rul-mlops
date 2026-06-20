@@ -52,7 +52,7 @@ each C-MAPSS subset. Ridge uses the best feature configuration from the Ridge
 feature sweep; GRU and LSTM use the winning feature/sequence cells from the
 sequence feature-family screen. The committed benchmark snapshot lives under
 `results/baselines/latest_official_eval_*.csv`. The numbers can be regenerated
-by `turbofan-export-eval`, which trains each configuration and evaluates it on
+by `turbofan-regenerate-baselines`, which trains each configuration and evaluates it on
 the official C-MAPSS test set, writing
 `outputs/results/latest_official_eval_per_run.csv` (one row per
 model/subset/seed) and `outputs/results/latest_official_eval_summary.csv` by
@@ -249,7 +249,7 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-train-sequence` | Train GRU or LSTM based on `sequence.architecture` |
 | `turbofan-train-sequence-gru` | Backward-compatible GRU training alias |
 | `turbofan-feature-screen` | Run the sequence feature-family screen |
-| `turbofan-export-eval` | Train and officially evaluate the selected configs across seeds into the eval CSVs |
+| `turbofan-regenerate-baselines` | Train and officially evaluate the selected configs across seeds into the eval CSVs |
 | `turbofan-predict` | Run batch prediction and optional official-label evaluation |
 | `turbofan-serve-api` | Start the FastAPI inference server |
 | `turbofan-promote` | Promote a registered model version to an alias |
