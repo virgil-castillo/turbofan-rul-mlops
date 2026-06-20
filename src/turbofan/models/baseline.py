@@ -6,8 +6,8 @@ from typing import Literal
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
+from turbofan.features import pipeline
 from turbofan.features.engineering import FeatureFamily
-from turbofan.features.pipeline import build_feature_pipeline
 
 
 def build_baseline_pipeline(
@@ -50,7 +50,7 @@ def build_baseline_pipeline(
         [
             (
                 "features",
-                build_feature_pipeline(
+                pipeline.build_feature_pipeline(
                     op_cols=op_cols,
                     sensor_drop=sensor_drop,
                     n_modes=n_modes,

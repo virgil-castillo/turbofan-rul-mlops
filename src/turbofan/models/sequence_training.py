@@ -12,7 +12,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from turbofan.config.schema import DeviceRequest, SequenceConfig
-from turbofan.models.metrics import regression_metrics
+from turbofan.models import metrics
 
 type SequenceBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 type SequenceLoader = DataLoader[SequenceBatch]
@@ -307,6 +307,6 @@ def _evaluate_loader(
     else:
         loss = 0.0
     rescaled = np.clip(predictions * max_rul, 0.0, None)
-    metrics = regression_metrics(targets, rescaled)
-    metrics["loss"] = loss
-    return metrics
+    result_metrics = metrics.regression_metrics(targets, rescaled)
+    result_metrics["loss"] = loss
+    return result_metrics

@@ -7,8 +7,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from turbofan.data.labels import compute_rul_labels
-from turbofan.models.metrics import regression_metrics
+from turbofan.data import labels
+from turbofan.models import metrics
 
 
 class Predictor(Protocol):
@@ -37,7 +37,7 @@ def add_rul_column(df: pd.DataFrame, max_rul: int) -> pd.DataFrame:
         Copy of ``df`` with a ``rul`` column.
     """
     result = df.copy()
-    result["rul"] = compute_rul_labels(result, max_rul=max_rul)
+    result["rul"] = labels.compute_rul_labels(result, max_rul=max_rul)
     return result
 
 
@@ -81,7 +81,7 @@ def evaluate_rows(
     """
     X, y = split_features_target(df, target_col=target_col)
     preds = np.clip(np.asarray(estimator.predict(X), dtype=np.float64), 0.0, None)
-    return regression_metrics(y, preds)
+    return metrics.regression_metrics(y, preds)
 
 
 def select_last_cycle_per_engine(df: pd.DataFrame) -> pd.DataFrame:
