@@ -140,10 +140,6 @@ class SequenceFinalWindowModel(PythonModel):
         return _prediction_frame(metadata, predictions)
 
 
-GRUFinalWindowModel = SequenceFinalWindowModel
-"""Backward-compatible alias for the shared sequence pyfunc wrapper."""
-
-
 def log_and_register(
     model: object,
     *,

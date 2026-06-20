@@ -122,26 +122,6 @@ def sequence_final_window_predictions(
     )
 
 
-def gru_final_window_predictions(
-    payload: Mapping[str, object],
-    frame: pd.DataFrame,
-) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
-    """Backward-compatible alias for sequence final-window predictions.
-
-    Args:
-        payload: Sequence checkpoint payload.
-        frame: Validated canonical rows ready for windowing.
-
-    Returns:
-        Tuple of final-window metadata rows and aligned non-negative
-        predictions.
-
-    Raises:
-        ValueError: If the checkpoint payload is invalid.
-    """
-    return sequence_final_window_predictions(payload, frame)
-
-
 def _sequence_window_inference(
     *,
     model: SequenceRULRegressor,

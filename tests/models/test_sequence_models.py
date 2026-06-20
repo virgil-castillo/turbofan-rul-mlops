@@ -5,7 +5,6 @@ import pytest
 import torch
 from torch import nn
 
-from turbofan.models.gru import GRURULRegressor
 from turbofan.models.sequence_models import (
     SEQUENCE_ARCHITECTURES,
     SequenceRULRegressor,
@@ -165,26 +164,6 @@ def test_build_sequence_model_unknown_name_lists_supported() -> None:
     message = str(excinfo.value)
     for supported in SEQUENCE_ARCHITECTURES:
         assert supported in message
-
-
-def test_gru_checkpoint_state_dict_keys_load_into_registered_gru() -> None:
-    """A pre-change GRU checkpoint loads into the registry-built GRU unchanged.
-
-    The shared module must produce the identical ``gru.*``/``regressor.*``
-    state-dict key names that the standalone ``GRURULRegressor`` produced, so
-    already-registered GRU checkpoints remain loadable after the generalization.
-    """
-    legacy = GRURULRegressor(
-        input_size=5, hidden_size=8, num_layers=2, dropout=0.1
-    )
-    legacy_state = legacy.state_dict()
-
-    rebuilt = build_sequence_model(
-        "gru", input_size=5, hidden_size=8, num_layers=2, dropout=0.1
-    )
-    rebuilt.load_state_dict(legacy_state)
-
-    assert set(rebuilt.state_dict().keys()) == set(legacy_state.keys())
 
 
 def test_sequence_regressor_rejects_unknown_architecture() -> None:

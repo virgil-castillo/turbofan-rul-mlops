@@ -14,7 +14,7 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
 from turbofan.inference.schemas import FEATURE_COLUMNS
-from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_models import build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
 
@@ -139,7 +139,8 @@ def _gru_payload(*, window_size: int = 3, max_rul: int = 125) -> dict[str, objec
         normalizer_payload, sequence_config, and max_rul.
     """
     torch.manual_seed(0)
-    model = GRURULRegressor(
+    model = build_sequence_model(
+        "gru",
         input_size=len(FEATURE_COLUMNS),
         hidden_size=4,
         num_layers=1,

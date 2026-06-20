@@ -149,13 +149,6 @@ def test_sequence_wrapper_is_shared_for_lstm() -> None:
     assert hasattr(SequenceFinalWindowModel, "predict")
 
 
-def test_gru_final_window_model_alias_preserved() -> None:
-    """GRUFinalWindowModel remains importable as an alias for the shared wrapper."""
-    from turbofan.registry import GRUFinalWindowModel, SequenceFinalWindowModel
-
-    assert GRUFinalWindowModel is SequenceFinalWindowModel
-
-
 def test_lstm_wrapper_roundtrip_matches_in_process_predictor() -> None:
     """A logged+loaded LSTM model predicts identically to the shared compute."""
     from turbofan.inference.predictors import sequence_final_window_predictions

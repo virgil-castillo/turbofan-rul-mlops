@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from turbofan.inference.prediction_compute import (
     DEFAULT_MAX_RUL,
-    gru_final_window_predictions,
     ridge_engine_predictions,
     sequence_final_window_predictions,
 )
@@ -13,7 +12,6 @@ __all__ = [
     "DEFAULT_MAX_RUL",
     "PyfuncPredictor",
     "_MODEL_SCOPES",
-    "gru_final_window_predictions",
     "ridge_engine_predictions",
     "sequence_final_window_predictions",
 ]

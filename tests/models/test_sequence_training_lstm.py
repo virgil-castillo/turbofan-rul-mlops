@@ -11,7 +11,6 @@ from turbofan.models.sequence_models import build_sequence_model
 from turbofan.models.sequence_training import (
     TrainingResult,
     predict_windows,
-    train_gru_model,
     train_sequence_model,
 )
 
@@ -136,56 +135,3 @@ def test_train_sequence_model_restores_best_lstm_state_after_early_stopping() ->
         np.sqrt(np.mean((np.clip(restored, 0.0, None) - 0.2) ** 2)),
         abs=1e-6,
     )
-
-
-def test_train_gru_model_alias_delegates_to_train_sequence_model() -> None:
-    """The retained train_gru_model alias trains a GRU identically.
-
-    Running the alias and the generalized function from the same seed and inputs
-    must yield identical restored predictions, proving the alias is a thin
-    delegate and not a divergent code path.
-    """
-    config = SequenceConfig(
-        architecture="gru",
-        batch_size=2,
-        hidden_size=4,
-        epochs=2,
-        patience=2,
-        learning_rate=0.01,
-    )
-
-    torch.manual_seed(0)
-    via_alias = build_sequence_model(
-        "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
-    )
-    train_gru_model(
-        model=via_alias,
-        train_loader=_loader(),
-        validation_windows_loader=_loader(),
-        config=config,
-        device=torch.device("cpu"),
-        random_seed=11,
-        max_rul=1,
-    )
-    via_alias_preds = predict_windows(
-        via_alias, _loader(), torch.device("cpu"), max_rul=1
-    )
-
-    torch.manual_seed(0)
-    via_generalized = build_sequence_model(
-        "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
-    )
-    train_sequence_model(
-        model=via_generalized,
-        train_loader=_loader(),
-        validation_windows_loader=_loader(),
-        config=config,
-        device=torch.device("cpu"),
-        random_seed=11,
-        max_rul=1,
-    )
-    via_generalized_preds = predict_windows(
-        via_generalized, _loader(), torch.device("cpu"), max_rul=1
-    )
-
-    np.testing.assert_allclose(via_alias_preds, via_generalized_preds, rtol=1e-6)

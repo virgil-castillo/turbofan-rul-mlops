@@ -23,7 +23,10 @@ from turbofan.models import (
     sequence_training,
     split,
 )
-from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_models import (
+    SequenceRULRegressor,
+    build_sequence_model,
+)
 from turbofan.models.sequence_training import TrainingResult
 from turbofan.sequences import dataset, windowing
 
@@ -234,9 +237,9 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     )
     captured_state: dict[str, torch.Tensor] = {}
 
-    def fake_train_gru_model(
+    def fake_train_sequence_model(
         *,
-        model: GRURULRegressor,
+        model: SequenceRULRegressor,
         train_loader: object,
         validation_windows_loader: object,
         config: SequenceConfig,
@@ -305,7 +308,9 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(sequence_training, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(
+        sequence_training, "train_sequence_model", fake_train_sequence_model
+    )
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
@@ -333,7 +338,8 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     assert module.main() == 0
 
     torch.manual_seed(seed)
-    expected = GRURULRegressor(
+    expected = build_sequence_model(
+        "gru",
         input_size=2,
         hidden_size=cfg.sequence.hidden_size,
         num_layers=cfg.sequence.num_layers,
@@ -379,10 +385,11 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     )
     window_metrics = {"rmse": 1.0, "mae": 2.0}
 
-    def fake_train_gru_model(**kwargs: object) -> TrainingResult:
+    def fake_train_sequence_model(**kwargs: object) -> TrainingResult:
         del kwargs
         return TrainingResult(
-            model=GRURULRegressor(
+            model=build_sequence_model(
+                "gru",
                 input_size=2,
                 hidden_size=6,
                 num_layers=2,
@@ -448,7 +455,9 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(sequence_training, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(
+        sequence_training, "train_sequence_model", fake_train_sequence_model
+    )
     monkeypatch.setattr(module, "_evaluate_windows", fake_evaluate_windows)
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
     monkeypatch.setattr(artifacts, "create_run_dir", fake_create_run_dir)
@@ -657,8 +666,8 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
 
     def fake_train(**kwargs: object) -> TrainingResult:
         return TrainingResult(
-            model=GRURULRegressor(
-                input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+            model=build_sequence_model(
+                "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
             ),
             history=pd.DataFrame([{"epoch": 1}]),
             best_epoch=1,

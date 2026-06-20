@@ -97,7 +97,7 @@ def log_history(history: pd.DataFrame) -> None:
 
     Every column except ``epoch`` is logged as a stepped metric keyed by its
     column name, using the ``epoch`` value as the MLflow step. This replays the
-    history returned by ``train_gru_model`` post-hoc without modifying the
+    history returned by ``train_sequence_model`` post-hoc without modifying the
     training loop.
 
     Args:

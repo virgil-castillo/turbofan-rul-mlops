@@ -10,7 +10,6 @@ import pytest
 from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.inference.predictors import (
     _MODEL_SCOPES,
-    gru_final_window_predictions,
     sequence_final_window_predictions,
 )
 from turbofan.inference.schemas import FEATURE_COLUMNS, validate_raw_records
@@ -237,17 +236,3 @@ def test_sequence_final_window_unknown_architecture_raises() -> None:
 
     with pytest.raises(ValueError, match="transformer"):
         sequence_final_window_predictions(payload, validated.records)
-
-
-def test_gru_alias_matches_generalized_function() -> None:
-    """gru_final_window_predictions delegates to the generalized function."""
-    payload = _sequence_payload(architecture="gru", window_size=3, bias=0.2)
-    records = pd.DataFrame(_records_for_engine(1, 4, feature_value=1.0))
-    validated = validate_raw_records(records)
-
-    _, via_alias = gru_final_window_predictions(payload, validated.records)
-    _, via_generalized = sequence_final_window_predictions(
-        payload, validated.records
-    )
-
-    assert np.allclose(via_alias, via_generalized)

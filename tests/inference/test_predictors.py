@@ -13,7 +13,7 @@ from turbofan.inference.predictors import (
     sequence_final_window_predictions,
 )
 from turbofan.inference.schemas import FEATURE_COLUMNS, validate_raw_records
-from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_models import build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 
 
@@ -137,7 +137,8 @@ def _gru_payload(
     Returns:
         Checkpoint payload mapping.
     """
-    model = GRURULRegressor(
+    model = build_sequence_model(
+        "gru",
         input_size=len(FEATURE_COLUMNS),
         hidden_size=4,
         num_layers=1,

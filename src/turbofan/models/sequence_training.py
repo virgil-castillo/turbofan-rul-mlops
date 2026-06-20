@@ -142,43 +142,6 @@ def train_sequence_model(
     )
 
 
-def train_gru_model(
-    model: nn.Module,
-    train_loader: SequenceLoader,
-    validation_windows_loader: SequenceLoader,
-    config: SequenceConfig,
-    device: torch.device,
-    random_seed: int,
-    max_rul: int,
-) -> TrainingResult:
-    """Backward-compatible alias for :func:`train_sequence_model`.
-
-    Retained so existing GRU call sites and imports keep working; delegates
-    unchanged to the generalized training entrypoint.
-
-    Args:
-        model: Unfitted sequence model.
-        train_loader: Mini-batch loader for training windows.
-        validation_windows_loader: Evaluation loader for all validation windows.
-        config: Sequence model training configuration.
-        device: Torch device used for training and evaluation.
-        random_seed: Seed for Python, NumPy, and torch random generators.
-        max_rul: Maximum RUL used to normalise targets and rescale predictions.
-
-    Returns:
-        Training result containing the best restored model and metric history.
-    """
-    return train_sequence_model(
-        model=model,
-        train_loader=train_loader,
-        validation_windows_loader=validation_windows_loader,
-        config=config,
-        device=device,
-        random_seed=random_seed,
-        max_rul=max_rul,
-    )
-
-
 def predict_windows(
     model: nn.Module,
     loader: SequenceLoader,

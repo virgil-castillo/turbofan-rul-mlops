@@ -3,14 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import torch
 
-from turbofan.config.schema import DataConfig
-from turbofan.data import loader
-from turbofan.models import evaluate, metrics, sequence_training
-from turbofan.models.gru import GRURULRegressor
-from turbofan.preprocessing.normalization import OperatingModeNormalizer
-from turbofan.sequences import dataset, windowing
+from turbofan.models import evaluate
 
 
 def align_labels_to_eligible_engines(
@@ -46,108 +40,4 @@ def align_labels_to_eligible_engines(
     eligible_labels = rul_labels.iloc[label_positions].reset_index(drop=True)
     return evaluate.align_official_test_labels(
         metadata.reset_index(drop=True), eligible_labels
-    )
-
-
-def evaluate_test_from_df(
-    test_df: pd.DataFrame,
-    rul_labels: pd.Series,
-    model: GRURULRegressor,
-    normalizer: OperatingModeNormalizer,
-    feature_cols: list[str],
-    device: torch.device,
-    window_size: int,
-    batch_size: int,
-    max_rul: int,
-) -> dict[str, float]:
-    """Evaluate a trained model on pre-loaded test data.
-
-    Normalizes the test DataFrame, builds final windows, predicts,
-    aligns labels, and computes regression metrics. Use this when
-    the test DataFrame has already been loaded and optionally
-    feature-engineered (e.g. rolling features applied).
-
-    Args:
-        test_df: Raw or feature-engineered test DataFrame.
-        rul_labels: Official RUL labels in full test engine order.
-        model: Trained GRU model.
-        normalizer: Fitted operating-mode normalizer (trained on training data).
-        feature_cols: Feature columns matching the model's input.
-        device: Torch device for inference.
-        window_size: Sequence window size.
-        batch_size: Inference batch size.
-        max_rul: Maximum RUL cap for prediction rescaling.
-
-    Returns:
-        Dict with ``test_rmse``, ``test_mae``, ``test_phm08_score``.
-    """
-    test_normalized = normalizer.transform(test_df)
-    test_windows = windowing.build_final_windows(
-        test_normalized,
-        feature_cols=feature_cols,
-        window_size=window_size,
-        target_col=None,
-    )
-    test_loader = dataset.build_sequence_loader(
-        test_windows, batch_size=batch_size, shuffle=False
-    )
-    y_pred = np.clip(
-        sequence_training.predict_windows(
-            model, test_loader, device, max_rul=max_rul
-        ),
-        0.0,
-        None,
-    )
-    y_true = align_labels_to_eligible_engines(test_windows.metadata, rul_labels)
-    result_metrics = metrics.official_test_metrics(y_true, y_pred)
-    return {
-        "test_rmse": result_metrics["rmse"],
-        "test_mae": result_metrics["mae"],
-        "test_phm08_score": result_metrics["phm08_score"],
-    }
-
-
-def evaluate_official_test(
-    data_config: DataConfig,
-    model: GRURULRegressor,
-    normalizer: OperatingModeNormalizer,
-    feature_cols: list[str],
-    device: torch.device,
-    window_size: int,
-    batch_size: int,
-) -> dict[str, float] | None:
-    """Evaluate a trained model on official C-MAPSS test files.
-
-    Loads the test data and RUL labels from paths derived from
-    ``data_config``, then delegates to :func:`evaluate_test_from_df`.
-
-    Args:
-        data_config: Data config for file paths and ``max_rul``.
-        model: Trained GRU model.
-        normalizer: Fitted operating-mode normalizer (trained on training data).
-        feature_cols: Feature columns matching the model's input.
-        device: Torch device for inference.
-        window_size: Sequence window size.
-        batch_size: Inference batch size.
-
-    Returns:
-        Dict with ``test_rmse``, ``test_mae``, ``test_phm08_score``,
-        or ``None`` when test files are missing.
-    """
-    try:
-        test_raw = loader.load_raw_test(data_config)
-        rul_labels = loader.load_rul_labels(data_config)
-    except FileNotFoundError:
-        return None
-
-    return evaluate_test_from_df(
-        test_df=test_raw,
-        rul_labels=rul_labels,
-        model=model,
-        normalizer=normalizer,
-        feature_cols=feature_cols,
-        device=device,
-        window_size=window_size,
-        batch_size=batch_size,
-        max_rul=data_config.max_rul,
     )

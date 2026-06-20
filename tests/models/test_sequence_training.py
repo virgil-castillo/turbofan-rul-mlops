@@ -10,14 +10,14 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
-from turbofan.models.gru import GRURULRegressor
+from turbofan.models.sequence_models import build_sequence_model
 from turbofan.models.sequence_training import (
     TrainingResult,
     _evaluate_loader,
     _train_one_epoch,
     predict_windows,
     resolve_device,
-    train_gru_model,
+    train_sequence_model,
 )
 from turbofan.sequences.dataset import build_sequence_loader
 from turbofan.sequences.windowing import WindowedSequences
@@ -203,7 +203,9 @@ def test_resolve_device_auto_selects_cuda_when_available(
 
 def test_predict_windows_returns_float64_prediction_per_window() -> None:
     """Window prediction returns one float64 numpy value per input window."""
-    model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
+    model = build_sequence_model(
+        "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
 
     predictions = predict_windows(model, _loader(), torch.device("cpu"), max_rul=1)
 
@@ -243,9 +245,11 @@ def test_evaluate_loader_clips_negative_predictions_before_metrics() -> None:
     assert metrics["mae"] == pytest.approx(3.0)
 
 
-def test_train_gru_model_returns_result_with_expected_history() -> None:
+def test_train_sequence_model_gru_returns_result_with_expected_history() -> None:
     """GRU training returns model, metrics history, and best validation metadata."""
-    model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
+    model = build_sequence_model(
+        "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
     config = SequenceConfig(
         batch_size=2,
         hidden_size=4,
@@ -254,7 +258,7 @@ def test_train_gru_model_returns_result_with_expected_history() -> None:
         learning_rate=0.01,
     )
 
-    result = train_gru_model(
+    result = train_sequence_model(
         model=model,
         train_loader=_loader(shuffle=True),
         validation_windows_loader=_loader(),
@@ -272,7 +276,7 @@ def test_train_gru_model_returns_result_with_expected_history() -> None:
     assert result.best_metric >= 0.0
 
 
-def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
+def test_train_sequence_model_gru_restores_best_state_after_early_stopping() -> None:
     """Training restores best state selected by validation-window RMSE."""
     train_loader = DataLoader(
         TensorDataset(
@@ -299,7 +303,7 @@ def test_train_gru_model_restores_best_state_after_early_stopping() -> None:
         learning_rate=0.1,
     )
 
-    result = train_gru_model(
+    result = train_sequence_model(
         model=model,
         train_loader=train_loader,
         validation_windows_loader=validation_windows_loader,
@@ -370,7 +374,9 @@ def test_evaluate_loader_returns_normalized_validation_loss() -> None:
 
 def test_predict_windows_rescales_by_max_rul() -> None:
     """predict_windows multiplies raw model output by max_rul before returning."""
-    model = GRURULRegressor(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
+    model = build_sequence_model(
+        "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+    )
     device = torch.device("cpu")
     loader = _loader()
 
@@ -418,7 +424,9 @@ def _tiny_windows(n: int = 4, window: int = 6, features: int = 3) -> WindowedSeq
 def test_train_one_epoch_handles_three_tuple_batches() -> None:
     """Training loop unpacks 3-tuple batches and passes lengths to the model."""
     torch.manual_seed(0)
-    model = GRURULRegressor(input_size=3, hidden_size=4, num_layers=1, dropout=0.0)
+    model = build_sequence_model(
+        "gru", input_size=3, hidden_size=4, num_layers=1, dropout=0.0
+    )
     loader = build_sequence_loader(_tiny_windows(), batch_size=2, shuffle=False)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     criterion = torch.nn.MSELoss()
@@ -436,7 +444,9 @@ def test_train_one_epoch_handles_three_tuple_batches() -> None:
 def test_evaluate_loader_returns_finite_metrics() -> None:
     """Evaluation loop unpacks 3-tuple batches and returns finite metrics."""
     torch.manual_seed(0)
-    model = GRURULRegressor(input_size=3, hidden_size=4, num_layers=1, dropout=0.0)
+    model = build_sequence_model(
+        "gru", input_size=3, hidden_size=4, num_layers=1, dropout=0.0
+    )
     loader = build_sequence_loader(_tiny_windows(), batch_size=2, shuffle=False)
     metrics = _evaluate_loader(
         model, loader, device=torch.device("cpu"), max_rul=125

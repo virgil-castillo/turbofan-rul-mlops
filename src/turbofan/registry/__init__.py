@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from turbofan.registry.pyfunc import (
     PREDICTION_OUTPUT_COLUMNS,
-    GRUFinalWindowModel,
     RidgeEngineModel,
     SequenceFinalWindowModel,
     log_and_register,
@@ -26,7 +25,6 @@ from turbofan.registry.store import (
 )
 
 __all__ = [
-    "GRUFinalWindowModel",
     "PREDICTION_OUTPUT_COLUMNS",
     "RegisteredModelInfo",
     "RidgeEngineModel",
