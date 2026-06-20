@@ -11,9 +11,9 @@ import os
 from collections.abc import Sequence
 
 from turbofan import registry, tracking
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -27,7 +27,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     tracking.configure_mlflow()
     try:
         registry.promote(args.name, args.version, alias=args.to)

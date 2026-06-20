@@ -12,13 +12,13 @@ import numpy as np
 import pandas as pd
 
 from turbofan import registry, tracking
+from turbofan.inference import service
 from turbofan.inference.predictors import PyfuncPredictor
 from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
-from turbofan.inference.service import prediction_result_to_dict
-from turbofan.models.metrics import official_test_metrics
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.models import metrics
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -32,13 +32,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     evaluation: dict[str, float] | None = None
     try:
         records = _read_records(args.input)
         predictor = _resolve_predictor(args.model, args.alias)
         result = predictor.predict(records, allow_partial=args.allow_partial)
-        payload = prediction_result_to_dict(result)
+        payload = service.prediction_result_to_dict(result)
         _write_predictions(args.output, payload)
         predictions_list = payload["predictions"]
         if not isinstance(predictions_list, list):
@@ -116,7 +116,7 @@ def _try_evaluate(
         [float(str(row["prediction"])) for row in predictions],
         dtype=np.float64,
     )
-    return official_test_metrics(labels, y_pred)
+    return metrics.official_test_metrics(labels, y_pred)
 
 
 def _build_parser() -> argparse.ArgumentParser:

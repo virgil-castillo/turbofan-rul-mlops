@@ -13,9 +13,9 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 EXPECTED_FILES: list[str] = [
     f"{split}_FD00{i}.txt"
@@ -140,7 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
 
     if args.check:
         logger.info("Checking data files in %s ...", RAW_DIR)

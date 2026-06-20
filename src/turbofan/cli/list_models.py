@@ -13,9 +13,9 @@ from collections.abc import Sequence
 
 from turbofan import registry, tracking
 from turbofan.registry import RegisteredModelInfo
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 _HEADERS = ("name", "versions", "production", "val_rmse", "run_link")
 _PLACEHOLDER = "-"
@@ -32,7 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     tracking.configure_mlflow()
     try:
         models = registry.list_registered()

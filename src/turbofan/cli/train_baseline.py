@@ -16,17 +16,12 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from turbofan import registry, tracking, workflows
-from turbofan.config.schema import ProjectConfig, load_config
-from turbofan.models.artifacts import (
-    create_run_dir,
-    save_json,
-    save_predictions,
-)
-from turbofan.models.evaluate import split_features_target
-from turbofan.models.metrics import official_test_metrics, regression_metrics
-from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
+from turbofan.config import schema
+from turbofan.config.schema import ProjectConfig
+from turbofan.models import artifacts, evaluate, metrics
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -135,11 +130,11 @@ def _evaluate_official_test(
         )
     except FileNotFoundError:
         return None
-    metrics = official_test_metrics(official.y_true, official.y_pred)
+    official_metrics = metrics.official_test_metrics(official.y_true, official.y_pred)
     predictions = _prediction_frame(
         official.last_rows, official.y_true, official.y_pred
     )
-    return metrics, predictions
+    return official_metrics, predictions
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -152,13 +147,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         Process exit code (0 on success).
     """
     args = _parse_args(argv)
-    setup_logging(args.log_level)
-    cfg = load_config(args.config)
+    turbofan_logging.setup_logging(args.log_level)
+    cfg = schema.load_config(args.config)
 
     tmp_log_dir = Path(tempfile.mkdtemp())
     tmp_run_log = tmp_log_dir / "run.log"
     try:
-        with run_file_logging(tmp_run_log):
+        with turbofan_logging.run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
             frames = workflows.load_and_split(
                 cfg.data,
@@ -167,8 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 split_seed=cfg.data.random_seed,
             )
 
-            X_train, y_train = split_features_target(frames.train)
-            X_val, y_val = split_features_target(frames.val)
+            X_train, y_train = evaluate.split_features_target(frames.train)
+            X_val, y_val = evaluate.split_features_target(frames.val)
 
             rf = cfg.features.for_model("ridge")
             estimator = workflows.build_ridge_estimator(
@@ -185,13 +180,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rul_cap=cfg.data.max_rul,
                 label="validation",
             )
-            val_metrics = regression_metrics(y_val, val_pred)
+            val_metrics = metrics.regression_metrics(y_val, val_pred)
             val_predictions = _prediction_frame(X_val, y_val, val_pred)
 
             tracking.configure_mlflow()
             mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
             with mlflow.start_run():
-                run_dir = create_run_dir(cfg.model.artifact_dir, "baseline")
+                run_dir = artifacts.create_run_dir(cfg.model.artifact_dir, "baseline")
                 metrics_payload: dict[str, object] = {"validation": val_metrics}
                 run_metrics: dict[str, float] = {
                     "val_rmse": val_metrics["rmse"],
@@ -206,7 +201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     run_metrics["official_rmse"] = official_metrics["rmse"]
                     run_metrics["official_mae"] = official_metrics["mae"]
                     run_metrics["official_phm08"] = official_metrics["phm08_score"]
-                    save_predictions(
+                    artifacts.save_predictions(
                         official_predictions,
                         run_dir / "official_test_predictions.csv",
                     )
@@ -216,9 +211,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "test or RUL files not found"
                     )
 
-                save_json(metrics_payload, run_dir / "metrics.json")
-                save_json(_config_to_dict(cfg), run_dir / "config.json")
-                save_predictions(
+                artifacts.save_json(metrics_payload, run_dir / "metrics.json")
+                artifacts.save_json(_config_to_dict(cfg), run_dir / "config.json")
+                artifacts.save_predictions(
                     val_predictions, run_dir / "validation_predictions.csv"
                 )
                 logger.info("saved baseline run to %s", run_dir)

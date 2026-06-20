@@ -23,16 +23,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 
-from turbofan.evaluation.official_jobs import build_jobs, job_key, run_job
-from turbofan.evaluation.official_results import (
-    append_record,
-    build_summary_frame,
-    completed_keys,
-    read_records,
-)
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.evaluation import official_jobs, official_results
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 _DEFAULT_OUTPUT_DIR = Path("outputs/results")
 _DEFAULT_CONFIGS_DIR = Path("configs/subsets")
@@ -52,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
 
     output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -60,13 +54,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary_path = output_dir / _SUMMARY_FILENAME
 
     try:
-        jobs = build_jobs(
+        jobs = official_jobs.build_jobs(
             configs_dir=args.configs_dir,
             models=tuple(args.models),
             sequence_seeds=tuple(args.seeds),
         )
-        done = completed_keys(per_run_path)
-        remaining = [job for job in jobs if job_key(job) not in done]
+        done = official_results.completed_keys(per_run_path)
+        remaining = [
+            job for job in jobs if official_jobs.job_key(job) not in done
+        ]
         logger.info(
             "official-eval sweep: %d job(s), %d already done, %d to run "
             "(device=%s) -> %s",
@@ -86,8 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 job.seed,
             )
             started = perf_counter()
-            record = run_job(job, device=args.device)
-            append_record(per_run_path, record)
+            record = official_jobs.run_job(job, device=args.device)
+            official_results.append_record(per_run_path, record)
             logger.info(
                 "completed %d/%d: %s %s seed=%d -> "
                 "official_rmse=%.4f val_rmse=%.4f (%.1fs)",
@@ -100,8 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 record.val_rmse,
                 perf_counter() - started,
             )
-        records = read_records(per_run_path)
-        summary = build_summary_frame(records)
+        records = official_results.read_records(per_run_path)
+        summary = official_results.build_summary_frame(records)
         summary.to_csv(summary_path, index=False)
     except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces failures
         logger.error(str(exc))
