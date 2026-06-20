@@ -6,6 +6,7 @@ from typing import cast
 
 import pandas as pd
 
+from turbofan.inference import schemas
 from turbofan.inference.schemas import (
     CANONICAL_COLUMNS,
     ModelType,
@@ -14,7 +15,6 @@ from turbofan.inference.schemas import (
     PredictionRow,
     PredictionScope,
     RawRecords,
-    validate_raw_records,
 )
 from turbofan.sklearn_types import DataFramePredictor
 
@@ -114,7 +114,7 @@ def _records_to_frame(records: RawRecords) -> pd.DataFrame:
         frame = records.copy()
     else:
         frame = pd.DataFrame(list(records))
-    validate_raw_records(frame)
+    schemas.validate_raw_records(frame)
     return frame.loc[:, [c for c in CANONICAL_COLUMNS if c in frame.columns]]
 
 

@@ -10,9 +10,10 @@ import pandas as pd
 import torch
 from sklearn.pipeline import Pipeline
 
-from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
+from turbofan.models import sequence_models
+from turbofan.models.sequence_models import SequenceRULRegressor
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
-from turbofan.sequences.windowing import build_final_windows
+from turbofan.sequences import windowing
 from turbofan.sklearn_types import DataFramePredictor
 
 DEFAULT_MAX_RUL: int = 125
@@ -82,7 +83,7 @@ def sequence_final_window_predictions(
     sequence_config = _mapping(payload, "sequence_config")
     architecture = _string(sequence_config, "architecture")
     window_size = _positive_int(sequence_config, "window_size")
-    model = build_sequence_model(
+    model = sequence_models.build_sequence_model(
         architecture,
         input_size=len(feature_cols),
         hidden_size=_positive_int(sequence_config, "hidden_size"),
@@ -152,7 +153,7 @@ def _sequence_window_inference(
 ) -> tuple[pd.DataFrame, npt.NDArray[np.float64]]:
     """Normalize, window, forward, rescale, and clip already-loaded inputs."""
     normalized = normalizer.transform(frame)
-    windows = build_final_windows(
+    windows = windowing.build_final_windows(
         normalized,
         feature_cols,
         window_size,
@@ -190,7 +191,7 @@ def _sequence_pipeline_window_inference(
         ],
         axis=1,
     )
-    windows = build_final_windows(
+    windows = windowing.build_final_windows(
         engineered,
         feature_cols,
         window_size,
