@@ -1,19 +1,19 @@
 """Compatibility facade for MLflow model registry helpers.
 
-Pyfunc model packaging lives in :mod:`turbofan.registry_pyfunc`; registry URI
-resolution, loading, and listing live in :mod:`turbofan.registry_store`. This
+Pyfunc model packaging lives in :mod:`turbofan.registry.pyfunc`; registry URI
+resolution, loading, and listing live in :mod:`turbofan.registry.store`. This
 module preserves the historical ``turbofan.registry`` import path.
 """
 from __future__ import annotations
 
-from turbofan.registry_pyfunc import (
+from .pyfunc import (
     PREDICTION_OUTPUT_COLUMNS,
     GRUFinalWindowModel,
     RidgeEngineModel,
     SequenceFinalWindowModel,
     log_and_register,
 )
-from turbofan.registry_store import (
+from .store import (
     RegisteredModelInfo,
     list_registered,
     load,

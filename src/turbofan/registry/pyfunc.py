@@ -20,7 +20,8 @@ from turbofan.inference.prediction_compute import (
     sequence_final_window_predictions,
 )
 from turbofan.inference.schemas import CANONICAL_COLUMNS, validate_raw_records
-from turbofan.registry_store import latest_version, model_name
+
+from .store import latest_version, model_name
 
 _RIDGE_ARTIFACT_KEY = "pipeline"
 _SEQUENCE_ARTIFACT_KEY = "checkpoint"
