@@ -40,7 +40,6 @@ dev = [
 turbofan-download-data = "turbofan.cli.download_data:main"
 turbofan-train-baseline = "turbofan.cli.train_baseline:main"
 turbofan-train-sequence = "turbofan.cli.train_sequence:main"
-turbofan-train-sequence-gru = "turbofan.cli.train_sequence_gru:main"
 turbofan-predict = "turbofan.cli.predict:main"
 turbofan-serve-api = "turbofan.cli.serve_api:main"
 turbofan-promote = "turbofan.cli.promote_model:main"

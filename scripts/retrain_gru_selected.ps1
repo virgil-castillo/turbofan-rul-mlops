@@ -23,7 +23,7 @@ $failed = @()
 
 foreach ($fd in $Subsets) {
     Write-Host "`n=== retraining $($fd.ToUpper()) ===" -ForegroundColor Cyan
-    turbofan-train-sequence-gru --config "configs/subsets/$fd.yaml"
+    turbofan-train-sequence --config "configs/subsets/$fd.yaml"
 
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "$fd failed (exit $LASTEXITCODE)"

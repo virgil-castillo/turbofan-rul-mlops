@@ -103,7 +103,7 @@ good default.
 Train the production candidate with:
 
 ```powershell
-turbofan-train-sequence-gru
+turbofan-train-sequence
 ```
 
 using these config values:

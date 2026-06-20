@@ -205,12 +205,6 @@ turbofan-train-sequence --config configs/subsets/fd001_gru.yaml
 turbofan-train-sequence --config configs/subsets/fd001_lstm.yaml
 ```
 
-The legacy GRU command remains as a backward-compatible alias:
-
-```bash
-turbofan-train-sequence-gru --config configs/subsets/fd001_gru.yaml
-```
-
 Browse MLflow runs and registered models:
 
 ```bash
@@ -247,7 +241,6 @@ All commands are installed as entry points via `pyproject.toml`:
 | `turbofan-download-data` | Download C-MAPSS data from Kaggle or verify files |
 | `turbofan-train-baseline` | Train the Ridge regression baseline |
 | `turbofan-train-sequence` | Train GRU or LSTM based on `sequence.architecture` |
-| `turbofan-train-sequence-gru` | Backward-compatible GRU training alias |
 | `turbofan-feature-screen` | Run the sequence feature-family screen |
 | `turbofan-regenerate-baselines` | Train and officially evaluate the selected configs across seeds into the eval CSVs |
 | `turbofan-predict` | Run batch prediction and optional official-label evaluation |

@@ -1,4 +1,4 @@
-"""Smoke tests for turbofan.cli.train_sequence_gru."""
+"""Smoke tests for GRU training via the turbofan.cli.train_sequence entrypoint."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 import torch
 
-from turbofan.cli.train_sequence_gru import main as gru_main
+from turbofan.cli.train_sequence import main as sequence_main
 from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 from turbofan.data import loader
@@ -190,17 +190,13 @@ def _run_cli(
     Returns:
         CLI result with returncode, stdout, and stderr.
     """
-    returncode = gru_main(["--config", str(cfg_path)])
+    returncode = sequence_main(["--config", str(cfg_path)])
     captured = capsys.readouterr()
     return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
-def _load_train_sequence_gru_module() -> ModuleType:
+def _load_train_sequence_module() -> ModuleType:
     """Load the generalized sequence training CLI module that ``main`` lives in.
-
-    The ``turbofan-train-sequence-gru`` console script now aliases the
-    generalized :mod:`turbofan.cli.train_sequence` entrypoint, so the
-    monkeypatch targets resolve against that module.
 
     Returns:
         Imported CLI module.
@@ -215,7 +211,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     tmp_path: Path,
 ) -> None:
     """CLI seeds torch before constructing the GRU model."""
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     seed = 123
     cfg = ProjectConfig(
         project_name="test",
@@ -357,7 +353,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
 
     from turbofan import tracking
 
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     run_dir = tmp_path / "run"
     cfg = ProjectConfig(
         project_name="test",
@@ -631,7 +627,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     tmp_path: Path,
 ) -> None:
     """GRU training calls build_feature_pipeline with subset mode count."""
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     captured: list[dict[str, object]] = []
 
     def _capturing_pipeline(**kwargs: object) -> _FakePipeline:

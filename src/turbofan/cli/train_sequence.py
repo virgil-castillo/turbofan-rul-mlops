@@ -2,9 +2,7 @@
 
 The architecture comes from ``sequence.architecture`` in the project config; the
 model is constructed through the sequence registry and registered under its
-per-architecture registered-model name (``turbofan-<arch>-<subset>``). The
-``turbofan-train-sequence-gru`` console script is a backward-compatible alias
-pointing at this module's :func:`main`.
+per-architecture registered-model name (``turbofan-<arch>-<subset>``).
 
 Data preparation, model construction/training, and official-test evaluation are
 delegated to :mod:`turbofan.workflows`, shared with the official-eval sweep and

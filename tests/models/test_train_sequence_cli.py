@@ -295,11 +295,3 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
 
     assert built_architectures == ["lstm"]
     assert captured_model_types == ["lstm"]
-
-
-def test_train_sequence_gru_alias_main_is_same_callable() -> None:
-    """The backward-compatible GRU entrypoint reuses the generalized main."""
-    from turbofan.cli.train_sequence import main as sequence_main
-    from turbofan.cli.train_sequence_gru import main as gru_main
-
-    assert gru_main is sequence_main
