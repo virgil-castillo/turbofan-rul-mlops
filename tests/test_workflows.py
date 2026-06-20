@@ -17,7 +17,9 @@ from turbofan.config.schema import (
     ProjectConfig,
     SequenceConfig,
 )
+from turbofan.features import pipeline as feature_pipeline
 from turbofan.features.pipeline import build_feature_pipeline
+from turbofan.models import sequence_training, split
 from turbofan.models.evaluate import split_features_target
 from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
 from turbofan.models.sequence_training import TrainingResult
@@ -102,8 +104,8 @@ def test_prepare_sequence_data_uses_data_seed_for_split_and_pipeline(
 ) -> None:
     """The data seed flows to both the engine split and the pipeline state."""
     captured: dict[str, object] = {}
-    real_split = workflows.split_by_engine
-    real_pipeline = workflows.build_feature_pipeline
+    real_split = split.split_by_engine
+    real_pipeline = feature_pipeline.build_feature_pipeline
 
     def fake_split(
         df: pd.DataFrame, *, test_size: float, random_seed: int
@@ -116,8 +118,8 @@ def test_prepare_sequence_data_uses_data_seed_for_split_and_pipeline(
         captured["random_state"] = kwargs["random_state"]
         return real_pipeline(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(workflows, "split_by_engine", fake_split)
-    monkeypatch.setattr(workflows, "build_feature_pipeline", fake_pipeline)
+    monkeypatch.setattr(split, "split_by_engine", fake_split)
+    monkeypatch.setattr(feature_pipeline, "build_feature_pipeline", fake_pipeline)
 
     prepared = workflows.prepare_sequence_data(
         data_cfg,
@@ -153,13 +155,13 @@ def test_train_prepared_sequence_seeds_with_model_seed_and_builds_arch(
     """Training seeds with the model seed and builds the configured architecture."""
     prepared = _prepare(data_cfg)
     seeds: list[int] = []
-    real_seed = workflows.seed_everything
+    real_seed = sequence_training.seed_everything
 
     def fake_seed(seed: int) -> None:
         seeds.append(seed)
         real_seed(seed)
 
-    monkeypatch.setattr(workflows, "seed_everything", fake_seed)
+    monkeypatch.setattr(sequence_training, "seed_everything", fake_seed)
 
     result = workflows.train_prepared_sequence(
         prepared,
@@ -170,7 +172,7 @@ def test_train_prepared_sequence_seeds_with_model_seed_and_builds_arch(
     )
 
     assert isinstance(result, TrainingResult)
-    assert seeds == [123]
+    assert seeds and all(seed == 123 for seed in seeds)
     assert isinstance(result.model, SequenceRULRegressor)
     assert result.model.architecture == "gru"
 

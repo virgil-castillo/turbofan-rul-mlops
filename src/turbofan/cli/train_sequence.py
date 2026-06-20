@@ -31,14 +31,14 @@ from sklearn.pipeline import Pipeline
 from torch import nn
 
 from turbofan import registry, tracking, workflows
-from turbofan.config.schema import ProjectConfig, load_config
-from turbofan.models.artifacts import create_run_dir, save_json, save_predictions
-from turbofan.models.metrics import official_test_metrics
-from turbofan.models.sequence_training import SequenceLoader, resolve_device
+from turbofan.config import schema
+from turbofan.config.schema import ProjectConfig
+from turbofan.models import artifacts, metrics, sequence_training
+from turbofan.models.sequence_training import SequenceLoader
 from turbofan.sequences.windowing import WindowedSequences
-from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -161,11 +161,13 @@ def _evaluate_official_test(
         )
     except FileNotFoundError:
         return None
-    metrics = official_test_metrics(official.y_true, official.y_pred)
+    official_metrics = metrics.official_test_metrics(
+        official.y_true, official.y_pred
+    )
     predictions = _prediction_frame(
         official.windows, official.y_true, official.y_pred
     )
-    return metrics, predictions
+    return official_metrics, predictions
 
 
 def _model_payload(
@@ -213,16 +215,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         Process exit code (0 on success).
     """
     args = _parse_args(argv)
-    setup_logging(args.log_level)
-    cfg = load_config(args.config)
+    turbofan_logging.setup_logging(args.log_level)
+    cfg = schema.load_config(args.config)
     architecture = cfg.sequence.architecture
 
-    device = resolve_device(cfg.sequence.device)
+    device = sequence_training.resolve_device(cfg.sequence.device)
 
     tmp_log_dir = Path(tempfile.mkdtemp())
     tmp_run_log = tmp_log_dir / "run.log"
     try:
-        with run_file_logging(tmp_run_log):
+        with turbofan_logging.run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
             sf = cfg.features.for_model(architecture)
             prepared = workflows.prepare_sequence_data(
@@ -264,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             tracking.configure_mlflow()
             mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
             with mlflow.start_run():
-                run_dir = create_run_dir(
+                run_dir = artifacts.create_run_dir(
                     cfg.sequence.artifact_dir, f"sequence_{architecture}"
                 )
                 metrics_payload: dict[str, object] = {
@@ -289,7 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     run_metrics["official_rmse"] = official_metrics["rmse"]
                     run_metrics["official_mae"] = official_metrics["mae"]
                     run_metrics["official_phm08"] = official_metrics["phm08_score"]
-                    save_predictions(
+                    artifacts.save_predictions(
                         official_predictions,
                         run_dir / "official_test_predictions.csv",
                     )
@@ -302,12 +304,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 payload = _model_payload(
                     result.model, cfg, feature_cols, prepared.pipeline
                 )
-                save_json(metrics_payload, run_dir / "metrics.json")
-                save_json(_config_to_dict(cfg), run_dir / "config.json")
+                artifacts.save_json(metrics_payload, run_dir / "metrics.json")
+                artifacts.save_json(_config_to_dict(cfg), run_dir / "config.json")
                 result.history.to_csv(
                     run_dir / "training_history.csv", index=False
                 )
-                save_predictions(
+                artifacts.save_predictions(
                     window_predictions,
                     run_dir / "validation_window_predictions.csv",
                 )

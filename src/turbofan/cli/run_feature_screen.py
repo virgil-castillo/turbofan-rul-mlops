@@ -13,10 +13,10 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
-from turbofan.experiments.feature_family_screen import run_screen
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.experiments import feature_family_screen
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -111,7 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     logger.info(
         "starting feature-family screen: architectures=%s subsets=%s seeds=%s "
         "device=%s",
@@ -120,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.seeds,
         args.device,
     )
-    run_screen(
+    feature_family_screen.run_screen(
         architectures=args.architectures,
         subsets=args.subsets,
         sequence_windows=args.sequence_windows,

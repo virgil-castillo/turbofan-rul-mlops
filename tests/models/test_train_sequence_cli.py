@@ -9,10 +9,20 @@ import pandas as pd
 import pytest
 import torch
 
-from turbofan import workflows
+from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
+from turbofan.data import loader
+from turbofan.features import pipeline as feature_pipeline
+from turbofan.models import (
+    artifacts,
+    evaluate,
+    sequence_models,
+    sequence_training,
+    split,
+)
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.models.sequence_training import TrainingResult
+from turbofan.sequences import dataset, windowing
 
 
 class _CliResult(NamedTuple):
@@ -247,29 +257,35 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
             config=tmp_path / "c.yaml", log_level="INFO"
         ),
     )
-    monkeypatch.setattr(module, "load_config", lambda p: cfg)
-    monkeypatch.setattr(module, "resolve_device", lambda r: torch.device("cpu"))
+    monkeypatch.setattr(schema, "load_config", lambda p: cfg)
     monkeypatch.setattr(
-        workflows, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        sequence_training, "resolve_device", lambda r: torch.device("cpu")
     )
-    monkeypatch.setattr(workflows, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(workflows, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
-        workflows, "split_by_engine", lambda f, test_size, random_seed: (f, f)
+        feature_pipeline,
+        "build_feature_pipeline",
+        lambda **kw: _FakePipeline(["s1", "s2"]),
     )
-    monkeypatch.setattr(workflows, "build_sliding_windows", lambda *a, **k: object())
-    monkeypatch.setattr(workflows, "build_sequence_loader", lambda *a, **k: object())
-    monkeypatch.setattr(workflows, "build_sequence_model", fake_build_sequence_model)
-    monkeypatch.setattr(workflows, "train_sequence_model", fake_train)
+    monkeypatch.setattr(loader, "load_raw_train", lambda c: _fake_df)
+    monkeypatch.setattr(evaluate, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(
+        split, "split_by_engine", lambda f, test_size, random_seed: (f, f)
+    )
+    monkeypatch.setattr(windowing, "build_sliding_windows", lambda *a, **k: object())
+    monkeypatch.setattr(dataset, "build_sequence_loader", lambda *a, **k: object())
+    monkeypatch.setattr(
+        sequence_models, "build_sequence_model", fake_build_sequence_model
+    )
+    monkeypatch.setattr(sequence_training, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
         lambda *a, **k: ({"rmse": 0.0, "mae": 0.0}, pd.DataFrame()),
     )
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *a, **k: None)
-    monkeypatch.setattr(module, "create_run_dir", lambda a, n: tmp_path)
-    monkeypatch.setattr(module, "save_json", lambda p, pa: None)
-    monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
+    monkeypatch.setattr(artifacts, "create_run_dir", lambda a, n: tmp_path)
+    monkeypatch.setattr(artifacts, "save_json", lambda p, pa: None)
+    monkeypatch.setattr(artifacts, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     monkeypatch.setattr(module.registry, "log_and_register", fake_log_and_register)

@@ -33,34 +33,23 @@ from turbofan.config.schema import (
     ProjectConfig,
     SequenceConfig,
 )
-from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
-from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models.baseline import build_baseline_pipeline
-from turbofan.models.evaluate import (
-    add_rul_column,
-    align_official_test_labels,
-    select_last_cycle_per_engine,
+from turbofan.data import loader as data_loader
+from turbofan.features import pipeline as feature_pipeline
+from turbofan.models import (
+    baseline,
+    evaluate,
+    metrics,
+    sequence_models,
+    sequence_training,
+    split,
+    test_evaluation,
 )
-from turbofan.models.metrics import regression_metrics
-from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
-    SequenceLoader,
-    TrainingResult,
-    predict_windows,
-    seed_everything,
-    train_sequence_model,
-)
-from turbofan.models.split import split_by_engine
-from turbofan.models.test_evaluation import align_labels_to_eligible_engines
-from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.windowing import (
-    WindowedSequences,
-    build_final_windows,
-    build_sliding_windows,
-)
-from turbofan.utils.logging import get_logger
+from turbofan.models.sequence_training import SequenceLoader, TrainingResult
+from turbofan.sequences import dataset, windowing
+from turbofan.sequences.windowing import WindowedSequences
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 #: Identifier columns carried alongside engineered features so windowing can
 #: group per engine and read final-cycle targets.
@@ -98,9 +87,9 @@ def load_and_split(
     Returns:
         The labeled train/validation split.
     """
-    train_raw = load_raw_train(data_cfg)
-    train_labeled = add_rul_column(train_raw, max_rul=max_rul)
-    train_df, val_df = split_by_engine(
+    train_raw = data_loader.load_raw_train(data_cfg)
+    train_labeled = evaluate.add_rul_column(train_raw, max_rul=max_rul)
+    train_df, val_df = split.split_by_engine(
         train_labeled, test_size=test_size, random_seed=split_seed
     )
     return SplitFrames(train=train_df, val=val_df)
@@ -166,7 +155,7 @@ def prepare_sequence_data(
     frames = load_and_split(
         data_cfg, max_rul=max_rul, test_size=test_size, split_seed=data_seed
     )
-    pipeline = build_feature_pipeline(
+    pipeline = feature_pipeline.build_feature_pipeline(
         sensor_drop=sensor_drop,
         n_modes=n_modes,
         random_state=data_seed,
@@ -178,20 +167,20 @@ def prepare_sequence_data(
     val_features = pipeline.transform(frames.val)
     feature_cols: list[str] = pipeline.named_steps["feature_engineer"].feature_cols_
 
-    train_windows = build_sliding_windows(
+    train_windows = windowing.build_sliding_windows(
         _join_ids(frames.train, train_features),
         feature_cols=feature_cols,
         window_size=window_size,
     )
-    val_windows = build_sliding_windows(
+    val_windows = windowing.build_sliding_windows(
         _join_ids(frames.val, val_features),
         feature_cols=feature_cols,
         window_size=window_size,
     )
-    train_loader = build_sequence_loader(
+    train_loader = dataset.build_sequence_loader(
         train_windows, batch_size=batch_size, shuffle=True
     )
-    val_loader = build_sequence_loader(
+    val_loader = dataset.build_sequence_loader(
         val_windows, batch_size=batch_size, shuffle=False
     )
     return PreparedSequenceData(
@@ -228,15 +217,15 @@ def train_prepared_sequence(
     Returns:
         The training result with the best restored model and metric history.
     """
-    seed_everything(model_seed)
-    model = build_sequence_model(
+    sequence_training.seed_everything(model_seed)
+    model = sequence_models.build_sequence_model(
         seq_cfg.architecture,
         input_size=len(prepared.feature_cols),
         hidden_size=seq_cfg.hidden_size,
         num_layers=seq_cfg.num_layers,
         dropout=seq_cfg.dropout,
     )
-    return train_sequence_model(
+    return sequence_training.train_sequence_model(
         model=model,
         train_loader=prepared.train_loader,
         validation_windows_loader=prepared.val_loader,
@@ -271,11 +260,13 @@ def evaluate_window_metrics(
         Metrics, ground-truth RUL values, and predicted RUL values.
     """
     y_pred = np.clip(
-        predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
+        sequence_training.predict_windows(model, loader, device, max_rul=max_rul),
+        0.0,
+        None,
     )
     y_true = windows.y.astype(np.float64)
-    metrics = regression_metrics(y_true, y_pred)
-    return metrics, y_true, y_pred
+    computed_metrics = metrics.regression_metrics(y_true, y_pred)
+    return computed_metrics, y_true, y_pred
 
 
 @dataclass(frozen=True)
@@ -326,8 +317,8 @@ def predict_sequence_official(
     Raises:
         FileNotFoundError: If the official test or RUL files are missing.
     """
-    test_raw = load_raw_test(data_cfg)
-    rul_labels = load_rul_labels(data_cfg)
+    test_raw = data_loader.load_raw_test(data_cfg)
+    rul_labels = data_loader.load_rul_labels(data_cfg)
     id_cols = [c for c in ("engine_id", "cycle") if c in test_raw.columns]
     test_features = pipeline.transform(test_raw)
     test_df = pd.concat(
@@ -337,19 +328,23 @@ def predict_sequence_official(
         ],
         axis=1,
     )
-    test_windows = build_final_windows(
+    test_windows = windowing.build_final_windows(
         test_df,
         feature_cols=feature_cols,
         window_size=window_size,
         target_col=None,
     )
-    loader = build_sequence_loader(
+    loader = dataset.build_sequence_loader(
         test_windows, batch_size=batch_size, shuffle=False
     )
     y_pred = np.clip(
-        predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
+        sequence_training.predict_windows(model, loader, device, max_rul=max_rul),
+        0.0,
+        None,
     )
-    y_true = align_labels_to_eligible_engines(test_windows.metadata, rul_labels)
+    y_true = test_evaluation.align_labels_to_eligible_engines(
+        test_windows.metadata, rul_labels
+    )
     return OfficialSequencePredictions(
         windows=test_windows, y_true=y_true, y_pred=y_pred
     )
@@ -407,7 +402,7 @@ def build_ridge_estimator(cfg: ProjectConfig, *, seed: int) -> Pipeline:
         The unfitted Ridge sklearn pipeline.
     """
     rf = cfg.features.for_model("ridge")
-    return build_baseline_pipeline(
+    return baseline.build_baseline_pipeline(
         model_name=cfg.model.name,
         alpha=cfg.model.alpha,
         feature_families=rf.feature_families,
@@ -457,16 +452,16 @@ def predict_ridge_official(
     Raises:
         FileNotFoundError: If the official test or RUL files are missing.
     """
-    test_raw = load_raw_test(data_cfg)
-    rul_labels = load_rul_labels(data_cfg)
-    last_rows = select_last_cycle_per_engine(test_raw)
-    y_true = align_official_test_labels(last_rows, rul_labels)
+    test_raw = data_loader.load_raw_test(data_cfg)
+    rul_labels = data_loader.load_rul_labels(data_cfg)
+    last_rows = evaluate.select_last_cycle_per_engine(test_raw)
+    y_true = evaluate.align_official_test_labels(last_rows, rul_labels)
     all_pred = predict_with_clipping(
         estimator, test_raw, max_rul=max_rul, label="official_test"
     )
     pred_rows = test_raw[["engine_id", "cycle"]].copy()
     pred_rows["prediction"] = all_pred
-    last_pred = select_last_cycle_per_engine(pred_rows)
+    last_pred = evaluate.select_last_cycle_per_engine(pred_rows)
     y_pred = last_pred["prediction"].to_numpy(dtype=np.float64)
     return OfficialRidgePredictions(
         last_rows=last_rows, y_true=y_true, y_pred=y_pred

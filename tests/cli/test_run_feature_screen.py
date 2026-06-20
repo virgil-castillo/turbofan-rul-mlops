@@ -78,7 +78,9 @@ def test_main_wiring() -> None:
     def fake_run_screen(**kwargs: object) -> None:
         captured.update(kwargs)  # type: ignore[arg-type]
 
-    with patch("turbofan.cli.run_feature_screen.run_screen", fake_run_screen):
+    with patch(
+        "turbofan.experiments.feature_family_screen.run_screen", fake_run_screen
+    ):
         code = run_feature_screen.main(
             [
                 "--subsets",

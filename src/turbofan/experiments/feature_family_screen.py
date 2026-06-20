@@ -12,13 +12,13 @@ from time import perf_counter
 from typing import Any, Literal
 
 from turbofan import workflows
+from turbofan.config import schema
 from turbofan.config.schema import (
     DataConfig,
     DeviceRequest,
     FDSubset,
     SequenceArchitecture,
     SequenceConfig,
-    load_config,
 )
 from turbofan.experiments.feature_family_grid import (
     ScreenCell,
@@ -31,10 +31,10 @@ from turbofan.experiments.feature_family_results import (
     completed_keys,
     csv_path,
 )
-from turbofan.models.sequence_training import resolve_device
-from turbofan.utils.logging import get_logger
+from turbofan.models import sequence_training
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 HIDDEN_SIZE: int = 64
 """Recurrent hidden state width, fixed for the feature-family sweep."""
@@ -111,7 +111,7 @@ def run_cell(
     Returns:
         A dict with exactly the keys in :data:`CSV_COLUMNS`.
     """
-    subset_cfg = load_config(configs_dir / f"{cell.subset.lower()}.yaml")
+    subset_cfg = schema.load_config(configs_dir / f"{cell.subset.lower()}.yaml")
     sensor_cols_to_drop = subset_cfg.features.sensor_cols_to_drop
     n_modes = subset_cfg.features.n_modes
 
@@ -125,7 +125,7 @@ def run_cell(
         random_seed=SPLIT_SEED,
     )
 
-    dev = resolve_device(device)
+    dev = sequence_training.resolve_device(device)
     device_name: Literal["cpu", "cuda"] = "cuda" if dev.type == "cuda" else "cpu"
 
     seq_cfg = SequenceConfig(
