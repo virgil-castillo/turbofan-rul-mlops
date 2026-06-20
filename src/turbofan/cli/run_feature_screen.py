@@ -18,6 +18,8 @@ from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the feature-family screen CLI.
@@ -71,13 +73,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("outputs/results"),
+        default=_REPO_ROOT / "outputs/results",
         help="Root directory for generated result CSV files.",
     )
     parser.add_argument(
         "--configs-dir",
         type=Path,
-        default=Path("configs/subsets"),
+        default=_REPO_ROOT / "configs/subsets",
         help="Directory containing per-subset YAML configs.",
     )
     parser.add_argument(

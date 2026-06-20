@@ -28,8 +28,9 @@ from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
 
-_DEFAULT_OUTPUT_DIR = Path("outputs/results")
-_DEFAULT_CONFIGS_DIR = Path("configs/subsets")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_OUTPUT_DIR = _REPO_ROOT / "outputs/results"
+_DEFAULT_CONFIGS_DIR = _REPO_ROOT / "configs/subsets"
 _PER_RUN_FILENAME = "latest_official_eval_per_run.csv"
 _SUMMARY_FILENAME = "latest_official_eval_summary.csv"
 _DEFAULT_SEQUENCE_SEEDS: tuple[int, ...] = (42, 43, 44, 45, 46)

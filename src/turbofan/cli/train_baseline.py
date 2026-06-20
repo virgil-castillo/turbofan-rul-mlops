@@ -23,6 +23,8 @@ from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments.
@@ -38,7 +40,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/default.yaml"),
+        default=_REPO_ROOT / "configs/default.yaml",
         help="Path to YAML project config.",
     )
     parser.add_argument(
