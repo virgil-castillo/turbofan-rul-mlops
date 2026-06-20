@@ -15,13 +15,9 @@ import torch
 from mlflow.models import ModelSignature, infer_signature
 from mlflow.pyfunc.model import PythonModel, PythonModelContext
 
-from turbofan.inference.prediction_compute import (
-    ridge_engine_predictions,
-    sequence_final_window_predictions,
-)
-from turbofan.inference.schemas import CANONICAL_COLUMNS, validate_raw_records
-
-from .store import latest_version, model_name
+from turbofan.inference import prediction_compute, schemas
+from turbofan.inference.schemas import CANONICAL_COLUMNS
+from turbofan.registry import store
 
 _RIDGE_ARTIFACT_KEY = "pipeline"
 _SEQUENCE_ARTIFACT_KEY = "checkpoint"
@@ -95,8 +91,8 @@ class RidgeEngineModel(PythonModel):
             DataFrame with ``engine_id``, ``cycle``, and ``prediction`` columns.
         """
         del context, params
-        validation = validate_raw_records(model_input)
-        metadata, predictions = ridge_engine_predictions(
+        validation = schemas.validate_raw_records(model_input)
+        metadata, predictions = prediction_compute.ridge_engine_predictions(
             self._pipeline, validation.records
         )
         return _prediction_frame(metadata, predictions)
@@ -137,8 +133,8 @@ class SequenceFinalWindowModel(PythonModel):
             DataFrame with ``engine_id``, ``cycle``, and ``prediction`` columns.
         """
         del context, params
-        validation = validate_raw_records(model_input)
-        metadata, predictions = sequence_final_window_predictions(
+        validation = schemas.validate_raw_records(model_input)
+        metadata, predictions = prediction_compute.sequence_final_window_predictions(
             self._payload, validation.records
         )
         return _prediction_frame(metadata, predictions)
@@ -170,14 +166,14 @@ def log_and_register(
     """
     if mlflow.active_run() is None:
         raise RuntimeError("log_and_register requires an active MLflow run.")
-    name = model_name(model_type, subset)
+    name = store.model_name(model_type, subset)
     if model_type == "ridge":
         _log_ridge_model(model, name)
     elif model_type in ("gru", "lstm"):
         _log_sequence_model(model, name)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
-    return latest_version(name)
+    return store.latest_version(name)
 
 
 @contextmanager

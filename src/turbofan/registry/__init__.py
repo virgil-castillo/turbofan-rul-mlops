@@ -6,14 +6,14 @@ module preserves the historical ``turbofan.registry`` import path.
 """
 from __future__ import annotations
 
-from .pyfunc import (
+from turbofan.registry.pyfunc import (
     PREDICTION_OUTPUT_COLUMNS,
     GRUFinalWindowModel,
     RidgeEngineModel,
     SequenceFinalWindowModel,
     log_and_register,
 )
-from .store import (
+from turbofan.registry.store import (
     RegisteredModelInfo,
     list_registered,
     load,
