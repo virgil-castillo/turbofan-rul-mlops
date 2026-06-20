@@ -7,6 +7,21 @@ import pandas as pd
 import pytest
 
 from turbofan.cli import export_official_eval as export
+from turbofan.evaluation.official_jobs import (
+    Job,
+    RunRecord,
+    build_jobs,
+    join_lag_steps,
+    join_windows,
+    run_job,
+)
+from turbofan.evaluation.official_results import (
+    append_record,
+    build_summary_frame,
+    completed_keys,
+    read_records,
+    record_sort_key,
+)
 
 
 def _record(
@@ -21,7 +36,7 @@ def _record(
     hidden_size: str = "64",
     learning_rate: str = "0.001",
     official_rmse: float = 14.0,
-) -> export.RunRecord:
+) -> RunRecord:
     """Build a RunRecord with sensible defaults for aggregation tests.
 
     Args:
@@ -37,9 +52,9 @@ def _record(
         official_rmse: Official-test RMSE (other metrics derived from it).
 
     Returns:
-        A populated :class:`export.RunRecord`.
+        A populated :class:`RunRecord`.
     """
-    return export.RunRecord(
+    return RunRecord(
         model=model,
         subset=subset,
         seed=seed,
@@ -64,7 +79,7 @@ def _record(
 
 def test_build_jobs_counts_and_seeds() -> None:
     """Ridge gets one seed per subset; sequence models get every swept seed."""
-    jobs = export.build_jobs(
+    jobs = build_jobs(
         configs_dir=Path("configs/subsets"),
         models=("ridge", "gru", "lstm"),
         sequence_seeds=(42, 43, 44, 45, 46),
@@ -84,7 +99,7 @@ def test_build_jobs_counts_and_seeds() -> None:
 
 def test_build_jobs_resolves_config_paths() -> None:
     """Ridge uses fd00X.yaml; sequence models use the per-arch config."""
-    jobs = export.build_jobs(
+    jobs = build_jobs(
         configs_dir=Path("configs/subsets"),
         models=("ridge", "gru"),
         sequence_seeds=(42,),
@@ -97,7 +112,7 @@ def test_build_jobs_resolves_config_paths() -> None:
 def test_build_jobs_missing_config_raises(tmp_path: Path) -> None:
     """A missing config file is reported rather than silently skipped."""
     with pytest.raises(FileNotFoundError):
-        export.build_jobs(
+        build_jobs(
             configs_dir=tmp_path, models=("ridge",), sequence_seeds=(42,)
         )
 
@@ -124,10 +139,10 @@ def test_append_and_read_round_trip_exact(tmp_path: Path) -> None:
         _record(model="ridge", official_rmse=21.58319165713823),
     ]
     for record in records:
-        export._append_record(path, record)
+        append_record(path, record)
 
-    read_back = export._read_records(path)
-    assert read_back == sorted(records, key=export._record_sort_key)
+    read_back = read_records(path)
+    assert read_back == sorted(records, key=record_sort_key)
     # The header is written exactly once.
     assert path.read_text(encoding="utf-8").count("official_rmse") == 1
 
@@ -135,10 +150,10 @@ def test_append_and_read_round_trip_exact(tmp_path: Path) -> None:
 def test_completed_keys_enables_resume(tmp_path: Path) -> None:
     """Completed (model, subset, seed) keys are recoverable for resume."""
     path = tmp_path / "per_run.csv"
-    export._append_record(path, _record(model="gru", seed=42))
-    export._append_record(path, _record(model="gru", seed=43))
+    append_record(path, _record(model="gru", seed=42))
+    append_record(path, _record(model="gru", seed=43))
 
-    assert export._completed_keys(path) == {
+    assert completed_keys(path) == {
         ("gru", "FD001", "42"),
         ("gru", "FD001", "43"),
     }
@@ -146,7 +161,7 @@ def test_completed_keys_enables_resume(tmp_path: Path) -> None:
 
 def test_read_records_missing_file_is_empty(tmp_path: Path) -> None:
     """Reading a non-existent per-run CSV yields no records."""
-    assert export._read_records(tmp_path / "absent.csv") == []
+    assert read_records(tmp_path / "absent.csv") == []
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +171,7 @@ def test_read_records_missing_file_is_empty(tmp_path: Path) -> None:
 
 def test_summary_single_run_has_blank_sd() -> None:
     """A single-seed group summarizes to n_runs=1 with blank sd columns."""
-    summary = export.build_summary_frame([_record(model="ridge", official_rmse=21.5)])
+    summary = build_summary_frame([_record(model="ridge", official_rmse=21.5)])
 
     row = summary.iloc[0]
     assert row["n_runs"] == 1
@@ -172,7 +187,7 @@ def test_summary_aggregates_multiple_seeds() -> None:
         _record(model="gru", seed=42, official_rmse=14.0),
         _record(model="gru", seed=43, official_rmse=16.0),
     ]
-    summary = export.build_summary_frame(records)
+    summary = build_summary_frame(records)
 
     row = summary.iloc[0]
     assert row["n_runs"] == 2
@@ -190,7 +205,7 @@ def test_summary_orders_ridge_before_sequence() -> None:
         _record(model="ridge", subset="FD001"),
         _record(model="gru", subset="FD001"),
     ]
-    summary = export.build_summary_frame(records)
+    summary = build_summary_frame(records)
     assert summary["model"].tolist() == ["ridge", "gru", "lstm"]
 
 
@@ -201,15 +216,15 @@ def test_summary_orders_ridge_before_sequence() -> None:
 
 def test_join_windows_only_for_rolling_families() -> None:
     """Rolling windows render only when a rolling family is present."""
-    assert export._join_windows(["raw", "rolling_mean"], [20]) == "20"
-    assert export._join_windows(["raw"], [20]) == ""
-    assert export._join_windows(["raw", "rolling_mean"], []) == ""
+    assert join_windows(["raw", "rolling_mean"], [20]) == "20"
+    assert join_windows(["raw"], [20]) == ""
+    assert join_windows(["raw", "rolling_mean"], []) == ""
 
 
 def test_join_lag_steps_only_for_lag_family() -> None:
     """Lag steps render only when the lag family is present."""
-    assert export._join_lag_steps(["raw", "lag"], [5]) == "5"
-    assert export._join_lag_steps(["raw", "rolling_mean"], [1]) == ""
+    assert join_lag_steps(["raw", "lag"], [5]) == "5"
+    assert join_lag_steps(["raw", "rolling_mean"], [1]) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -219,11 +234,11 @@ def test_join_lag_steps_only_for_lag_family() -> None:
 
 def test_run_job_sequence_end_to_end(tiny_config_path: Path) -> None:
     """A tiny GRU config trains and produces finite official-eval metrics."""
-    job = export._Job(
+    job = Job(
         model="gru", subset="FD001", config_path=tiny_config_path, seed=42
     )
 
-    record = export.run_job(job, device="cpu")
+    record = run_job(job, device="cpu")
 
     assert record.model == "gru"
     assert record.seed == 42
@@ -273,11 +288,11 @@ def _write_ridge_config(tmp_path: Path, raw_dir: Path) -> Path:
 def test_run_job_ridge_end_to_end(tmp_path: Path, tmp_data_dir: Path) -> None:
     """A tiny ridge config trains and produces capped official-eval metrics."""
     cfg_path = _write_ridge_config(tmp_path, tmp_data_dir)
-    job = export._Job(
+    job = Job(
         model="ridge", subset="FD001", config_path=cfg_path, seed=42
     )
 
-    record = export.run_job(job, device="cpu")
+    record = run_job(job, device="cpu")
 
     assert record.model == "ridge"
     assert record.feature_config == "raw+rolling_mean"
@@ -297,13 +312,13 @@ def test_main_writes_summary_from_existing_per_run(tmp_path: Path) -> None:
     resume/aggregate pass, so no training occurs.
     """
     per_run = tmp_path / "latest_official_eval_per_run.csv"
-    jobs = export.build_jobs(
+    jobs = build_jobs(
         configs_dir=Path("configs/subsets"),
         models=("ridge", "gru", "lstm"),
         sequence_seeds=(42, 43, 44, 45, 46),
     )
     for index, job in enumerate(jobs):
-        export._append_record(
+        append_record(
             per_run,
             _record(
                 model=job.model,

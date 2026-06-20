@@ -23,30 +23,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 
-from turbofan.evaluation.official_jobs import (
-    Job as _Job,
-)
-from turbofan.evaluation.official_jobs import (
-    RunRecord,
-    build_jobs,
-    config_path_for,
-    job_key,
-    join_lag_steps,
-    join_windows,
-    run_job,
-)
+from turbofan.evaluation.official_jobs import build_jobs, job_key, run_job
 from turbofan.evaluation.official_results import (
     append_record,
     build_summary_frame,
     completed_keys,
-    group_sort_key,
     read_records,
-    record_from_row,
-    record_key,
-    record_sort_key,
-    record_to_row,
-    repr_float,
-    sample_sd,
 )
 from turbofan.utils.logging import get_logger, setup_logging
 
@@ -57,32 +39,6 @@ _DEFAULT_CONFIGS_DIR = Path("configs/subsets")
 _PER_RUN_FILENAME = "latest_official_eval_per_run.csv"
 _SUMMARY_FILENAME = "latest_official_eval_summary.csv"
 _DEFAULT_SEQUENCE_SEEDS: tuple[int, ...] = (42, 43, 44, 45, 46)
-
-# Backward-compatible helper names retained for tests and external scripts that
-# imported the old single-file implementation.
-_append_record = append_record
-_completed_keys = completed_keys
-_config_path = config_path_for
-_group_sort_key = group_sort_key
-_job_key = job_key
-_join_lag_steps = join_lag_steps
-_join_windows = join_windows
-_read_records = read_records
-_record_from_row = record_from_row
-_record_key = record_key
-_record_sort_key = record_sort_key
-_record_to_row = record_to_row
-_repr_float = repr_float
-_sample_sd = sample_sd
-
-__all__ = [
-    "RunRecord",
-    "_Job",
-    "build_jobs",
-    "build_summary_frame",
-    "main",
-    "run_job",
-]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
