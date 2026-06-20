@@ -36,6 +36,8 @@ from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 HIDDEN_SIZE: int = 64
 """Recurrent hidden state width, fixed for the feature-family sweep."""
 
@@ -92,7 +94,7 @@ __all__ = [
 def run_cell(
     cell: ScreenCell,
     *,
-    configs_dir: Path = Path("configs/subsets"),
+    configs_dir: Path = _REPO_ROOT / "configs/subsets",
     device: DeviceRequest = "cpu",
 ) -> dict[str, Any]:
     """Train one cell and return a result row matching :data:`CSV_COLUMNS`.
@@ -207,8 +209,8 @@ def run_screen(
     lag_steps: Sequence[int],
     seeds: Sequence[int],
     *,
-    results_dir: Path = Path("outputs/results"),
-    configs_dir: Path = Path("configs/subsets"),
+    results_dir: Path = _REPO_ROOT / "outputs/results",
+    configs_dir: Path = _REPO_ROOT / "configs/subsets",
     device: DeviceRequest = "cpu",
 ) -> None:
     """Orchestrate the full feature-family sweep with CSV resume.
