@@ -122,7 +122,7 @@ def test_parser_defaults_to_ignored_output_dir() -> None:
     parser = export._build_parser()
     args = parser.parse_args([])
 
-    assert args.output_dir == Path("outputs/results")
+    assert args.output_dir == export._REPO_ROOT / "outputs/results"
 
 
 # ---------------------------------------------------------------------------
