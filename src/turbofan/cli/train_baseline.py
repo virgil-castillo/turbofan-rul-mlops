@@ -92,25 +92,6 @@ def _prediction_frame(
     )
 
 
-def _clip_rul_predictions(
-    values: npt.ArrayLike,
-    rul_cap: int,
-) -> npt.NDArray[np.float64]:
-    """Clip raw predictions into the configured RUL range.
-
-    Thin wrapper over :func:`turbofan.workflows.clip_rul_predictions` retained
-    as the module-local clipping helper.
-
-    Args:
-        values: Raw model predictions.
-        rul_cap: Maximum allowed RUL value.
-
-    Returns:
-        Float64 predictions clipped to ``[0, rul_cap]``.
-    """
-    return workflows.clip_rul_predictions(values, max_rul=rul_cap)
-
-
 def _predict_with_clipping(
     estimator: Pipeline,
     rows: pd.DataFrame,

@@ -306,15 +306,3 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
     assert list(predictions["engine_id"]) == [1, 2]
     assert list(predictions["cycle"]) == [3, 2]
     assert list(predictions["prediction"]) == [2.0, 4.0]
-
-
-def test_clip_rul_predictions_bounds_values_to_rul_cap(tmp_path: Path) -> None:
-    """Prediction post-processing clips values into the configured RUL range."""
-    module = _load_train_baseline_module()
-
-    clipped = module._clip_rul_predictions(
-        np.array([-5.0, 10.0, 200.0], dtype=np.float64),
-        rul_cap=125,
-    )
-
-    assert clipped.tolist() == [0.0, 10.0, 125.0]
