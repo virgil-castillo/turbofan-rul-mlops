@@ -15,20 +15,15 @@ from turbofan.registry_pyfunc import (
 )
 from turbofan.registry_store import (
     RegisteredModelInfo,
-    latest_version,
     list_registered,
     load,
     load_predictor,
     load_predictor_from_uri,
     model_name,
     model_type_from_name,
-    parse_models_uri,
     promote,
     resolve_uri,
 )
-
-_latest_version = latest_version
-_parse_models_uri = parse_models_uri
 
 __all__ = [
     "GRUFinalWindowModel",
