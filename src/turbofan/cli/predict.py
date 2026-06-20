@@ -12,10 +12,10 @@ import numpy as np
 import pandas as pd
 
 from turbofan import registry, tracking
-from turbofan.inference import service
-from turbofan.inference.predictors import PyfuncPredictor
-from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.models import metrics
+from turbofan.serving import service
+from turbofan.serving.pyfunc_adapter import PyfuncPredictor
+from turbofan.serving.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)

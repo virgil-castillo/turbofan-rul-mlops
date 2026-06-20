@@ -9,8 +9,8 @@ from mlflow.entities.model_registry import ModelVersion
 from mlflow.pyfunc import PyFuncModel
 from mlflow.tracking import MlflowClient
 
-from turbofan.inference.pyfunc_adapter import PyfuncPredictor
-from turbofan.inference.schemas import ModelType
+from turbofan.serving.pyfunc_adapter import PyfuncPredictor
+from turbofan.serving.schemas import ModelType
 
 _VAL_RMSE_METRIC = "val_rmse"
 

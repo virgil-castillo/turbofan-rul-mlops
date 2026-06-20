@@ -1,4 +1,4 @@
-"""Tests for turbofan.inference.schemas."""
+"""Tests for turbofan.serving.schemas."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import math
 import pandas as pd
 import pytest
 
-from turbofan.inference.schemas import (
+from turbofan.serving.schemas import (
     CANONICAL_COLUMNS,
     FEATURE_COLUMNS,
     PredictionMetadata,

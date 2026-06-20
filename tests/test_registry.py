@@ -13,9 +13,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
-from turbofan.inference.schemas import FEATURE_COLUMNS
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
+from turbofan.serving.schemas import FEATURE_COLUMNS
 
 
 def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:
@@ -417,9 +417,9 @@ def test_list_registered_reports_none_val_rmse_when_run_lacks_metric() -> None:
 
 def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
     """A logged+loaded Ridge model predicts identically to the shared compute."""
-    from turbofan.inference.predictors import ridge_engine_predictions
-    from turbofan.inference.schemas import validate_raw_records
+    from turbofan.predictions.compute import ridge_engine_predictions
     from turbofan.registry import load, log_and_register, model_name, promote
+    from turbofan.serving.schemas import validate_raw_records
 
     pipeline = _fitted_ridge_pipeline()
     records = _raw_records_df()
@@ -446,9 +446,9 @@ def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
 
 def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
     """A logged+loaded GRU model predicts identically to the shared compute."""
-    from turbofan.inference.predictors import sequence_final_window_predictions
-    from turbofan.inference.schemas import validate_raw_records
+    from turbofan.predictions.compute import sequence_final_window_predictions
     from turbofan.registry import load, log_and_register, model_name, promote
+    from turbofan.serving.schemas import validate_raw_records
 
     window_size = 3
     payload = _gru_payload(window_size=window_size, max_rul=125)

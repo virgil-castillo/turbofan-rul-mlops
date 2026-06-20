@@ -1,4 +1,4 @@
-# `turbofan.inference` Package Modules
+# `turbofan.serving` Package Modules
 
 ```mermaid
 flowchart TD
@@ -9,19 +9,10 @@ flowchart TD
         S4["SchemaValidationError"]
     end
 
-    subgraph prediction_compute_py["prediction_compute.py"]
-        PC1["ridge_engine_predictions()\nscore frame with sklearn pipeline,\nclip to max_rul, keep last cycle/engine"]
-        PC2["sequence_final_window_predictions()\nrebuild GRU/LSTM from checkpoint payload,\nnormalize or run feature_pipeline,\nbuild final window, forward pass, rescale"]
-    end
-
     subgraph pyfunc_adapter_py["pyfunc_adapter.py"]
         PA1["PyfuncPredictor\nadapts a loaded MLflow pyfunc model\nto the predictor contract"]
         PA2["_MODEL_SCOPES\nridge→engine, gru/lstm→final_window"]
         PA3["predict(records, allow_partial)\nvalidate via schemas, call model.predict,\nbuild PredictionRow list"]
-    end
-
-    subgraph predictors_py["predictors.py"]
-        PR1["compatibility re-exports:\nDEFAULT_MAX_RUL, PyfuncPredictor,\nridge_engine_predictions,\nsequence_final_window_predictions"]
     end
 
     subgraph service_py["service.py"]
@@ -35,13 +26,10 @@ flowchart TD
     end
 
     pyfunc_adapter_py -->|"uses validate_raw_records,\ndataclasses, errors"| schemas_py
-    predictors_py -->|"re-exports"| prediction_compute_py
-    predictors_py -->|"re-exports"| pyfunc_adapter_py
     service_py -->|"uses PredictionMetadata,\nPredictionResult, RawRecords,\nSchemaValidationError"| schemas_py
     service_py -->|"resolves PyfuncPredictor via\nturbofan.registry.load_predictor"| pyfunc_adapter_py
     init_py -->|"re-exports"| schemas_py
 
-    note1["Note: ridge/sequence compute in\nprediction_compute.py is invoked from\nwithin the MLflow pyfunc model wrapper\n(turbofan.registry), not directly by\npyfunc_adapter.py — PyfuncPredictor only\ncalls model.predict() on the loaded pyfunc."]
+    note1["Note: the ridge/sequence RUL compute math\nlives in turbofan.predictions.compute and is\ninvoked from within the MLflow pyfunc model\nwrapper (turbofan.registry), not directly by\npyfunc_adapter.py — PyfuncPredictor only\ncalls model.predict() on the loaded pyfunc."]
     pyfunc_adapter_py -.-> note1
-    prediction_compute_py -.-> note1
 ```

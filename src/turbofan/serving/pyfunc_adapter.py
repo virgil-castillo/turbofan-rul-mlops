@@ -1,4 +1,4 @@
-"""Adapter from MLflow pyfunc models to the inference predictor contract."""
+"""Adapter from MLflow pyfunc models to the serving predictor contract."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -6,8 +6,8 @@ from typing import cast
 
 import pandas as pd
 
-from turbofan.inference import schemas
-from turbofan.inference.schemas import (
+from turbofan.serving import schemas
+from turbofan.serving.schemas import (
     CANONICAL_COLUMNS,
     ModelType,
     PredictionMetadata,

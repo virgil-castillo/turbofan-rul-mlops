@@ -1,4 +1,4 @@
-"""Tests for the shared inference compute in turbofan.inference.predictors."""
+"""Tests for the shared RUL compute in turbofan.predictions.compute."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -8,13 +8,13 @@ import pandas as pd
 import pytest
 import torch
 
-from turbofan.inference.predictors import (
+from turbofan.models.sequence_models import build_sequence_model
+from turbofan.predictions.compute import (
     ridge_engine_predictions,
     sequence_final_window_predictions,
 )
-from turbofan.inference.schemas import FEATURE_COLUMNS, validate_raw_records
-from turbofan.models.sequence_models import build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
+from turbofan.serving.schemas import FEATURE_COLUMNS, validate_raw_records
 
 
 def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:

@@ -11,7 +11,7 @@ from typing import Protocol, cast
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from turbofan.inference.schemas import (
+from turbofan.serving.schemas import (
     PredictionMetadata,
     PredictionResult,
     RawRecords,

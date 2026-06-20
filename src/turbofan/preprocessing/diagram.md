@@ -20,5 +20,5 @@ flowchart TD
 
     Consumers["Consumers"]
     Consumers -->|"baseline feature pipeline\n(turbofan.features.pipeline)"| N1
-    Consumers -->|"legacy normalizer-only sequence\ncheckpoints, rebuilt via from_payload()\nin inference.prediction_compute"| N4
+    Consumers -->|"legacy normalizer-only sequence\ncheckpoints, rebuilt via from_payload()\nin predictions.compute"| N4
 ```

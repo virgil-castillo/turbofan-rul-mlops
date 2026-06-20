@@ -1,4 +1,4 @@
-"""Tests for turbofan.inference.service."""
+"""Tests for turbofan.serving.service."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from turbofan.inference.schemas import (
+from turbofan.serving.schemas import (
     FEATURE_COLUMNS,
     PredictionMetadata,
     PredictionResult,
@@ -158,7 +158,7 @@ def _record() -> dict[str, object]:
 
 def test_health_returns_loaded_model_metadata() -> None:
     """Health endpoint reports status and loaded artifact metadata."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     client = TestClient(create_app(predictor=_StaticPredictor()))
 
@@ -177,7 +177,7 @@ def test_health_returns_loaded_model_metadata() -> None:
 
 def test_predict_returns_predictions_and_metadata() -> None:
     """Predict endpoint returns serialized predictions and response metadata."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     predictor = _StaticPredictor()
     client = TestClient(create_app(predictor=predictor))
@@ -221,7 +221,7 @@ def test_predict_returns_predictions_and_metadata() -> None:
 )
 def test_predict_rejects_invalid_request_payload(payload: dict[str, Any]) -> None:
     """Invalid prediction request bodies return HTTP 422 details."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     client = TestClient(create_app(predictor=_StaticPredictor()))
 
@@ -233,7 +233,7 @@ def test_predict_rejects_invalid_request_payload(payload: dict[str, Any]) -> Non
 
 def test_predict_returns_500_for_unexpected_runtime_errors() -> None:
     """Unexpected predictor errors are returned as HTTP 500 responses."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     client = TestClient(create_app(predictor=_FailingPredictor()))
 
@@ -245,7 +245,7 @@ def test_predict_returns_500_for_unexpected_runtime_errors() -> None:
 
 def test_predict_returns_422_for_canonical_schema_validation_errors() -> None:
     """Schema validation failures from predictors return HTTP 422 details."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     client = TestClient(create_app(predictor=_SchemaFailingPredictor()))
 
@@ -257,7 +257,7 @@ def test_predict_returns_422_for_canonical_schema_validation_errors() -> None:
 
 def test_predict_returns_422_for_short_window_validation_errors() -> None:
     """Short-window predictor validation failures return HTTP 422 details."""
-    from turbofan.inference.service import create_app
+    from turbofan.serving.service import create_app
 
     client = TestClient(create_app(predictor=_ShortWindowFailingPredictor()))
 
@@ -271,7 +271,7 @@ def test_create_app_fails_when_no_model_name_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Factory fails clearly when no model name is provided or configured."""
-    from turbofan.inference.service import MODEL_NAME_ENV, create_app
+    from turbofan.serving.service import MODEL_NAME_ENV, create_app
 
     monkeypatch.delenv(MODEL_NAME_ENV, raising=False)
 
@@ -283,7 +283,7 @@ def test_create_app_fails_for_unresolvable_model_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Factory fails when the configured model name cannot be resolved."""
-    from turbofan.inference.service import MODEL_NAME_ENV, create_app
+    from turbofan.serving.service import MODEL_NAME_ENV, create_app
 
     monkeypatch.delenv(MODEL_NAME_ENV, raising=False)
 

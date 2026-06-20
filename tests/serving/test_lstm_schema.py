@@ -1,14 +1,14 @@
-"""Tests for LSTM membership in the inference ModelType contract."""
+"""Tests for LSTM membership in the serving ModelType contract."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import get_args
 
-from turbofan.inference.schemas import ModelType, PredictionRow
+from turbofan.serving.schemas import ModelType, PredictionRow
 
 
 def test_model_type_includes_lstm() -> None:
-    """The inference ModelType literal admits ``lstm`` alongside ridge/gru."""
+    """The serving ModelType literal admits ``lstm`` alongside ridge/gru."""
     assert set(get_args(ModelType)) == {"ridge", "gru", "lstm"}
 
 

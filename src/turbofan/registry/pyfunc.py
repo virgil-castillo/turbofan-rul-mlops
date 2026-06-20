@@ -15,9 +15,10 @@ import torch
 from mlflow.models import ModelSignature, infer_signature
 from mlflow.pyfunc.model import PythonModel, PythonModelContext
 
-from turbofan.inference import prediction_compute, schemas
-from turbofan.inference.schemas import CANONICAL_COLUMNS
+from turbofan.predictions import compute
 from turbofan.registry import store
+from turbofan.serving import schemas
+from turbofan.serving.schemas import CANONICAL_COLUMNS
 
 _RIDGE_ARTIFACT_KEY = "pipeline"
 _SEQUENCE_ARTIFACT_KEY = "checkpoint"
@@ -92,7 +93,7 @@ class RidgeEngineModel(PythonModel):
         """
         del context, params
         validation = schemas.validate_raw_records(model_input)
-        metadata, predictions = prediction_compute.ridge_engine_predictions(
+        metadata, predictions = compute.ridge_engine_predictions(
             self._pipeline, validation.records
         )
         return _prediction_frame(metadata, predictions)
@@ -134,7 +135,7 @@ class SequenceFinalWindowModel(PythonModel):
         """
         del context, params
         validation = schemas.validate_raw_records(model_input)
-        metadata, predictions = prediction_compute.sequence_final_window_predictions(
+        metadata, predictions = compute.sequence_final_window_predictions(
             self._payload, validation.records
         )
         return _prediction_frame(metadata, predictions)

@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from turbofan.inference.schemas import FEATURE_COLUMNS
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
+from turbofan.serving.schemas import FEATURE_COLUMNS
 
 
 def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:
@@ -151,9 +151,9 @@ def test_sequence_wrapper_is_shared_for_lstm() -> None:
 
 def test_lstm_wrapper_roundtrip_matches_in_process_predictor() -> None:
     """A logged+loaded LSTM model predicts identically to the shared compute."""
-    from turbofan.inference.predictors import sequence_final_window_predictions
-    from turbofan.inference.schemas import validate_raw_records
+    from turbofan.predictions.compute import sequence_final_window_predictions
     from turbofan.registry import load, log_and_register, model_name, promote
+    from turbofan.serving.schemas import validate_raw_records
 
     window_size = 3
     payload = _lstm_payload(window_size=window_size, max_rul=125)

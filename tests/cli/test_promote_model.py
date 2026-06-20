@@ -11,7 +11,7 @@ from sklearn.pipeline import Pipeline
 
 from turbofan import registry
 from turbofan.cli import promote_model
-from turbofan.inference.schemas import FEATURE_COLUMNS
+from turbofan.serving.schemas import FEATURE_COLUMNS
 
 
 def _fitted_ridge_pipeline() -> Pipeline:

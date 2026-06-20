@@ -12,8 +12,8 @@ flowchart TD
     end
 
     subgraph pyfunc_py["pyfunc.py"]
-        P1["RidgeEngineModel(PythonModel)\nload_context: joblib.load fitted pipeline\npredict: validate_raw_records ->\nprediction_compute.ridge_engine_predictions"]
-        P2["SequenceFinalWindowModel(PythonModel)\nload_context: torch.load checkpoint payload\npredict: validate_raw_records ->\nprediction_compute.sequence_final_window_predictions"]
+        P1["RidgeEngineModel(PythonModel)\nload_context: joblib.load fitted pipeline\npredict: validate_raw_records ->\ncompute.ridge_engine_predictions"]
+        P2["SequenceFinalWindowModel(PythonModel)\nload_context: torch.load checkpoint payload\npredict: validate_raw_records ->\ncompute.sequence_final_window_predictions"]
         P4["log_and_register()\nlog a fitted pipeline/checkpoint as a pyfunc\nmodel + register a new version, branches on\nmodel_type (ridge vs gru/lstm)"]
         P5["_signature() / _sample_input()\ninfer the canonical input/output\nMLflow ModelSignature"]
     end
@@ -22,11 +22,11 @@ flowchart TD
         IN1["Compatibility facade\nre-exports store.py + pyfunc.py under the\nhistorical turbofan.registry import path"]
     end
 
-    P1 -->|"engine-scope predictions via"| ComputeNote["turbofan.inference.prediction_compute"]
+    P1 -->|"engine-scope predictions via"| ComputeNote["turbofan.predictions.compute"]
     P2 -->|"final-window predictions via"| ComputeNote
     P4 -->|"calls"| S1
     P4 -->|"calls"| S4
-    S2 -->|"wraps loaded pyfunc model in"| PyfuncPredictorNote["turbofan.inference.pyfunc_adapter.PyfuncPredictor"]
+    S2 -->|"wraps loaded pyfunc model in"| PyfuncPredictorNote["turbofan.serving.pyfunc_adapter.PyfuncPredictor"]
     init_py -->|"re-exports"| store_py
     init_py -->|"re-exports"| pyfunc_py
 ```

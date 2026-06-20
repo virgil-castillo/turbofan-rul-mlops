@@ -116,4 +116,4 @@ flowchart TD
 | Sequence | `sequences/windowing.py`, `models/sequence_*` | Sliding windows → loaders → GRU/LSTM `SequenceRULRegressor`. |
 | Evaluation | `models/evaluate.py`, `models/metrics.py` | Validation RMSE/MAE; official-test RMSE/MAE/PHM08 at final cycle. |
 | Tracking/Registry | `tracking.py`, `registry/` | Log to MLflow; register and promote model versions by alias. |
-| Inference | `inference/*`, `cli/predict.py`, `cli/serve_api.py` | Resolve model by name/alias; batch CSV or FastAPI `/predict`. |
+| Inference | `predictions/*`, `serving/*`, `cli/predict.py`, `cli/serve_api.py` | Resolve model by name/alias; batch CSV or FastAPI `/predict`. |

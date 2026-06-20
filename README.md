@@ -153,10 +153,11 @@ src/turbofan/
   eda/                                # EDA utilities
   experiments/                        # Sweep and screen harnesses
   features/                           # Preprocessing and feature engineering
-  inference/                          # Prediction, schemas, service layer
   models/                             # Baseline, sequence models, metrics
+  predictions/                        # Pure RUL compute from trained models
   preprocessing/                      # Normalization components
   sequences/                          # Windowing, datasets, feature selection
+  serving/                            # Schemas, FastAPI service, pyfunc adapter
   utils/                              # Shared utilities
 tests/                                # Unit and smoke tests
 ```
