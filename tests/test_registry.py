@@ -445,7 +445,7 @@ def test_ridge_wrapper_roundtrip_matches_in_process_predictor() -> None:
 
 def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
     """A logged+loaded GRU model predicts identically to the shared compute."""
-    from turbofan.inference.predictors import gru_final_window_predictions
+    from turbofan.inference.predictors import sequence_final_window_predictions
     from turbofan.inference.schemas import validate_raw_records
     from turbofan.registry import load, log_and_register, model_name, promote
 
@@ -468,7 +468,9 @@ def test_gru_wrapper_roundtrip_matches_in_process_predictor() -> None:
     output = loaded.predict(records)
 
     validated = validate_raw_records(records)
-    expected_meta, expected = gru_final_window_predictions(payload, validated.records)
+    expected_meta, expected = sequence_final_window_predictions(
+        payload, validated.records
+    )
 
     assert list(output.columns) == ["engine_id", "cycle", "prediction"]
     roundtrip = output["prediction"].to_numpy(dtype=np.float64)

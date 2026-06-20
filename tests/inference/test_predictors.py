@@ -9,8 +9,8 @@ import pytest
 import torch
 
 from turbofan.inference.predictors import (
-    gru_final_window_predictions,
     ridge_engine_predictions,
+    sequence_final_window_predictions,
 )
 from turbofan.inference.schemas import FEATURE_COLUMNS, validate_raw_records
 from turbofan.models.gru import GRURULRegressor
@@ -207,7 +207,7 @@ def test_ridge_engine_predictions_caps_at_max_rul() -> None:
     assert np.allclose(custom_capped, [80.0, 80.0])
 
 
-def test_gru_final_window_predictions_one_per_eligible_engine() -> None:
+def test_sequence_final_window_gru_one_per_eligible_engine() -> None:
     """GRU compute returns one final-window prediction per eligible engine."""
     payload = _gru_payload(window_size=3, bias=-2.0)
     records = pd.DataFrame(
@@ -218,7 +218,9 @@ def test_gru_final_window_predictions_one_per_eligible_engine() -> None:
     )
     validated = validate_raw_records(records)
 
-    metadata, predictions = gru_final_window_predictions(payload, validated.records)
+    metadata, predictions = sequence_final_window_predictions(
+        payload, validated.records
+    )
 
     assert metadata["engine_id"].tolist() == [1, 2]
     assert metadata["cycle"].tolist() == [3, 4]
@@ -226,7 +228,7 @@ def test_gru_final_window_predictions_one_per_eligible_engine() -> None:
     assert np.allclose(predictions, [0.0, 0.0])
 
 
-def test_gru_final_window_predictions_rescales_output_by_max_rul() -> None:
+def test_sequence_final_window_gru_rescales_output_by_max_rul() -> None:
     """GRU compute multiplies raw model output by max_rul before clipping."""
     # Zero weights with a +0.12 regressor bias yield a constant raw output of
     # 0.12; rescaling by max_rul=125 gives 15.0, distinguishable from the
@@ -235,30 +237,30 @@ def test_gru_final_window_predictions_rescales_output_by_max_rul() -> None:
     records = pd.DataFrame(_records_for_engine(1, 3, feature_value=0.0))
     validated = validate_raw_records(records)
 
-    _, predictions = gru_final_window_predictions(payload, validated.records)
+    _, predictions = sequence_final_window_predictions(payload, validated.records)
 
     assert len(predictions) == 1
     assert 10.0 < predictions[0] < 20.0
 
 
-def test_gru_final_window_predictions_rejects_missing_max_rul() -> None:
+def test_sequence_final_window_gru_rejects_missing_max_rul() -> None:
     """GRU compute fails when the checkpoint payload omits max_rul."""
     payload = _gru_payload(include_max_rul=False)
     records = pd.DataFrame(_records_for_engine(1, 3))
     validated = validate_raw_records(records)
 
     with pytest.raises(KeyError):
-        gru_final_window_predictions(payload, validated.records)
+        sequence_final_window_predictions(payload, validated.records)
 
 
-def test_gru_final_window_predictions_torch_is_deterministic() -> None:
+def test_sequence_final_window_gru_torch_is_deterministic() -> None:
     """Repeated GRU compute on identical payload/input is bit-for-bit stable."""
     torch.manual_seed(0)
     payload = _gru_payload(window_size=3)
     records = pd.DataFrame(_records_for_engine(1, 4, feature_value=1.0))
     validated = validate_raw_records(records)
 
-    _, first = gru_final_window_predictions(payload, validated.records)
-    _, second = gru_final_window_predictions(payload, validated.records)
+    _, first = sequence_final_window_predictions(payload, validated.records)
+    _, second = sequence_final_window_predictions(payload, validated.records)
 
     assert np.allclose(first, second)
