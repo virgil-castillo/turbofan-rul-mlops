@@ -6,17 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from turbofan import workflows
+from turbofan.config import schema
 from turbofan.config.schema import (
     DeviceRequest,
     FDSubset,
     ModelName,
     ProjectConfig,
     SequenceArchitecture,
-    load_config,
 )
-from turbofan.models.evaluate import split_features_target
-from turbofan.models.metrics import official_test_metrics, regression_metrics
-from turbofan.models.sequence_training import resolve_device
+from turbofan.models import evaluate, metrics, sequence_training
 
 SUBSETS: tuple[FDSubset, ...] = ("FD001", "FD002", "FD003", "FD004")
 SEQUENCE_MODELS: tuple[SequenceArchitecture, ...] = ("gru", "lstm")
@@ -136,7 +134,7 @@ def run_job(job: Job, *, device: DeviceRequest) -> RunRecord:
     Returns:
         The populated run record.
     """
-    cfg = load_config(job.config_path)
+    cfg = schema.load_config(job.config_path)
     if job.model == "ridge":
         return _evaluate_ridge(cfg, job)
     return _evaluate_sequence(cfg, job, device=device)
@@ -219,8 +217,8 @@ def _evaluate_ridge(cfg: ProjectConfig, job: Job) -> RunRecord:
         test_size=cfg.data.test_size,
         split_seed=job.seed,
     )
-    x_train, y_train = split_features_target(frames.train)
-    x_val, y_val = split_features_target(frames.val)
+    x_train, y_train = evaluate.split_features_target(frames.train)
+    x_val, y_val = evaluate.split_features_target(frames.val)
 
     rf = cfg.features.for_model("ridge")
     estimator = workflows.build_ridge_estimator(cfg, seed=job.seed)
@@ -229,11 +227,11 @@ def _evaluate_ridge(cfg: ProjectConfig, job: Job) -> RunRecord:
     val_pred = workflows.predict_with_clipping(
         estimator, x_val, max_rul=max_rul, label="validation"
     )
-    val_metrics = regression_metrics(y_val, val_pred)
+    val_metrics = metrics.regression_metrics(y_val, val_pred)
     official = workflows.predict_ridge_official(
         cfg.data, estimator=estimator, max_rul=max_rul
     )
-    official_metrics = official_test_metrics(official.y_true, official.y_pred)
+    official_metrics = metrics.official_test_metrics(official.y_true, official.y_pred)
     return _build_record(
         job,
         feature_families=rf.feature_families,
@@ -251,7 +249,7 @@ def _evaluate_sequence(
     cfg: ProjectConfig, job: Job, *, device: DeviceRequest
 ) -> RunRecord:
     """Train a sequence model and evaluate it on the official test set."""
-    dev = resolve_device(device)
+    dev = sequence_training.resolve_device(device)
     max_rul = cfg.data.max_rul
     sf = cfg.features.for_model(cfg.sequence.architecture)
 
@@ -293,7 +291,7 @@ def _evaluate_sequence(
         batch_size=cfg.sequence.batch_size,
         max_rul=max_rul,
     )
-    official_metrics = official_test_metrics(official.y_true, official.y_pred)
+    official_metrics = metrics.official_test_metrics(official.y_true, official.y_pred)
     return _build_record(
         job,
         feature_families=sf.feature_families,
