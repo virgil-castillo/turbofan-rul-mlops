@@ -1,14 +1,21 @@
 """Evaluation helpers for baseline RUL models."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from sklearn.pipeline import Pipeline
 
+from turbofan.config.schema import DataConfig
 from turbofan.data import labels
+from turbofan.data import loader as data_loader
 from turbofan.models import metrics
+from turbofan.utils import logging as turbofan_logging
+
+logger = turbofan_logging.get_logger(__name__)
 
 
 class Predictor(Protocol):
@@ -120,4 +127,99 @@ def align_official_test_labels(
         rul_labels.to_numpy(dtype=np.float64),
         index=last_cycle_df.index,
         name="rul",
+    )
+
+
+def clip_rul_predictions(
+    values: npt.ArrayLike,
+    max_rul: int,
+) -> npt.NDArray[np.float64]:
+    """Clip raw predictions into ``[0, max_rul]`` as float64.
+
+    Args:
+        values: Raw model predictions.
+        max_rul: Maximum allowed RUL value.
+
+    Returns:
+        Float64 predictions clipped to ``[0, max_rul]``.
+    """
+    return np.clip(np.asarray(values, dtype=np.float64), 0.0, float(max_rul))
+
+
+def predict_with_clipping(
+    estimator: Pipeline,
+    rows: pd.DataFrame,
+    *,
+    max_rul: int,
+    label: str,
+) -> npt.NDArray[np.float64]:
+    """Predict rows, log the raw prediction range, and clip to valid RUL bounds.
+
+    Args:
+        estimator: Fitted sklearn estimator.
+        rows: Feature rows to predict.
+        max_rul: Maximum allowed RUL value.
+        label: Human-readable prediction-set label for the debug log line.
+
+    Returns:
+        Float64 predictions clipped to ``[0, max_rul]``.
+    """
+    raw = np.asarray(estimator.predict(rows), dtype=np.float64)
+    logger.debug(
+        "%s raw prediction min/max: %.6f/%.6f", label, raw.min(), raw.max()
+    )
+    return clip_rul_predictions(raw, max_rul=max_rul)
+
+
+@dataclass(frozen=True)
+class OfficialRidgePredictions:
+    """Aligned official-test predictions for a Ridge model.
+
+    Args:
+        last_rows: One final-cycle row per test engine.
+        y_true: Official RUL labels aligned to ``last_rows``.
+        y_pred: Final-cycle predicted RUL values, clipped to ``[0, max_rul]``.
+    """
+
+    last_rows: pd.DataFrame
+    y_true: pd.Series
+    y_pred: npt.NDArray[np.float64]
+
+
+def predict_ridge_official(
+    data_cfg: DataConfig,
+    *,
+    estimator: Pipeline,
+    max_rul: int,
+) -> OfficialRidgePredictions:
+    """Evaluate a fitted Ridge estimator on the official C-MAPSS test set.
+
+    Predicts over each engine's full trajectory (so rolling/lag features keep
+    their context), clips to ``[0, max_rul]``, then selects the final cycle per
+    engine to compare against the official labels.
+
+    Args:
+        data_cfg: Data layer config locating the official test files.
+        estimator: Fitted Ridge pipeline.
+        max_rul: Maximum-RUL ceiling for clipping predictions.
+
+    Returns:
+        The final-cycle rows with aligned labels and clipped predictions.
+
+    Raises:
+        FileNotFoundError: If the official test or RUL files are missing.
+    """
+    test_raw = data_loader.load_raw_test(data_cfg)
+    rul_labels = data_loader.load_rul_labels(data_cfg)
+    last_rows = select_last_cycle_per_engine(test_raw)
+    y_true = align_official_test_labels(last_rows, rul_labels)
+    all_pred = predict_with_clipping(
+        estimator, test_raw, max_rul=max_rul, label="official_test"
+    )
+    pred_rows = test_raw[["engine_id", "cycle"]].copy()
+    pred_rows["prediction"] = all_pred
+    last_pred = select_last_cycle_per_engine(pred_rows)
+    y_pred = last_pred["prediction"].to_numpy(dtype=np.float64)
+    return OfficialRidgePredictions(
+        last_rows=last_rows, y_true=y_true, y_pred=y_pred
     )

@@ -1,20 +1,20 @@
-"""Shared train/evaluate workflow steps.
+"""Shared sequence-model train/evaluate pipeline steps.
 
-This module hosts the train/evaluate building blocks that were previously
-duplicated across the production training CLIs
-(:mod:`turbofan.cli.train_sequence`, :mod:`turbofan.cli.train_baseline`), the
-official-evaluation sweep (:mod:`turbofan.cli.regenerate_official_baselines`), and the
-experiment harness (:mod:`turbofan.experiments.feature_family_screen`). Sharing
-them keeps production training, official evaluation, and experiment sweeps from
-drifting apart.
+This module hosts the prepare/train/evaluate building blocks for sequence
+(GRU/LSTM) models that were previously duplicated across the production
+training CLI (:mod:`turbofan.cli.train_sequence`), the official-evaluation
+sweep (:mod:`turbofan.evaluation.official_jobs`), and the experiment harness
+(:mod:`turbofan.experiments.feature_family_screen`). Sharing them keeps
+production training, official evaluation, and experiment sweeps from drifting
+apart.
 
 Seed discipline is explicit: ``data_seed`` governs the engine train/val split
 *and* the feature-pipeline ``random_state`` (the data-distribution seed), while
 the model-initialisation/training seed is passed separately to
 :func:`train_prepared_sequence`. The two coincide for production training but
-diverge in the official-eval and screen sweeps, where the data seed is pinned to
-42 and only the model seed varies. The low-level helpers are imported at module
-scope so tests can monkeypatch them on this module.
+diverge in the official-eval and screen sweeps, where the data seed is pinned
+to 42 and only the model seed varies. The low-level helpers are imported at
+module scope so tests can monkeypatch them on this module.
 """
 from __future__ import annotations
 
@@ -27,17 +27,10 @@ import torch
 from sklearn.pipeline import Pipeline
 from torch import nn
 
-from turbofan.config.schema import (
-    DataConfig,
-    FeatureFamilyName,
-    ProjectConfig,
-    SequenceConfig,
-)
+from turbofan.config.schema import DataConfig, FeatureFamilyName, SequenceConfig
 from turbofan.data import loader as data_loader
 from turbofan.features import pipeline as feature_pipeline
 from turbofan.models import (
-    baseline,
-    evaluate,
     metrics,
     sequence_models,
     sequence_training,
@@ -47,52 +40,10 @@ from turbofan.models import (
 from turbofan.models.sequence_training import SequenceLoader, TrainingResult
 from turbofan.sequences import dataset, windowing
 from turbofan.sequences.windowing import WindowedSequences
-from turbofan.utils import logging as turbofan_logging
-
-logger = turbofan_logging.get_logger(__name__)
 
 #: Identifier columns carried alongside engineered features so windowing can
 #: group per engine and read final-cycle targets.
 _ID_COLS: list[str] = ["engine_id", "cycle", "rul"]
-
-
-@dataclass(frozen=True)
-class SplitFrames:
-    """A labeled train/validation engine split.
-
-    Args:
-        train: Training rows with a computed ``rul`` column.
-        val: Validation rows with a computed ``rul`` column.
-    """
-
-    train: pd.DataFrame
-    val: pd.DataFrame
-
-
-def load_and_split(
-    data_cfg: DataConfig,
-    *,
-    max_rul: int,
-    test_size: float,
-    split_seed: int,
-) -> SplitFrames:
-    """Load raw training data, add RUL labels, and split by engine.
-
-    Args:
-        data_cfg: Data layer config locating the raw training files.
-        max_rul: Maximum-RUL cap for the piecewise-linear labels.
-        test_size: Fraction of engines held out for validation.
-        split_seed: Random seed for the engine train/val split.
-
-    Returns:
-        The labeled train/validation split.
-    """
-    train_raw = data_loader.load_raw_train(data_cfg)
-    train_labeled = evaluate.add_rul_column(train_raw, max_rul=max_rul)
-    train_df, val_df = split.split_by_engine(
-        train_labeled, test_size=test_size, random_seed=split_seed
-    )
-    return SplitFrames(train=train_df, val=val_df)
 
 
 @dataclass(frozen=True)
@@ -152,7 +103,7 @@ def prepare_sequence_data(
     Returns:
         The fitted pipeline and windowed train/validation data and loaders.
     """
-    frames = load_and_split(
+    frames = split.load_and_split(
         data_cfg, max_rul=max_rul, test_size=test_size, split_seed=data_seed
     )
     pipeline = feature_pipeline.build_feature_pipeline(
@@ -347,124 +298,6 @@ def predict_sequence_official(
     )
     return OfficialSequencePredictions(
         windows=test_windows, y_true=y_true, y_pred=y_pred
-    )
-
-
-def clip_rul_predictions(
-    values: npt.ArrayLike,
-    max_rul: int,
-) -> npt.NDArray[np.float64]:
-    """Clip raw predictions into ``[0, max_rul]`` as float64.
-
-    Args:
-        values: Raw model predictions.
-        max_rul: Maximum allowed RUL value.
-
-    Returns:
-        Float64 predictions clipped to ``[0, max_rul]``.
-    """
-    return np.clip(np.asarray(values, dtype=np.float64), 0.0, float(max_rul))
-
-
-def predict_with_clipping(
-    estimator: Pipeline,
-    rows: pd.DataFrame,
-    *,
-    max_rul: int,
-    label: str,
-) -> npt.NDArray[np.float64]:
-    """Predict rows, log the raw prediction range, and clip to valid RUL bounds.
-
-    Args:
-        estimator: Fitted sklearn estimator.
-        rows: Feature rows to predict.
-        max_rul: Maximum allowed RUL value.
-        label: Human-readable prediction-set label for the debug log line.
-
-    Returns:
-        Float64 predictions clipped to ``[0, max_rul]``.
-    """
-    raw = np.asarray(estimator.predict(rows), dtype=np.float64)
-    logger.debug(
-        "%s raw prediction min/max: %.6f/%.6f", label, raw.min(), raw.max()
-    )
-    return clip_rul_predictions(raw, max_rul=max_rul)
-
-
-def build_ridge_estimator(cfg: ProjectConfig, *, seed: int) -> Pipeline:
-    """Build the unfitted Ridge feature-plus-model pipeline for a config.
-
-    Args:
-        cfg: Loaded project config (model + feature settings).
-        seed: KMeans-normalizer ``random_state`` for the pipeline.
-
-    Returns:
-        The unfitted Ridge sklearn pipeline.
-    """
-    rf = cfg.features.for_model("ridge")
-    return baseline.build_baseline_pipeline(
-        model_name=cfg.model.name,
-        alpha=cfg.model.alpha,
-        feature_families=rf.feature_families,
-        windows=rf.windows,
-        lag_steps=rf.lag_steps,
-        sensor_drop=cfg.features.sensor_cols_to_drop or None,
-        n_modes=cfg.features.n_modes,
-        random_state=seed,
-    )
-
-
-@dataclass(frozen=True)
-class OfficialRidgePredictions:
-    """Aligned official-test predictions for a Ridge model.
-
-    Args:
-        last_rows: One final-cycle row per test engine.
-        y_true: Official RUL labels aligned to ``last_rows``.
-        y_pred: Final-cycle predicted RUL values, clipped to ``[0, max_rul]``.
-    """
-
-    last_rows: pd.DataFrame
-    y_true: pd.Series
-    y_pred: npt.NDArray[np.float64]
-
-
-def predict_ridge_official(
-    data_cfg: DataConfig,
-    *,
-    estimator: Pipeline,
-    max_rul: int,
-) -> OfficialRidgePredictions:
-    """Evaluate a fitted Ridge estimator on the official C-MAPSS test set.
-
-    Predicts over each engine's full trajectory (so rolling/lag features keep
-    their context), clips to ``[0, max_rul]``, then selects the final cycle per
-    engine to compare against the official labels.
-
-    Args:
-        data_cfg: Data layer config locating the official test files.
-        estimator: Fitted Ridge pipeline.
-        max_rul: Maximum-RUL ceiling for clipping predictions.
-
-    Returns:
-        The final-cycle rows with aligned labels and clipped predictions.
-
-    Raises:
-        FileNotFoundError: If the official test or RUL files are missing.
-    """
-    test_raw = data_loader.load_raw_test(data_cfg)
-    rul_labels = data_loader.load_rul_labels(data_cfg)
-    last_rows = evaluate.select_last_cycle_per_engine(test_raw)
-    y_true = evaluate.align_official_test_labels(last_rows, rul_labels)
-    all_pred = predict_with_clipping(
-        estimator, test_raw, max_rul=max_rul, label="official_test"
-    )
-    pred_rows = test_raw[["engine_id", "cycle"]].copy()
-    pred_rows["prediction"] = all_pred
-    last_pred = evaluate.select_last_cycle_per_engine(pred_rows)
-    y_pred = last_pred["prediction"].to_numpy(dtype=np.float64)
-    return OfficialRidgePredictions(
-        last_rows=last_rows, y_true=y_true, y_pred=y_pred
     )
 
 

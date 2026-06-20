@@ -11,7 +11,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
 
-from turbofan import workflows
 from turbofan.config import schema
 from turbofan.config.schema import (
     DataConfig,
@@ -31,7 +30,7 @@ from turbofan.experiments.feature_family_results import (
     completed_keys,
     csv_path,
 )
-from turbofan.models import sequence_training
+from turbofan.models import sequence_pipeline, sequence_training
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
@@ -150,7 +149,7 @@ def run_cell(
         [cell.lag_step] if cell.lag_step is not None else None
     )
 
-    prepared = workflows.prepare_sequence_data(
+    prepared = sequence_pipeline.prepare_sequence_data(
         data_cfg,
         feature_families=cell.feature_families,
         windows=windows,
@@ -165,7 +164,7 @@ def run_cell(
     )
 
     started = perf_counter()
-    result = workflows.train_prepared_sequence(
+    result = sequence_pipeline.train_prepared_sequence(
         prepared,
         seq_cfg,
         device=dev,

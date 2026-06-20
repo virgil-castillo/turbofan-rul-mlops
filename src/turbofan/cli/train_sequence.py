@@ -5,10 +5,10 @@ model is constructed through the sequence registry and registered under its
 per-architecture registered-model name (``turbofan-<arch>-<subset>``).
 
 Data preparation, model construction/training, and official-test evaluation are
-delegated to :mod:`turbofan.workflows`, shared with the official-eval sweep and
-the feature-family screen so the three cannot drift apart. The split and feature
-pipeline use ``cfg.data.random_seed`` as the data seed and model
-initialisation/training reuse the same seed.
+delegated to :mod:`turbofan.models.sequence_pipeline`, shared with the
+official-eval sweep and the feature-family screen so the three cannot drift
+apart. The split and feature pipeline use ``cfg.data.random_seed`` as the data
+seed and model initialisation/training reuse the same seed.
 """
 from __future__ import annotations
 
@@ -28,10 +28,10 @@ import torch
 from sklearn.pipeline import Pipeline
 from torch import nn
 
-from turbofan import registry, tracking, workflows
+from turbofan import registry, tracking
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import artifacts, metrics, sequence_training
+from turbofan.models import artifacts, metrics, sequence_pipeline, sequence_training
 from turbofan.models.sequence_training import SequenceLoader
 from turbofan.sequences.windowing import WindowedSequences
 from turbofan.utils import logging as turbofan_logging
@@ -123,7 +123,7 @@ def _evaluate_windows(
     Returns:
         Metrics and prediction artifact rows.
     """
-    metrics, y_true, y_pred = workflows.evaluate_window_metrics(
+    metrics, y_true, y_pred = sequence_pipeline.evaluate_window_metrics(
         model, loader, windows, device=device, max_rul=max_rul
     )
     return metrics, _prediction_frame(windows, y_true, y_pred)
@@ -149,7 +149,7 @@ def _evaluate_official_test(
         Metrics and prediction rows, or None when official files are missing.
     """
     try:
-        official = workflows.predict_sequence_official(
+        official = sequence_pipeline.predict_sequence_official(
             cfg.data,
             pipeline=pipeline,
             feature_cols=feature_cols,
@@ -227,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         with turbofan_logging.run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
             sf = cfg.features.for_model(architecture)
-            prepared = workflows.prepare_sequence_data(
+            prepared = sequence_pipeline.prepare_sequence_data(
                 cfg.data,
                 feature_families=sf.feature_families,
                 windows=sf.windows,
@@ -246,7 +246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "training %s for up to %d epochs", architecture, cfg.sequence.epochs
             )
             training_started = perf_counter()
-            result = workflows.train_prepared_sequence(
+            result = sequence_pipeline.train_prepared_sequence(
                 prepared,
                 cfg.sequence,
                 device=device,

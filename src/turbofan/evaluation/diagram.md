@@ -2,7 +2,8 @@
 
 `evaluation/` regenerates the official C-MAPSS benchmark CSVs. `official_jobs.py`
 enumerates and runs train+evaluate jobs (delegating the actual train/evaluate
-work to [`turbofan.workflows`](../../../docs/workflows_usage_diagram.md));
+work to the shared pipeline modules documented in
+[the shared train/evaluate pipeline diagram](../../../docs/workflows_usage_diagram.md));
 `official_results.py` persists `RunRecord`s to CSV and aggregates them into the
 summary frame. The only external entrypoint is the
 `regenerate_official_baselines` CLI.
@@ -28,7 +29,7 @@ flowchart TD
         BR --> JL
     end
 
-    subgraph WF["turbofan.workflows"]
+    subgraph WF["turbofan.models (split / baseline / evaluate / sequence_pipeline)"]
         LAS["load_and_split /<br/>build_ridge_estimator /<br/>predict_with_clipping /<br/>predict_ridge_official"]
         SEQ["prepare_sequence_data /<br/>train_prepared_sequence /<br/>evaluate_window_metrics /<br/>predict_sequence_official"]
     end

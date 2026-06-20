@@ -1,29 +1,41 @@
-# Workflows Module Usage
+# Shared Train/Evaluate Pipeline Usage
 
-`turbofan/workflows.py` hosts the shared train/evaluate building blocks
-(load+split, feature-pipeline fitting, sequence window/loader prep, model
-training, and official-test prediction for both Ridge and sequence models).
-Three production/experiment call sites import it to avoid duplicating this
+The shared train/evaluate building blocks (load+split, feature-pipeline
+fitting, sequence window/loader prep, model training, and official-test
+prediction for both Ridge and sequence models) live across
+`turbofan/models/split.py`, `turbofan/models/baseline.py`,
+`turbofan/models/evaluate.py`, and `turbofan/models/sequence_pipeline.py`.
+Three production/experiment call sites import them to avoid duplicating this
 logic: the production training CLIs, the official-evaluation sweep, and the
 experiment harness.
 
 ```mermaid
 flowchart TD
-    subgraph WF["turbofan/workflows.py"]
+    subgraph SPLIT["turbofan/models/split.py"]
         LAS["load_and_split"]
+    end
+
+    subgraph BASE["turbofan/models/baseline.py"]
         BRE["build_ridge_estimator"]
+    end
+
+    subgraph EVAL["turbofan/models/evaluate.py"]
         PWC["predict_with_clipping"]
         PRO["predict_ridge_official"]
+        CRP["clip_rul_predictions"]
+        PWC -.->|uses| CRP
+        PRO -.->|uses| CRP
+    end
+
+    subgraph SEQ["turbofan/models/sequence_pipeline.py"]
         PSD["prepare_sequence_data"]
         TPS["train_prepared_sequence"]
         EWM["evaluate_window_metrics"]
         PSO["predict_sequence_official"]
-        CRP["clip_rul_predictions"]
-        LAS --> BRE
-        PWC -.->|uses| CRP
-        PRO -.->|uses| CRP
         PSO -.->|uses| CRP
     end
+
+    LAS --> BRE
 
     subgraph TB["cli/train_baseline.py (production Ridge training)"]
         TBMAIN["main"]
@@ -78,11 +90,13 @@ flowchart TD
   separately into `train_prepared_sequence`. They coincide in production
   training and diverge in the official-eval sweep and screen, where the data
   seed is pinned to 42 and only the model seed varies.
-- **Ridge vs. sequence paths** are independent inside `workflows.py` — Ridge
-  call sites use `load_and_split` / `build_ridge_estimator` /
-  `predict_with_clipping` / `predict_ridge_official`; sequence call sites use
-  `prepare_sequence_data` / `train_prepared_sequence` / `evaluate_window_metrics`
-  / `predict_sequence_official`. `evaluation/official_jobs.py` is the only
-  caller exercising both paths.
+- **Ridge vs. sequence paths** are independent — Ridge call sites use
+  `split.load_and_split` / `baseline.build_ridge_estimator` /
+  `evaluate.predict_with_clipping` / `evaluate.predict_ridge_official`;
+  sequence call sites use `sequence_pipeline.prepare_sequence_data` /
+  `sequence_pipeline.train_prepared_sequence` /
+  `sequence_pipeline.evaluate_window_metrics` /
+  `sequence_pipeline.predict_sequence_official`.
+  `evaluation/official_jobs.py` is the only caller exercising both paths.
 - `cli/train_baseline.py`'s `_predict_with_clipping` is documented as a thin
-  wrapper over `workflows.predict_with_clipping`.
+  wrapper over `turbofan.models.evaluate.predict_with_clipping`.

@@ -1,26 +1,18 @@
-"""Unit tests for the shared train/evaluate workflow steps."""
+"""Unit tests for the shared sequence-model train/evaluate pipeline steps."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import pytest
 import torch
 from sklearn.pipeline import Pipeline
 
-from turbofan import workflows
-from turbofan.config.schema import (
-    DataConfig,
-    ModelConfig,
-    ProjectConfig,
-    SequenceConfig,
-)
+from turbofan.config.schema import DataConfig, SequenceConfig
 from turbofan.features import pipeline as feature_pipeline
 from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models import sequence_training, split
-from turbofan.models.evaluate import split_features_target
+from turbofan.models import sequence_pipeline, sequence_training, split
 from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
 from turbofan.models.sequence_training import TrainingResult
 
@@ -46,7 +38,7 @@ def _tiny_seq_cfg() -> SequenceConfig:
 
 def _prepare(
     data_cfg: DataConfig, *, data_seed: int = 42
-) -> workflows.PreparedSequenceData:
+) -> sequence_pipeline.PreparedSequenceData:
     """Prepare tiny sequence data from the stub FD001 fixture.
 
     Args:
@@ -56,7 +48,7 @@ def _prepare(
     Returns:
         The prepared sequence data.
     """
-    return workflows.prepare_sequence_data(
+    return sequence_pipeline.prepare_sequence_data(
         data_cfg,
         feature_families=["raw"],
         windows=None,
@@ -69,28 +61,6 @@ def _prepare(
         window_size=3,
         batch_size=4,
     )
-
-
-# ---------------------------------------------------------------------------
-# load_and_split
-# ---------------------------------------------------------------------------
-
-
-def test_load_and_split_labels_and_splits_disjoint_engines(
-    data_cfg: DataConfig,
-) -> None:
-    """The split adds RUL labels and partitions engines without overlap."""
-    frames = workflows.load_and_split(
-        data_cfg, max_rul=125, test_size=0.4, split_seed=42
-    )
-
-    assert "rul" in frames.train.columns
-    assert "rul" in frames.val.columns
-    train_engines = set(frames.train["engine_id"])
-    val_engines = set(frames.val["engine_id"])
-    assert train_engines and val_engines
-    assert train_engines.isdisjoint(val_engines)
-    assert frames.train["rul"].max() <= 125
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +91,7 @@ def test_prepare_sequence_data_uses_data_seed_for_split_and_pipeline(
     monkeypatch.setattr(split, "split_by_engine", fake_split)
     monkeypatch.setattr(feature_pipeline, "build_feature_pipeline", fake_pipeline)
 
-    prepared = workflows.prepare_sequence_data(
+    prepared = sequence_pipeline.prepare_sequence_data(
         data_cfg,
         feature_families=["raw"],
         windows=None,
@@ -163,7 +133,7 @@ def test_train_prepared_sequence_seeds_with_model_seed_and_builds_arch(
 
     monkeypatch.setattr(sequence_training, "seed_everything", fake_seed)
 
-    result = workflows.train_prepared_sequence(
+    result = sequence_pipeline.train_prepared_sequence(
         prepared,
         _tiny_seq_cfg(),
         device=torch.device("cpu"),
@@ -187,7 +157,7 @@ def test_predict_sequence_official_returns_finite_aligned_predictions(
 ) -> None:
     """Official sequence eval yields non-negative predictions aligned to labels."""
     prepared = _prepare(data_cfg)
-    result = workflows.train_prepared_sequence(
+    result = sequence_pipeline.train_prepared_sequence(
         prepared,
         _tiny_seq_cfg(),
         device=torch.device("cpu"),
@@ -195,7 +165,7 @@ def test_predict_sequence_official_returns_finite_aligned_predictions(
         max_rul=125,
     )
 
-    official = workflows.predict_sequence_official(
+    official = sequence_pipeline.predict_sequence_official(
         data_cfg,
         pipeline=prepared.pipeline,
         feature_cols=prepared.feature_cols,
@@ -226,7 +196,7 @@ def test_predict_sequence_official_missing_files_raises(tmp_path: Path) -> None:
     )
 
     with pytest.raises(FileNotFoundError):
-        workflows.predict_sequence_official(
+        sequence_pipeline.predict_sequence_official(
             data_cfg,
             pipeline=build_feature_pipeline(),
             feature_cols=["s_1"],
@@ -236,83 +206,3 @@ def test_predict_sequence_official_missing_files_raises(tmp_path: Path) -> None:
             batch_size=4,
             max_rul=125,
         )
-
-
-# ---------------------------------------------------------------------------
-# clip helpers
-# ---------------------------------------------------------------------------
-
-
-def test_clip_rul_predictions_bounds_values() -> None:
-    """Clipping bounds predictions into ``[0, max_rul]`` as float64."""
-    clipped = workflows.clip_rul_predictions(
-        np.array([-5.0, 10.0, 200.0], dtype=np.float64), max_rul=125
-    )
-
-    assert clipped.dtype == np.float64
-    assert clipped.tolist() == [0.0, 10.0, 125.0]
-
-
-def test_predict_with_clipping_clips_estimator_output() -> None:
-    """Predictions are clipped into the RUL range as float64."""
-
-    class _Est:
-        def predict(self, x: pd.DataFrame) -> npt.NDArray[np.float64]:
-            """Return fixed out-of-range predictions.
-
-            Args:
-                x: Ignored feature rows.
-
-            Returns:
-                Predictions spanning below 0 and above the cap.
-            """
-            return np.array([-1.0, 50.0, 999.0], dtype=np.float64)
-
-    out = workflows.predict_with_clipping(
-        _Est(),  # type: ignore[arg-type]
-        pd.DataFrame({"a": [1, 2, 3]}),
-        max_rul=125,
-        label="validation",
-    )
-
-    assert out.dtype == np.float64
-    assert out.tolist() == [0.0, 50.0, 125.0]
-
-
-# ---------------------------------------------------------------------------
-# Ridge helpers
-# ---------------------------------------------------------------------------
-
-
-def test_build_ridge_estimator_honors_alpha_and_seed(data_cfg: DataConfig) -> None:
-    """The Ridge estimator carries the configured alpha and pipeline seed."""
-    cfg = ProjectConfig(
-        project_name="t", data=data_cfg, model=ModelConfig(alpha=37.0)
-    )
-
-    estimator = workflows.build_ridge_estimator(cfg, seed=11)
-
-    assert estimator.named_steps["model"].alpha == 37.0
-    normalizer = estimator.named_steps["features"].named_steps["normalizer"]
-    assert normalizer.random_state == 11
-
-
-def test_predict_ridge_official_caps_predictions(data_cfg: DataConfig) -> None:
-    """Official ridge eval returns one capped prediction per test engine."""
-    cfg = ProjectConfig(
-        project_name="t", data=data_cfg, model=ModelConfig(alpha=1.0)
-    )
-    frames = workflows.load_and_split(
-        data_cfg, max_rul=data_cfg.max_rul, test_size=0.4, split_seed=42
-    )
-    x_train, y_train = split_features_target(frames.train)
-    estimator = workflows.build_ridge_estimator(cfg, seed=42)
-    estimator.fit(x_train, y_train)
-
-    official = workflows.predict_ridge_official(
-        data_cfg, estimator=estimator, max_rul=data_cfg.max_rul
-    )
-
-    assert len(official.y_pred) == len(official.last_rows)
-    assert np.all(official.y_pred >= 0.0)
-    assert np.all(official.y_pred <= data_cfg.max_rul)

@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from turbofan import workflows
 from turbofan.config import schema
 from turbofan.config.schema import (
     DeviceRequest,
@@ -14,7 +13,14 @@ from turbofan.config.schema import (
     ProjectConfig,
     SequenceArchitecture,
 )
-from turbofan.models import evaluate, metrics, sequence_training
+from turbofan.models import (
+    baseline,
+    evaluate,
+    metrics,
+    sequence_pipeline,
+    sequence_training,
+    split,
+)
 
 SUBSETS: tuple[FDSubset, ...] = ("FD001", "FD002", "FD003", "FD004")
 SEQUENCE_MODELS: tuple[SequenceArchitecture, ...] = ("gru", "lstm")
@@ -211,7 +217,7 @@ def job_key(job: Job) -> tuple[str, str, str]:
 def _evaluate_ridge(cfg: ProjectConfig, job: Job) -> RunRecord:
     """Train the Ridge baseline and evaluate it on the official test set."""
     max_rul = cfg.data.max_rul
-    frames = workflows.load_and_split(
+    frames = split.load_and_split(
         cfg.data,
         max_rul=max_rul,
         test_size=cfg.data.test_size,
@@ -221,14 +227,14 @@ def _evaluate_ridge(cfg: ProjectConfig, job: Job) -> RunRecord:
     x_val, y_val = evaluate.split_features_target(frames.val)
 
     rf = cfg.features.for_model("ridge")
-    estimator = workflows.build_ridge_estimator(cfg, seed=job.seed)
+    estimator = baseline.build_ridge_estimator(cfg, seed=job.seed)
     estimator.fit(x_train, y_train)
 
-    val_pred = workflows.predict_with_clipping(
+    val_pred = evaluate.predict_with_clipping(
         estimator, x_val, max_rul=max_rul, label="validation"
     )
     val_metrics = metrics.regression_metrics(y_val, val_pred)
-    official = workflows.predict_ridge_official(
+    official = evaluate.predict_ridge_official(
         cfg.data, estimator=estimator, max_rul=max_rul
     )
     official_metrics = metrics.official_test_metrics(official.y_true, official.y_pred)
@@ -253,7 +259,7 @@ def _evaluate_sequence(
     max_rul = cfg.data.max_rul
     sf = cfg.features.for_model(cfg.sequence.architecture)
 
-    prepared = workflows.prepare_sequence_data(
+    prepared = sequence_pipeline.prepare_sequence_data(
         cfg.data,
         feature_families=sf.feature_families,
         windows=sf.windows,
@@ -266,7 +272,7 @@ def _evaluate_sequence(
         window_size=cfg.sequence.window_size,
         batch_size=cfg.sequence.batch_size,
     )
-    result = workflows.train_prepared_sequence(
+    result = sequence_pipeline.train_prepared_sequence(
         prepared,
         cfg.sequence,
         device=dev,
@@ -274,14 +280,14 @@ def _evaluate_sequence(
         max_rul=max_rul,
     )
 
-    val_metrics, _, _ = workflows.evaluate_window_metrics(
+    val_metrics, _, _ = sequence_pipeline.evaluate_window_metrics(
         result.model,
         prepared.val_loader,
         prepared.val_windows,
         device=dev,
         max_rul=max_rul,
     )
-    official = workflows.predict_sequence_official(
+    official = sequence_pipeline.predict_sequence_official(
         cfg.data,
         pipeline=prepared.pipeline,
         feature_cols=prepared.feature_cols,

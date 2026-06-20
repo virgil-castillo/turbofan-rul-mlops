@@ -6,6 +6,7 @@ from typing import Literal
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
+from turbofan.config.schema import ProjectConfig
 from turbofan.features import pipeline
 from turbofan.features.engineering import FeatureFamily
 
@@ -62,4 +63,27 @@ def build_baseline_pipeline(
             ),
             ("model", Ridge(alpha=alpha)),
         ]
+    )
+
+
+def build_ridge_estimator(cfg: ProjectConfig, *, seed: int) -> Pipeline:
+    """Build the unfitted Ridge feature-plus-model pipeline for a config.
+
+    Args:
+        cfg: Loaded project config (model + feature settings).
+        seed: KMeans-normalizer ``random_state`` for the pipeline.
+
+    Returns:
+        The unfitted Ridge sklearn pipeline.
+    """
+    rf = cfg.features.for_model("ridge")
+    return build_baseline_pipeline(
+        model_name=cfg.model.name,
+        alpha=cfg.model.alpha,
+        feature_families=rf.feature_families,
+        windows=rf.windows,
+        lag_steps=rf.lag_steps,
+        sensor_drop=cfg.features.sensor_cols_to_drop or None,
+        n_modes=cfg.features.n_modes,
+        random_state=seed,
     )

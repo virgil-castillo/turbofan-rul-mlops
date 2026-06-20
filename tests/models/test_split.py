@@ -4,7 +4,23 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from turbofan.models.split import split_by_engine
+from turbofan.config.schema import DataConfig
+from turbofan.models.split import load_and_split, split_by_engine
+
+
+def test_load_and_split_labels_and_splits_disjoint_engines(
+    data_cfg: DataConfig,
+) -> None:
+    """The split adds RUL labels and partitions engines without overlap."""
+    frames = load_and_split(data_cfg, max_rul=125, test_size=0.4, split_seed=42)
+
+    assert "rul" in frames.train.columns
+    assert "rul" in frames.val.columns
+    train_engines = set(frames.train["engine_id"])
+    val_engines = set(frames.val["engine_id"])
+    assert train_engines and val_engines
+    assert train_engines.isdisjoint(val_engines)
+    assert frames.train["rul"].max() <= 125
 
 
 def _make_df(n_engines: int = 5, n_cycles: int = 3) -> pd.DataFrame:

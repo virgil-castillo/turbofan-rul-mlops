@@ -1,8 +1,53 @@
 """Engine-level train/validation splitting."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
+
+from turbofan.config.schema import DataConfig
+from turbofan.data import loader as data_loader
+from turbofan.models import evaluate
+
+
+@dataclass(frozen=True)
+class SplitFrames:
+    """A labeled train/validation engine split.
+
+    Args:
+        train: Training rows with a computed ``rul`` column.
+        val: Validation rows with a computed ``rul`` column.
+    """
+
+    train: pd.DataFrame
+    val: pd.DataFrame
+
+
+def load_and_split(
+    data_cfg: DataConfig,
+    *,
+    max_rul: int,
+    test_size: float,
+    split_seed: int,
+) -> SplitFrames:
+    """Load raw training data, add RUL labels, and split by engine.
+
+    Args:
+        data_cfg: Data layer config locating the raw training files.
+        max_rul: Maximum-RUL cap for the piecewise-linear labels.
+        test_size: Fraction of engines held out for validation.
+        split_seed: Random seed for the engine train/val split.
+
+    Returns:
+        The labeled train/validation split.
+    """
+    train_raw = data_loader.load_raw_train(data_cfg)
+    train_labeled = evaluate.add_rul_column(train_raw, max_rul=max_rul)
+    train_df, val_df = split_by_engine(
+        train_labeled, test_size=test_size, random_seed=split_seed
+    )
+    return SplitFrames(train=train_df, val=val_df)
 
 
 def split_by_engine(

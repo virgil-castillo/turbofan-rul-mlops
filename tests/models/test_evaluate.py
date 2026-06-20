@@ -6,13 +6,19 @@ import numpy.typing as npt
 import pandas as pd
 import pytest
 
+from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+from turbofan.models.baseline import build_ridge_estimator
 from turbofan.models.evaluate import (
     add_rul_column,
     align_official_test_labels,
+    clip_rul_predictions,
     evaluate_rows,
+    predict_ridge_official,
+    predict_with_clipping,
     select_last_cycle_per_engine,
     split_features_target,
 )
+from turbofan.models.split import load_and_split
 
 
 class FixedPredictor:
@@ -136,3 +142,70 @@ def test_evaluate_rows_rejects_wrong_prediction_length() -> None:
     )
     with pytest.raises(ValueError, match="same length"):
         evaluate_rows(FixedPredictor([1.0]), df)
+
+
+# ---------------------------------------------------------------------------
+# clip helpers
+# ---------------------------------------------------------------------------
+
+
+def test_clip_rul_predictions_bounds_values() -> None:
+    """Clipping bounds predictions into ``[0, max_rul]`` as float64."""
+    clipped = clip_rul_predictions(
+        np.array([-5.0, 10.0, 200.0], dtype=np.float64), max_rul=125
+    )
+
+    assert clipped.dtype == np.float64
+    assert clipped.tolist() == [0.0, 10.0, 125.0]
+
+
+def test_predict_with_clipping_clips_estimator_output() -> None:
+    """Predictions are clipped into the RUL range as float64."""
+
+    class _Est:
+        def predict(self, x: pd.DataFrame) -> npt.NDArray[np.float64]:
+            """Return fixed out-of-range predictions.
+
+            Args:
+                x: Ignored feature rows.
+
+            Returns:
+                Predictions spanning below 0 and above the cap.
+            """
+            return np.array([-1.0, 50.0, 999.0], dtype=np.float64)
+
+    out = predict_with_clipping(
+        _Est(),  # type: ignore[arg-type]
+        pd.DataFrame({"a": [1, 2, 3]}),
+        max_rul=125,
+        label="validation",
+    )
+
+    assert out.dtype == np.float64
+    assert out.tolist() == [0.0, 50.0, 125.0]
+
+
+# ---------------------------------------------------------------------------
+# Ridge official-test prediction
+# ---------------------------------------------------------------------------
+
+
+def test_predict_ridge_official_caps_predictions(data_cfg: DataConfig) -> None:
+    """Official ridge eval returns one capped prediction per test engine."""
+    cfg = ProjectConfig(
+        project_name="t", data=data_cfg, model=ModelConfig(alpha=1.0)
+    )
+    frames = load_and_split(
+        data_cfg, max_rul=data_cfg.max_rul, test_size=0.4, split_seed=42
+    )
+    x_train, y_train = split_features_target(frames.train)
+    estimator = build_ridge_estimator(cfg, seed=42)
+    estimator.fit(x_train, y_train)
+
+    official = predict_ridge_official(
+        data_cfg, estimator=estimator, max_rul=data_cfg.max_rul
+    )
+
+    assert len(official.y_pred) == len(official.last_rows)
+    assert np.all(official.y_pred >= 0.0)
+    assert np.all(official.y_pred <= data_cfg.max_rul)

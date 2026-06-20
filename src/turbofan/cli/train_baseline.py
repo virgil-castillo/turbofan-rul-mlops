@@ -15,10 +15,10 @@ import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from turbofan import registry, tracking, workflows
+from turbofan import registry, tracking
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import artifacts, evaluate, metrics
+from turbofan.models import artifacts, baseline, evaluate, metrics, split
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
@@ -97,7 +97,7 @@ def _predict_with_clipping(
 ) -> npt.NDArray[np.float64]:
     """Predict rows, log raw prediction range, and clip to valid RUL bounds.
 
-    Thin wrapper over :func:`turbofan.workflows.predict_with_clipping`.
+    Thin wrapper over :func:`turbofan.models.evaluate.predict_with_clipping`.
 
     Args:
         estimator: Fitted sklearn estimator.
@@ -108,7 +108,7 @@ def _predict_with_clipping(
     Returns:
         Float64 predictions clipped to ``[0, rul_cap]``.
     """
-    return workflows.predict_with_clipping(
+    return evaluate.predict_with_clipping(
         estimator, rows, max_rul=rul_cap, label=label
     )
 
@@ -127,7 +127,7 @@ def _evaluate_official_test(
         Metrics and prediction rows, or None when official files are missing.
     """
     try:
-        official = workflows.predict_ridge_official(
+        official = evaluate.predict_ridge_official(
             cfg.data, estimator=estimator, max_rul=cfg.data.max_rul
         )
     except FileNotFoundError:
@@ -157,7 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         with turbofan_logging.run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
-            frames = workflows.load_and_split(
+            frames = split.load_and_split(
                 cfg.data,
                 max_rul=cfg.data.max_rul,
                 test_size=cfg.data.test_size,
@@ -168,7 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             X_val, y_val = evaluate.split_features_target(frames.val)
 
             rf = cfg.features.for_model("ridge")
-            estimator = workflows.build_ridge_estimator(
+            estimator = baseline.build_ridge_estimator(
                 cfg, seed=cfg.data.random_seed
             )
             logger.info("fitting %s baseline pipeline", cfg.model.name)
