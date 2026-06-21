@@ -1,8 +1,9 @@
-"""Pure RUL-compute math for trained models.
+"""Inward-facing inference core for trained RUL models.
 
-This package contains framework-free functions that take a trained model
-object and a data frame and compute remaining-useful-life (RUL) numbers.
-It has no MLflow or FastAPI knowledge; its only consumer is
-``turbofan.registry.pyfunc``, which uses it to implement MLflow
-``PythonModel.predict()`` methods.
+This package owns the inference contracts (DTOs and type aliases),
+raw-record validation, RUL-compute math, the loaded-model predictor adapter,
+and result serialization. It is transport- and MLflow-free: it depends on
+sklearn and torch to score models but knows nothing about FastAPI, the CLI,
+or the MLflow registry. The registry, FastAPI service, and batch CLI all
+consume it.
 """

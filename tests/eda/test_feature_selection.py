@@ -1,4 +1,4 @@
-"""Tests for turbofan.sequences.feature_selection."""
+"""Tests for turbofan.eda.feature_selection."""
 from __future__ import annotations
 
 import warnings
@@ -6,7 +6,7 @@ import warnings
 import pandas as pd
 import pytest
 
-from turbofan.sequences.feature_selection import select_correlated_sensors
+from turbofan.eda.feature_selection import select_correlated_sensors
 
 
 def test_select_correlated_sensors_returns_above_threshold() -> None:
