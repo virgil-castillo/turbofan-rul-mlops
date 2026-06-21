@@ -1,85 +1,34 @@
-# Evaluation Package
+# `turbofan.evaluation` Package Modules
 
-`evaluation/` regenerates the official C-MAPSS benchmark CSVs. `official_jobs.py`
-enumerates and runs train+evaluate jobs (delegating the actual train/evaluate
-work to the shared pipeline modules documented in
-[the shared train/evaluate pipeline diagram](../../../docs/workflows_usage_diagram.md));
-`official_results.py` persists `RunRecord`s to CSV and aggregates them into the
-summary frame. The only external entrypoint is the
-`regenerate_official_baselines` CLI.
+`evaluation/` owns evaluation primitives: regression metrics, prediction
+selection, official-label alignment, and the Ridge/sequence official-test
+helpers. Reproducible benchmark job execution and reporting live in
+`turbofan.benchmarks`.
 
 ```mermaid
 flowchart TD
-    subgraph OJ["official_jobs.py"]
-        BJ["build_jobs"]
-        RJ["run_job"]
-        JK["job_key"]
-        ER["_evaluate_ridge"]
-        ES["_evaluate_sequence"]
-        BR["_build_record"]
-        JW["join_windows"]
-        JL["join_lag_steps"]
-        CPF["config_path_for"]
-        BJ -->|per model/subset| CPF
-        RJ -->|model == ridge| ER
-        RJ -->|model != ridge| ES
-        ER --> BR
-        ES --> BR
-        BR --> JW
-        BR --> JL
+    subgraph metrics_py["metrics.py"]
+        M1["rmse() / mae()\nregression_metrics() = {rmse, mae}"]
+        M2["phm08_score()\nasymmetric early/late penalty"]
+        M3["official_test_metrics()\n= regression_metrics + phm08_score"]
     end
 
-    subgraph WF["turbofan.models (split / baseline / evaluate / sequence_pipeline)"]
-        LAS["load_and_split /<br/>build_ridge_estimator /<br/>predict_with_clipping /<br/>predict_ridge_official"]
-        SEQ["prepare_sequence_data /<br/>train_prepared_sequence /<br/>evaluate_window_metrics /<br/>predict_sequence_official"]
+    subgraph evaluate_py["evaluate.py"]
+        E1["split_features_target() / evaluate_rows()\nfeature/target split, clip >= 0, metrics"]
+        E2["select_last_cycle_per_engine()\nofficial-test row selection"]
+        E3["align_official_test_labels()\nalign RUL labels to last-cycle rows"]
+        E4["predict_with_clipping() / clip_rul_predictions()\npredict_ridge_official() (OfficialRidgePredictions)"]
     end
-    ER -->|trains + evaluates Ridge| LAS
-    ES -->|trains + evaluates sequence model| SEQ
 
-    subgraph OR["official_results.py"]
-        CK["completed_keys"]
-        AR["append_record"]
-        RR["read_records"]
-        BSF["build_summary_frame"]
-        R2R["record_to_row"]
-        RFR["record_from_row"]
-        SSD["sample_sd"]
-        RK["record_key"]
-        RSK["record_sort_key"]
-        GSK["group_sort_key"]
-        AR -->|writes row| R2R
-        RR -->|parses rows| RFR
-        CK -->|reads + keys| RR
-        CK -.-> RK
-        RR -.->|sort| RSK
-        BSF -->|per group mean/sd| SSD
-        BSF -.->|sort| GSK
+    subgraph sequence_official_py["sequence_official.py"]
+        SO1["align_labels_to_eligible_engines()\nmap official labels to engines that\nproduced a final sequence window"]
     end
-    OR -.->|imports RunRecord, MODEL_ORDER| OJ
 
-    CLI["cli/regenerate_official_baselines.py<br/>main"]
-    CLI -->|build_jobs| BJ
-    CLI -->|job_key, completed_keys: resume filter| JK
-    CLI -.-> CK
-    CLI -->|run_job per remaining job| RJ
-    CLI -->|append_record per result| AR
-    CLI -->|read_records + build_summary_frame at the end| RR
-    CLI -.-> BSF
-    CLI -->|writes| PERRUN[("outputs/results/<br/>latest_official_eval_per_run.csv")]
-    CLI -->|writes| SUMMARY[("outputs/results/<br/>latest_official_eval_summary.csv")]
-    AR --> PERRUN
-    BSF --> SUMMARY
+    evaluate_py -->|"computes metrics via"| metrics_py
+    sequence_official_py -->|"reuses align_official_test_labels"| evaluate_py
+
+    Consumers["Consumers:\ntraining.sequence_pipeline / sequence_training,\nbenchmarks.official_jobs, cli.train_*/predict"]
+    Consumers --> metrics_py
+    Consumers --> evaluate_py
+    Consumers --> sequence_official_py
 ```
-
-## Notes
-
-- **Resumability**: `main` reads `completed_keys` from the existing per-run CSV
-  and filters jobs whose `job_key` (model, subset, seed) is already present, so
-  an interrupted sweep can restart without recomputing finished jobs.
-- **Ridge vs. sequence**: `run_job` dispatches purely on `job.model == "ridge"`;
-  both branches funnel into `_build_record`, which fills in the
-  sequence-specific columns (`sequence_window`, `hidden_size`,
-  `learning_rate`) as empty strings for Ridge.
-- `official_results.py` depends on `official_jobs.py` only for the `RunRecord`
-  dataclass and `MODEL_ORDER` (display/sort order) — it has no knowledge of
-  how a record was produced.

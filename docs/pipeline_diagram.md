@@ -48,7 +48,7 @@ flowchart TD
 
     %% ---- Ridge path ----
     subgraph RIDGE["Ridge baseline path"]
-        RTRAIN["build_baseline_pipeline + Ridge.fit<br/>tabular features"]
+        RTRAIN["build_ridge_estimator + Ridge.fit<br/>tabular features"]
     end
     BRANCH -->|ridge| RTRAIN
 
@@ -110,10 +110,10 @@ flowchart TD
 | Stage | Key modules | What happens |
 |---|---|---|
 | Data loading | `data/loader.py`, `data/labels.py` | Read raw `.txt` files; compute capped piecewise-linear RUL labels. |
-| Split | `models/split.py` | Engine-level train/validation split seeded by `data.random_seed`. |
+| Split | `training/split.py` | Engine-level train/validation split seeded by `data.random_seed`. |
 | Features | `features/pipeline.py`, `features/engineering.py` | Shared 5-step sklearn pipeline; same fitted pipeline reused at inference. |
 | Ridge | `models/baseline.py` | Linear baseline over engineered tabular features. |
-| Sequence | `sequences/windowing.py`, `models/sequence_*` | Sliding windows → loaders → GRU/LSTM `SequenceRULRegressor`. |
-| Evaluation | `models/evaluate.py`, `models/metrics.py` | Validation RMSE/MAE; official-test RMSE/MAE/PHM08 at final cycle. |
+| Sequence | `sequences/windowing.py`, `models/sequence_models.py`, `training/sequence_*` | Sliding windows → loaders → GRU/LSTM `SequenceRULRegressor`. |
+| Evaluation | `evaluation/evaluate.py`, `evaluation/metrics.py` | Validation RMSE/MAE; official-test RMSE/MAE/PHM08 at final cycle. |
 | Tracking/Registry | `registry/tracking.py`, `registry/` | Log to MLflow; register and promote model versions by alias. |
 | Inference | `predictions/*`, `serving/*`, `cli/predict.py`, `cli/serve_api.py` | Resolve model by name/alias; batch CSV or FastAPI `/predict`. |

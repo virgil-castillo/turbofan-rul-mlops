@@ -19,14 +19,16 @@ flowchart TD
     end
 
     subgraph init_py["__init__.py"]
-        IN1["Compatibility facade\nre-exports store.py + pyfunc.py under the\nhistorical turbofan.registry import path"]
+        IN1["Public facade\nre-exports store.py + pyfunc.py under the\nturbofan.registry import path"]
     end
 
     P1 -->|"engine-scope predictions via"| ComputeNote["turbofan.predictions.compute"]
     P2 -->|"final-window predictions via"| ComputeNote
+    P1 -->|"validate_raw_records"| ValidationNote["turbofan.predictions.validation"]
+    P2 -->|"validate_raw_records"| ValidationNote
     P4 -->|"calls"| S1
     P4 -->|"calls"| S4
-    S2 -->|"wraps loaded pyfunc model in"| PyfuncPredictorNote["turbofan.serving.pyfunc_adapter.PyfuncPredictor"]
+    S2 -->|"wraps loaded pyfunc model in"| PyfuncPredictorNote["turbofan.predictions.predictor.PyfuncPredictor"]
     init_py -->|"re-exports"| store_py
     init_py -->|"re-exports"| pyfunc_py
 ```

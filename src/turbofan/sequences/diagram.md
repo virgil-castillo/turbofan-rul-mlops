@@ -18,18 +18,9 @@ flowchart TD
         D2["build_sequence_loader()\nwraps SequenceDataset in a DataLoader\nyielding (features, targets, lengths) batches"]
     end
 
-    subgraph feature_selection_py["feature_selection.py"]
-        F1["select_correlated_sensors()\nabsolute Pearson correlation of each s_* column\nvs target_col, keep |r| >= threshold,\nsorted descending"]
-    end
-
-    subgraph normalize_py["normalize.py"]
-        NRM1["Empty module\n(no normalization logic here;\nsee turbofan.preprocessing.normalization)"]
-    end
-
     W2 --> W1
     W3 --> W1
     W1 -->|"consumed by"| D1
     D1 --> D2
-    D2 -->|"feeds train/eval loops in"| TrainingNote["turbofan.models.sequence_training"]
-    F1 -.->|"optional sensor subset selection,\nupstream of feature_cols passed to"| W2
+    D2 -->|"feeds train/eval loops in"| TrainingNote["turbofan.training.sequence_training"]
 ```

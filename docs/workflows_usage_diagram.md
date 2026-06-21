@@ -3,15 +3,15 @@
 The shared train/evaluate building blocks (load+split, feature-pipeline
 fitting, sequence window/loader prep, model training, and official-test
 prediction for both Ridge and sequence models) live across
-`turbofan/models/split.py`, `turbofan/models/baseline.py`,
-`turbofan/models/evaluate.py`, and `turbofan/models/sequence_pipeline.py`.
+`turbofan/training/split.py`, `turbofan/models/baseline.py`,
+`turbofan/evaluation/evaluate.py`, and `turbofan/training/sequence_pipeline.py`.
 Three production/experiment call sites import them to avoid duplicating this
 logic: the production training CLIs, the official-evaluation sweep, and the
 experiment harness.
 
 ```mermaid
 flowchart TD
-    subgraph SPLIT["turbofan/models/split.py"]
+    subgraph SPLIT["turbofan/training/split.py"]
         LAS["load_and_split"]
     end
 
@@ -19,7 +19,7 @@ flowchart TD
         BRE["build_ridge_estimator"]
     end
 
-    subgraph EVAL["turbofan/models/evaluate.py"]
+    subgraph EVAL["turbofan/evaluation/evaluate.py"]
         PWC["predict_with_clipping"]
         PRO["predict_ridge_official"]
         CRP["clip_rul_predictions"]
@@ -27,7 +27,7 @@ flowchart TD
         PRO -.->|uses| CRP
     end
 
-    subgraph SEQ["turbofan/models/sequence_pipeline.py"]
+    subgraph SEQ["turbofan/training/sequence_pipeline.py"]
         PSD["prepare_sequence_data"]
         TPS["train_prepared_sequence"]
         EWM["evaluate_window_metrics"]
@@ -57,7 +57,7 @@ flowchart TD
         TSOFF -->|predict_sequence_official| PSO
     end
 
-    subgraph OJ["evaluation/official_jobs.py (official-eval sweep)"]
+    subgraph OJ["benchmarks/official_jobs.py (official-eval sweep)"]
         OJRIDGE["_evaluate_ridge"]
         OJSEQ["_evaluate_sequence"]
         OJRIDGE -->|load_and_split| LAS
@@ -97,6 +97,6 @@ flowchart TD
   `sequence_pipeline.train_prepared_sequence` /
   `sequence_pipeline.evaluate_window_metrics` /
   `sequence_pipeline.predict_sequence_official`.
-  `evaluation/official_jobs.py` is the only caller exercising both paths.
+  `benchmarks/official_jobs.py` is the only caller exercising both paths.
 - `cli/train_baseline.py`'s `_predict_with_clipping` is documented as a thin
-  wrapper over `turbofan.models.evaluate.predict_with_clipping`.
+  wrapper over `turbofan.evaluation.evaluate.predict_with_clipping`.
