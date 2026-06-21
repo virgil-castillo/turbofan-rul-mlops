@@ -12,9 +12,9 @@ from sklearn.pipeline import Pipeline
 from turbofan.config.schema import DataConfig, SequenceConfig
 from turbofan.features import pipeline as feature_pipeline
 from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models import sequence_pipeline, sequence_training, split
 from turbofan.models.sequence_models import SequenceRULRegressor, build_sequence_model
-from turbofan.models.sequence_training import TrainingResult
+from turbofan.training import sequence_pipeline, sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 
 def _tiny_seq_cfg() -> SequenceConfig:

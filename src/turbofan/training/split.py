@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 
 from turbofan.config.schema import DataConfig
+from turbofan.data import labels
 from turbofan.data import loader as data_loader
-from turbofan.models import evaluate
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ def load_and_split(
         The labeled train/validation split.
     """
     train_raw = data_loader.load_raw_train(data_cfg)
-    train_labeled = evaluate.add_rul_column(train_raw, max_rul=max_rul)
+    train_labeled = labels.add_rul_column(train_raw, max_rul=max_rul)
     train_df, val_df = split_by_engine(
         train_labeled, test_size=test_size, random_seed=split_seed
     )

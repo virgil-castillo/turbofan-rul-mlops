@@ -17,18 +17,14 @@ from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
 from turbofan.data import loader
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import (
-    artifacts,
-    evaluate,
-    sequence_training,
-    split,
-)
+from turbofan.models import evaluate
 from turbofan.models.sequence_models import (
     SequenceRULRegressor,
     build_sequence_model,
 )
-from turbofan.models.sequence_training import TrainingResult
 from turbofan.sequences import dataset, windowing
+from turbofan.training import artifacts, sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 
 class _CliResult(NamedTuple):

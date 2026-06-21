@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
 from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import train_sequence_model
+from turbofan.training.sequence_training import train_sequence_model
 
 
 def _loader() -> DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:

@@ -30,7 +30,7 @@ from turbofan.experiments.feature_family_results import (
     completed_keys,
     csv_path,
 )
-from turbofan.models import sequence_pipeline, sequence_training
+from turbofan.training import sequence_pipeline, sequence_training
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)

@@ -1,4 +1,4 @@
-"""Tests for turbofan.models.artifacts."""
+"""Tests for turbofan.training.artifacts."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ import joblib
 import pandas as pd
 from sklearn.linear_model import Ridge
 
-from turbofan.models.artifacts import (
+from turbofan.training.artifacts import (
     create_run_dir,
     save_json,
     save_model,

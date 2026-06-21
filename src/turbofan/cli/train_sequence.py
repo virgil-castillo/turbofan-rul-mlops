@@ -5,7 +5,7 @@ model is constructed through the sequence registry and registered under its
 per-architecture registered-model name (``turbofan-<arch>-<subset>``).
 
 Data preparation, model construction/training, and official-test evaluation are
-delegated to :mod:`turbofan.models.sequence_pipeline`, shared with the
+delegated to :mod:`turbofan.training.sequence_pipeline`, shared with the
 official-eval sweep and the feature-family screen so the three cannot drift
 apart. The split and feature pipeline use ``cfg.data.random_seed`` as the data
 seed and model initialisation/training reuse the same seed.
@@ -31,9 +31,10 @@ from torch import nn
 from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import artifacts, metrics, sequence_pipeline, sequence_training
-from turbofan.models.sequence_training import SequenceLoader
+from turbofan.models import metrics
 from turbofan.sequences.windowing import WindowedSequences
+from turbofan.training import artifacts, sequence_pipeline, sequence_training
+from turbofan.training.sequence_training import SequenceLoader
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)

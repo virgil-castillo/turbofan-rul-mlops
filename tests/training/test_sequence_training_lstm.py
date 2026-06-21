@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
 from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
+from turbofan.training.sequence_training import (
     TrainingResult,
     predict_windows,
     train_sequence_model,

@@ -9,7 +9,6 @@ import pytest
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
 from turbofan.models.baseline import build_ridge_estimator
 from turbofan.models.evaluate import (
-    add_rul_column,
     align_official_test_labels,
     clip_rul_predictions,
     evaluate_rows,
@@ -18,7 +17,7 @@ from turbofan.models.evaluate import (
     select_last_cycle_per_engine,
     split_features_target,
 )
-from turbofan.models.split import load_and_split
+from turbofan.training.split import load_and_split
 
 
 class FixedPredictor:
@@ -37,20 +36,6 @@ class FixedPredictor:
             Configured predictions as a float array.
         """
         return np.asarray(self.values[: len(X)], dtype=np.float64)
-
-
-def test_add_rul_column_uses_capped_rul() -> None:
-    """RUL column follows existing capped label semantics."""
-    df = pd.DataFrame(
-        {
-            "engine_id": [1, 1, 1],
-            "cycle": [1, 2, 3],
-            "s_1": [1.0, 2.0, 3.0],
-        }
-    )
-    result = add_rul_column(df, max_rul=1)
-    assert list(result["rul"]) == [1, 1, 0]
-    assert "rul" not in df.columns
 
 
 def test_split_features_target_removes_only_target() -> None:

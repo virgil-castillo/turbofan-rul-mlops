@@ -1,11 +1,11 @@
-"""Tests for turbofan.models.split."""
+"""Tests for turbofan.training.split."""
 from __future__ import annotations
 
 import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig
-from turbofan.models.split import load_and_split, split_by_engine
+from turbofan.training.split import load_and_split, split_by_engine
 
 
 def test_load_and_split_labels_and_splits_disjoint_engines(

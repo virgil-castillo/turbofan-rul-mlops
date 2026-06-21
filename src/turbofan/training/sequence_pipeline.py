@@ -30,16 +30,11 @@ from torch import nn
 from turbofan.config.schema import DataConfig, FeatureFamilyName, SequenceConfig
 from turbofan.data import loader as data_loader
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import (
-    metrics,
-    sequence_models,
-    sequence_training,
-    split,
-    test_evaluation,
-)
-from turbofan.models.sequence_training import SequenceLoader, TrainingResult
+from turbofan.models import metrics, sequence_models, test_evaluation
 from turbofan.sequences import dataset, windowing
 from turbofan.sequences.windowing import WindowedSequences
+from turbofan.training import sequence_training, split
+from turbofan.training.sequence_training import SequenceLoader, TrainingResult
 
 #: Identifier columns carried alongside engineered features so windowing can
 #: group per engine and read final-cycle targets.

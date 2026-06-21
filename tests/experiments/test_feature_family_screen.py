@@ -28,9 +28,10 @@ from turbofan.experiments.feature_family_screen import (
     enumerate_cells,
 )
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import evaluate, sequence_models, sequence_training, split
-from turbofan.models.sequence_training import TrainingResult
+from turbofan.models import evaluate, sequence_models
 from turbofan.sequences import dataset, windowing
+from turbofan.training import sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 # ---------------------------------------------------------------------------
 # Helpers

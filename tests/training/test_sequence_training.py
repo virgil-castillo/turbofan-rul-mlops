@@ -11,7 +11,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from turbofan.config.schema import SequenceConfig
 from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
+from turbofan.sequences.dataset import build_sequence_loader
+from turbofan.sequences.windowing import WindowedSequences
+from turbofan.training.sequence_training import (
     TrainingResult,
     _evaluate_loader,
     _train_one_epoch,
@@ -19,8 +21,6 @@ from turbofan.models.sequence_training import (
     resolve_device,
     train_sequence_model,
 )
-from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.windowing import WindowedSequences
 
 EXPECTED_HISTORY_COLUMNS = [
     "epoch",

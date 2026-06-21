@@ -18,7 +18,8 @@ from sklearn.pipeline import Pipeline
 from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import artifacts, baseline, evaluate, metrics, split
+from turbofan.models import baseline, evaluate, metrics
+from turbofan.training import artifacts, split
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
