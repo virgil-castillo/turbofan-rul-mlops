@@ -10,7 +10,7 @@ from mlflow.pyfunc import PyFuncModel
 from mlflow.tracking import MlflowClient
 
 from turbofan.predictions.contracts import ModelType
-from turbofan.serving.pyfunc_adapter import PyfuncPredictor
+from turbofan.predictions.predictor import PyfuncPredictor
 
 _VAL_RMSE_METRIC = "val_rmse"
 

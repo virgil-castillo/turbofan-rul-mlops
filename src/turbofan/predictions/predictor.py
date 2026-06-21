@@ -1,4 +1,4 @@
-"""Adapter from MLflow pyfunc models to the serving predictor contract."""
+"""Adapter from a loaded pyfunc model to the prediction-result contract."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
