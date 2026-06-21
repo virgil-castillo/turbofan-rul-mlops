@@ -6,9 +6,9 @@ from typing import cast
 
 import pandas as pd
 
+from turbofan.data.contracts import CANONICAL_COLUMNS
 from turbofan.serving import schemas
 from turbofan.serving.schemas import (
-    CANONICAL_COLUMNS,
     ModelType,
     PredictionMetadata,
     PredictionResult,

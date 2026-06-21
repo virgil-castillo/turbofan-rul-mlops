@@ -1,9 +1,8 @@
 """Serving contracts and predictor helpers for turbofan models."""
 from __future__ import annotations
 
+from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
 from turbofan.serving.schemas import (
-    CANONICAL_COLUMNS,
-    FEATURE_COLUMNS,
     PredictionMetadata,
     PredictionResult,
     PredictionRow,

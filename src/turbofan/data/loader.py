@@ -6,15 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from turbofan.config.schema import DataConfig
-
-COLUMN_NAMES: list[str] = [
-    "engine_id",
-    "cycle",
-    "op_1",
-    "op_2",
-    "op_3",
-    *[f"s_{i}" for i in range(1, 22)],
-]
+from turbofan.data.contracts import CANONICAL_COLUMNS
 
 _DOWNLOAD_HINT: str = (
     "Run `turbofan-download-data --kaggle` to download the dataset, "
@@ -29,7 +21,7 @@ def _load_txt(path: Path) -> pd.DataFrame:
         path: Path to the .txt file.
 
     Returns:
-        DataFrame with COLUMN_NAMES columns.
+        DataFrame with CANONICAL_COLUMNS columns.
 
     Raises:
         FileNotFoundError: If the file does not exist.
@@ -41,8 +33,8 @@ def _load_txt(path: Path) -> pd.DataFrame:
     df: pd.DataFrame = pd.read_csv(
         path, sep=r"\s+", header=None, index_col=False
     )
-    df = df.iloc[:, : len(COLUMN_NAMES)]
-    df.columns = pd.Index(COLUMN_NAMES)
+    df = df.iloc[:, : len(CANONICAL_COLUMNS)]
+    df.columns = pd.Index(CANONICAL_COLUMNS)
     return df
 
 

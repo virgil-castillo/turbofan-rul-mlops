@@ -10,17 +10,11 @@ from typing import Literal, cast
 
 import pandas as pd
 
+from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
+
 IdentifierColumn = Literal["engine_id", "cycle"]
 ModelType = Literal["ridge", "gru", "lstm"]
 PredictionScope = Literal["engine", "final_window"]
-
-FEATURE_COLUMNS: list[str] = [
-    "op_1",
-    "op_2",
-    "op_3",
-    *[f"s_{index}" for index in range(1, 22)],
-]
-CANONICAL_COLUMNS: list[str] = ["engine_id", "cycle", *FEATURE_COLUMNS]
 
 
 class SchemaValidationError(ValueError):
