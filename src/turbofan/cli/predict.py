@@ -14,9 +14,9 @@ import pandas as pd
 from turbofan import registry
 from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
 from turbofan.models import metrics
+from turbofan.predictions import serialization
 from turbofan.predictions.contracts import RawRecords
 from turbofan.predictions.predictor import PyfuncPredictor
-from turbofan.serving import service
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
@@ -39,7 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         records = _read_records(args.input)
         predictor = _resolve_predictor(args.model, args.alias)
         result = predictor.predict(records, allow_partial=args.allow_partial)
-        payload = service.prediction_result_to_dict(result)
+        payload = serialization.prediction_result_to_dict(result)
         _write_predictions(args.output, payload)
         predictions_list = payload["predictions"]
         if not isinstance(predictions_list, list):

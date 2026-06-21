@@ -2,11 +2,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
-from dataclasses import asdict
-from datetime import datetime
-from pathlib import Path
-from typing import Protocol, cast
+from typing import Protocol
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -16,6 +12,7 @@ from turbofan.predictions.contracts import (
     PredictionResult,
     RawRecords,
 )
+from turbofan.predictions.serialization import prediction_result_to_dict
 from turbofan.predictions.validation import SchemaValidationError
 
 #: Environment variable naming the registered model to resolve at startup.
@@ -145,18 +142,6 @@ def create_app(
     return app
 
 
-def prediction_result_to_dict(result: PredictionResult) -> dict[str, object]:
-    """Serialize a prediction result into JSON-compatible primitives.
-
-    Args:
-        result: Prediction result dataclass.
-
-    Returns:
-        JSON-compatible response dictionary.
-    """
-    return cast(dict[str, object], _jsonable(asdict(result)))
-
-
 def _resolve_predictor(
     *,
     model_name: str | None,
@@ -176,15 +161,3 @@ def _resolve_predictor(
     resolved_alias = alias or os.environ.get(MODEL_ALIAS_ENV) or "production"
     registry.tracking.configure_mlflow()
     return registry.load_predictor(name, resolved_alias)
-
-
-def _jsonable(value: object) -> object:
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_jsonable(item) for item in value]
-    return value
