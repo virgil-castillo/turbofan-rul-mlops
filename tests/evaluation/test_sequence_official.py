@@ -1,11 +1,11 @@
-"""Tests for turbofan.models.test_evaluation."""
+"""Tests for turbofan.evaluation.sequence_official."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from turbofan.models.test_evaluation import align_labels_to_eligible_engines
+from turbofan.evaluation.sequence_official import align_labels_to_eligible_engines
 
 
 class TestAlignLabelsToEligibleEngines:

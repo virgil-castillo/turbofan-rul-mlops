@@ -13,7 +13,8 @@ from turbofan.config.schema import (
     ProjectConfig,
     SequenceArchitecture,
 )
-from turbofan.models import baseline, evaluate, metrics
+from turbofan.evaluation import evaluate, metrics
+from turbofan.models import baseline
 from turbofan.training import sequence_pipeline, sequence_training, split
 
 SUBSETS: tuple[FDSubset, ...] = ("FD001", "FD002", "FD003", "FD004")

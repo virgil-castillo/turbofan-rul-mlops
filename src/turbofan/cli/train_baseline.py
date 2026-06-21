@@ -18,7 +18,8 @@ from sklearn.pipeline import Pipeline
 from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import baseline, evaluate, metrics
+from turbofan.evaluation import evaluate, metrics
+from turbofan.models import baseline
 from turbofan.training import artifacts, split
 from turbofan.utils import logging as turbofan_logging
 
@@ -98,7 +99,7 @@ def _predict_with_clipping(
 ) -> npt.NDArray[np.float64]:
     """Predict rows, log raw prediction range, and clip to valid RUL bounds.
 
-    Thin wrapper over :func:`turbofan.models.evaluate.predict_with_clipping`.
+    Thin wrapper over :func:`turbofan.evaluation.evaluate.predict_with_clipping`.
 
     Args:
         estimator: Fitted sklearn estimator.

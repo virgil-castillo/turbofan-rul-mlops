@@ -1,4 +1,4 @@
-"""Tests for turbofan.models.evaluate."""
+"""Tests for turbofan.evaluation.evaluate."""
 from __future__ import annotations
 
 import numpy as np
@@ -7,8 +7,7 @@ import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
-from turbofan.models.baseline import build_ridge_estimator
-from turbofan.models.evaluate import (
+from turbofan.evaluation.evaluate import (
     align_official_test_labels,
     clip_rul_predictions,
     evaluate_rows,
@@ -17,6 +16,7 @@ from turbofan.models.evaluate import (
     select_last_cycle_per_engine,
     split_features_target,
 )
+from turbofan.models.baseline import build_ridge_estimator
 from turbofan.training.split import load_and_split
 
 

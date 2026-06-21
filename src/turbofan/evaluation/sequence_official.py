@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from turbofan.models import evaluate
+from turbofan.evaluation import evaluate
 
 
 def align_labels_to_eligible_engines(

@@ -10,8 +10,8 @@ from typing import cast
 
 import pandas as pd
 
+from turbofan.benchmarks.official_jobs import MODEL_ORDER, RunRecord
 from turbofan.config.schema import FDSubset, ModelName
-from turbofan.evaluation.official_jobs import MODEL_ORDER, RunRecord
 
 PER_RUN_COLUMNS: list[str] = [field.name for field in fields(RunRecord)]
 _VALID_SUBSETS: frozenset[str] = frozenset(("FD001", "FD002", "FD003", "FD004"))

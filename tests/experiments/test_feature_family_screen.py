@@ -17,7 +17,7 @@ import torch
 
 import turbofan.experiments.feature_family_screen as _screen_module
 from turbofan.config import schema
-from turbofan.data import loader
+from turbofan.data import labels, loader
 from turbofan.experiments.feature_family_screen import (
     CSV_COLUMNS,
     ScreenCell,
@@ -28,7 +28,7 @@ from turbofan.experiments.feature_family_screen import (
     enumerate_cells,
 )
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import evaluate, sequence_models
+from turbofan.models import sequence_models
 from turbofan.sequences import dataset, windowing
 from turbofan.training import sequence_training, split
 from turbofan.training.sequence_training import TrainingResult
@@ -515,7 +515,7 @@ def _install_run_cell_patches(
 
     monkeypatch.setattr(schema, "load_config", fake_load_config)
     monkeypatch.setattr(loader, "load_raw_train", fake_load_raw_train)
-    monkeypatch.setattr(evaluate, "add_rul_column", fake_add_rul_column)
+    monkeypatch.setattr(labels, "add_rul_column", fake_add_rul_column)
     monkeypatch.setattr(split, "split_by_engine", fake_split_by_engine)
     monkeypatch.setattr(
         feature_pipeline, "build_feature_pipeline", fake_build_feature_pipeline

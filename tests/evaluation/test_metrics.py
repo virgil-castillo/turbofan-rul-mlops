@@ -1,4 +1,4 @@
-"""Tests for turbofan.models.metrics."""
+"""Tests for turbofan.evaluation.metrics."""
 from __future__ import annotations
 
 import math
@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turbofan.models.metrics import (
+from turbofan.evaluation.metrics import (
     mae,
     official_test_metrics,
     phm08_score,

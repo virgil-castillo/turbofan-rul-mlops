@@ -10,9 +10,8 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from turbofan.config.schema import DataConfig
-from turbofan.data import labels
 from turbofan.data import loader as data_loader
-from turbofan.models import metrics
+from turbofan.evaluation import metrics
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)
@@ -31,21 +30,6 @@ class Predictor(Protocol):
             Predicted RUL values.
         """
         ...
-
-
-def add_rul_column(df: pd.DataFrame, max_rul: int) -> pd.DataFrame:
-    """Return a copy of training data with a computed ``rul`` column.
-
-    Args:
-        df: Training DataFrame with ``engine_id`` and ``cycle``.
-        max_rul: Maximum RUL cap.
-
-    Returns:
-        Copy of ``df`` with a ``rul`` column.
-    """
-    result = df.copy()
-    result["rul"] = labels.compute_rul_labels(result, max_rul=max_rul)
-    return result
 
 
 def split_features_target(

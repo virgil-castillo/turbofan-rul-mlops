@@ -23,7 +23,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 
-from turbofan.evaluation import official_jobs, official_results
+from turbofan.benchmarks import official_jobs, official_results
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)

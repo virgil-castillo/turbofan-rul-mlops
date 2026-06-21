@@ -6,8 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from turbofan.cli import regenerate_official_baselines as export
-from turbofan.evaluation.official_jobs import (
+from turbofan.benchmarks.official_jobs import (
     Job,
     RunRecord,
     build_jobs,
@@ -15,13 +14,14 @@ from turbofan.evaluation.official_jobs import (
     join_windows,
     run_job,
 )
-from turbofan.evaluation.official_results import (
+from turbofan.benchmarks.official_results import (
     append_record,
     build_summary_frame,
     completed_keys,
     read_records,
     record_sort_key,
 )
+from turbofan.cli import regenerate_official_baselines as export
 
 
 def _record(

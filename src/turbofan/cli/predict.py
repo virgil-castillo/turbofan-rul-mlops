@@ -13,7 +13,7 @@ import pandas as pd
 
 from turbofan import registry
 from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
-from turbofan.models import metrics
+from turbofan.evaluation import metrics
 from turbofan.predictions import serialization
 from turbofan.predictions.contracts import RawRecords
 from turbofan.predictions.predictor import PyfuncPredictor

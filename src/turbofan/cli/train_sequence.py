@@ -31,7 +31,7 @@ from torch import nn
 from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
-from turbofan.models import metrics
+from turbofan.evaluation import metrics
 from turbofan.sequences.windowing import WindowedSequences
 from turbofan.training import artifacts, sequence_pipeline, sequence_training
 from turbofan.training.sequence_training import SequenceLoader

@@ -3,7 +3,7 @@
 This module hosts the prepare/train/evaluate building blocks for sequence
 (GRU/LSTM) models that were previously duplicated across the production
 training CLI (:mod:`turbofan.cli.train_sequence`), the official-evaluation
-sweep (:mod:`turbofan.evaluation.official_jobs`), and the experiment harness
+sweep (:mod:`turbofan.benchmarks.official_jobs`), and the experiment harness
 (:mod:`turbofan.experiments.feature_family_screen`). Sharing them keeps
 production training, official evaluation, and experiment sweeps from drifting
 apart.
@@ -29,8 +29,9 @@ from torch import nn
 
 from turbofan.config.schema import DataConfig, FeatureFamilyName, SequenceConfig
 from turbofan.data import loader as data_loader
+from turbofan.evaluation import metrics, sequence_official
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import metrics, sequence_models, test_evaluation
+from turbofan.models import sequence_models
 from turbofan.sequences import dataset, windowing
 from turbofan.sequences.windowing import WindowedSequences
 from turbofan.training import sequence_training, split
@@ -288,7 +289,7 @@ def predict_sequence_official(
         0.0,
         None,
     )
-    y_true = test_evaluation.align_labels_to_eligible_engines(
+    y_true = sequence_official.align_labels_to_eligible_engines(
         test_windows.metadata, rul_labels
     )
     return OfficialSequencePredictions(

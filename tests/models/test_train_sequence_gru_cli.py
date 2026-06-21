@@ -15,9 +15,8 @@ import torch
 from turbofan.cli.train_sequence import main as sequence_main
 from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
-from turbofan.data import loader
+from turbofan.data import labels, loader
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import evaluate
 from turbofan.models.sequence_models import (
     SequenceRULRegressor,
     build_sequence_model,
@@ -288,7 +287,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         lambda **kw: _FakePipeline(["s1", "s2"]),
     )
     monkeypatch.setattr(loader, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(evaluate, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(labels, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         split,
         "split_by_engine",
@@ -435,7 +434,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
         lambda **kw: _FakePipeline(["s1", "s2"]),
     )
     monkeypatch.setattr(loader, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(evaluate, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(labels, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
         split,
         "split_by_engine",
@@ -690,7 +689,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     )
     monkeypatch.setattr(feature_pipeline, "build_feature_pipeline", _capturing_pipeline)
     monkeypatch.setattr(loader, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(evaluate, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(labels, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
         split,
         "split_by_engine",

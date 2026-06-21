@@ -11,9 +11,9 @@ import torch
 
 from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
-from turbofan.data import loader
+from turbofan.data import labels, loader
 from turbofan.features import pipeline as feature_pipeline
-from turbofan.models import evaluate, sequence_models
+from turbofan.models import sequence_models
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.sequences import dataset, windowing
 from turbofan.training import artifacts, sequence_training, split
@@ -264,7 +264,7 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
         lambda **kw: _FakePipeline(["s1", "s2"]),
     )
     monkeypatch.setattr(loader, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(evaluate, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(labels, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
         split, "split_by_engine", lambda f, test_size, random_seed: (f, f)
     )

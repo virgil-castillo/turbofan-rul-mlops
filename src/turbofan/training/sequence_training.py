@@ -12,7 +12,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from turbofan.config.schema import DeviceRequest, SequenceConfig
-from turbofan.models import metrics
+from turbofan.evaluation import metrics
 
 type SequenceBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 type SequenceLoader = DataLoader[SequenceBatch]
