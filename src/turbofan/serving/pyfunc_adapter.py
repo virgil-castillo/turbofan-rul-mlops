@@ -7,8 +7,8 @@ from typing import cast
 import pandas as pd
 
 from turbofan.data.contracts import CANONICAL_COLUMNS
-from turbofan.serving import schemas
-from turbofan.serving.schemas import (
+from turbofan.predictions import validation
+from turbofan.predictions.contracts import (
     ModelType,
     PredictionMetadata,
     PredictionResult,
@@ -114,7 +114,7 @@ def _records_to_frame(records: RawRecords) -> pd.DataFrame:
         frame = records.copy()
     else:
         frame = pd.DataFrame(list(records))
-    schemas.validate_raw_records(frame)
+    validation.validate_raw_records(frame)
     return frame.loc[:, [c for c in CANONICAL_COLUMNS if c in frame.columns]]
 
 

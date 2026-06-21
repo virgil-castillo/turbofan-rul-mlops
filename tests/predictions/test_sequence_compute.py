@@ -7,12 +7,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from turbofan.data.contracts import FEATURE_COLUMNS
 from turbofan.features.pipeline import build_feature_pipeline
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.predictions.compute import sequence_final_window_predictions
+from turbofan.predictions.validation import validate_raw_records
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
 from turbofan.serving.pyfunc_adapter import _MODEL_SCOPES
-from turbofan.serving.schemas import FEATURE_COLUMNS, validate_raw_records
 
 
 def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:

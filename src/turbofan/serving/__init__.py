@@ -1,23 +1,11 @@
-"""Serving contracts and predictor helpers for turbofan models."""
+"""FastAPI serving transport for turbofan model inference.
+
+This package is an outer transport adapter. Inference contracts, validation,
+and prediction compute live inward in :mod:`turbofan.predictions`.
+"""
+
 from __future__ import annotations
 
-from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
-from turbofan.serving.schemas import (
-    PredictionMetadata,
-    PredictionResult,
-    PredictionRow,
-    SchemaValidationError,
-    ValidationResult,
-    validate_raw_records,
-)
+from turbofan.serving.service import create_app
 
-__all__ = [
-    "CANONICAL_COLUMNS",
-    "FEATURE_COLUMNS",
-    "PredictionMetadata",
-    "PredictionResult",
-    "PredictionRow",
-    "SchemaValidationError",
-    "ValidationResult",
-    "validate_raw_records",
-]
+__all__ = ["create_app"]

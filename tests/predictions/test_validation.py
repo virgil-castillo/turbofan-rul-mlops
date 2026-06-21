@@ -1,4 +1,4 @@
-"""Tests for turbofan.serving.schemas."""
+"""Tests for turbofan.predictions.validation and inference contracts."""
 from __future__ import annotations
 
 import math
@@ -6,12 +6,13 @@ import math
 import pandas as pd
 import pytest
 
-from turbofan.serving.schemas import (
-    CANONICAL_COLUMNS,
-    FEATURE_COLUMNS,
+from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
+from turbofan.predictions.contracts import (
     PredictionMetadata,
     PredictionResult,
     PredictionRow,
+)
+from turbofan.predictions.validation import (
     SchemaValidationError,
     validate_raw_records,
 )
@@ -179,13 +180,13 @@ def test_prediction_result_groups_rows_and_response_metadata() -> None:
         prediction=3.0,
         model_type="ridge",
         artifact_id="ridge-001",
-        prediction_scope="row",
+        prediction_scope="engine",
         predicted_at=pd.Timestamp("2026-05-25T00:00:00Z").to_pydatetime(),
     )
     metadata = PredictionMetadata(
         model_type="ridge",
         artifact_id="ridge-001",
-        prediction_scope="row",
+        prediction_scope="engine",
         input_rows=2,
         prediction_rows=1,
         warnings=["Skipped row 1: invalid."],

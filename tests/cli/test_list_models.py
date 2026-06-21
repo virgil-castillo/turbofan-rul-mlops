@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 
 from turbofan import registry
 from turbofan.cli import list_models
-from turbofan.serving.schemas import FEATURE_COLUMNS
+from turbofan.data.contracts import FEATURE_COLUMNS
 
 
 def _fitted_ridge_pipeline() -> Pipeline:

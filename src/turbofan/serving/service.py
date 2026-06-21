@@ -11,12 +11,12 @@ from typing import Protocol, cast
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from turbofan.serving.schemas import (
+from turbofan.predictions.contracts import (
     PredictionMetadata,
     PredictionResult,
     RawRecords,
-    SchemaValidationError,
 )
+from turbofan.predictions.validation import SchemaValidationError
 
 #: Environment variable naming the registered model to resolve at startup.
 MODEL_NAME_ENV = "TURBOFAN_MODEL_NAME"

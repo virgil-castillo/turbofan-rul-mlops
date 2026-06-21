@@ -7,14 +7,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from turbofan.serving.schemas import (
-    FEATURE_COLUMNS,
+from turbofan.data.contracts import FEATURE_COLUMNS
+from turbofan.predictions.contracts import (
     PredictionMetadata,
     PredictionResult,
     PredictionRow,
     RawRecords,
-    SchemaValidationError,
 )
+from turbofan.predictions.validation import SchemaValidationError
 
 
 class _StaticPredictor:

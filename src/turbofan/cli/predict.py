@@ -14,9 +14,9 @@ import pandas as pd
 from turbofan import registry
 from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
 from turbofan.models import metrics
+from turbofan.predictions.contracts import RawRecords
 from turbofan.serving import service
 from turbofan.serving.pyfunc_adapter import PyfuncPredictor
-from turbofan.serving.schemas import RawRecords
 from turbofan.utils import logging as turbofan_logging
 
 logger = turbofan_logging.get_logger(__name__)

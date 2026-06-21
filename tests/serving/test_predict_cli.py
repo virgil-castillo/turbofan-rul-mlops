@@ -15,7 +15,7 @@ from sklearn.pipeline import Pipeline
 
 from turbofan import registry
 from turbofan.cli.predict import main as predict_main
-from turbofan.serving.schemas import FEATURE_COLUMNS
+from turbofan.data.contracts import FEATURE_COLUMNS
 
 
 class _CliResult(NamedTuple):

@@ -8,13 +8,14 @@ import pandas as pd
 import pytest
 import torch
 
+from turbofan.data.contracts import FEATURE_COLUMNS
 from turbofan.models.sequence_models import build_sequence_model
 from turbofan.predictions.compute import (
     ridge_engine_predictions,
     sequence_final_window_predictions,
 )
+from turbofan.predictions.validation import validate_raw_records
 from turbofan.preprocessing.normalization import OperatingModeNormalizer
-from turbofan.serving.schemas import FEATURE_COLUMNS, validate_raw_records
 
 
 def _make_normalizer_payload(feature_cols: Sequence[str]) -> dict[str, object]:
