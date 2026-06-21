@@ -28,7 +28,7 @@ import torch
 from sklearn.pipeline import Pipeline
 from torch import nn
 
-from turbofan import registry, tracking
+from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
 from turbofan.models import artifacts, metrics, sequence_pipeline, sequence_training
@@ -263,8 +263,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cfg.data.max_rul,
             )
 
-            tracking.configure_mlflow()
-            mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+            registry.tracking.configure_mlflow()
+            mlflow.set_experiment(registry.tracking.TRAINING_EXPERIMENT)
             with mlflow.start_run():
                 run_dir = artifacts.create_run_dir(
                     cfg.sequence.artifact_dir, f"sequence_{architecture}"
@@ -315,7 +315,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 logger.info("saved %s run to %s", architecture, run_dir)
 
-                tracking.log_params(
+                registry.tracking.log_params(
                     {
                         "architecture": architecture,
                         "window_size": cfg.sequence.window_size,
@@ -333,9 +333,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "seed": cfg.data.random_seed,
                     }
                 )
-                tracking.log_metrics(run_metrics)
-                tracking.log_history(result.history)
-                tracking.set_tags(
+                registry.tracking.log_metrics(run_metrics)
+                registry.tracking.log_history(result.history)
+                registry.tracking.set_tags(
                     {
                         "model_type": architecture,
                         "run_type": "production",

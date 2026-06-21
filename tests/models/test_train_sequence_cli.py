@@ -159,7 +159,7 @@ def test_train_sequence_cli_trains_and_registers_lstm(
     import mlflow
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -178,8 +178,10 @@ def test_train_sequence_cli_trains_and_registers_lstm(
     assert code == 0
     assert "validation_windows rmse" in out
 
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     assert runs.iloc[0]["tags.model_type"] == "lstm"
     run_id = runs.iloc[0]["run_id"]

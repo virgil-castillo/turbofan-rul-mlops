@@ -6,6 +6,7 @@ module preserves the historical ``turbofan.registry`` import path.
 """
 from __future__ import annotations
 
+from turbofan.registry import tracking
 from turbofan.registry.pyfunc import (
     PREDICTION_OUTPUT_COLUMNS,
     RidgeEngineModel,
@@ -38,4 +39,5 @@ __all__ = [
     "model_type_from_name",
     "promote",
     "resolve_uri",
+    "tracking",
 ]

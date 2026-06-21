@@ -11,7 +11,7 @@ import argparse
 import os
 from collections.abc import Sequence
 
-from turbofan import registry, tracking
+from turbofan import registry
 from turbofan.registry import RegisteredModelInfo
 from turbofan.utils import logging as turbofan_logging
 
@@ -33,7 +33,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     turbofan_logging.setup_logging(args.log_level)
-    tracking.configure_mlflow()
+    registry.tracking.configure_mlflow()
     try:
         models = registry.list_registered()
     except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1

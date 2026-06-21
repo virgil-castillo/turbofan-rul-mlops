@@ -165,7 +165,7 @@ def _resolve_predictor(
 ) -> _Predictor:
     if predictor is not None:
         return predictor
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     name = model_name or os.environ.get(MODEL_NAME_ENV)
     if not name:
@@ -174,7 +174,7 @@ def _resolve_predictor(
             f"the {MODEL_NAME_ENV} environment variable."
         )
     resolved_alias = alias or os.environ.get(MODEL_ALIAS_ENV) or "production"
-    tracking.configure_mlflow()
+    registry.tracking.configure_mlflow()
     return registry.load_predictor(name, resolved_alias)
 
 

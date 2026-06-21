@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from turbofan import registry, tracking
+from turbofan import registry
 from turbofan.models import metrics
 from turbofan.serving import service
 from turbofan.serving.pyfunc_adapter import PyfuncPredictor
@@ -78,7 +78,7 @@ def _resolve_predictor(model: str, alias: str) -> PyfuncPredictor:
     Returns:
         A loaded predictor adapter for the resolved registry model.
     """
-    tracking.configure_mlflow()
+    registry.tracking.configure_mlflow()
     if model.startswith("models:/"):
         return registry.load_predictor_from_uri(model)
     return registry.load_predictor(model, alias)

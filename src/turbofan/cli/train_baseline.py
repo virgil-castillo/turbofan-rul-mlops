@@ -15,7 +15,7 @@ import numpy.typing as npt
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from turbofan import registry, tracking
+from turbofan import registry
 from turbofan.config import schema
 from turbofan.config.schema import ProjectConfig
 from turbofan.models import artifacts, baseline, evaluate, metrics, split
@@ -185,8 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             val_metrics = metrics.regression_metrics(y_val, val_pred)
             val_predictions = _prediction_frame(X_val, y_val, val_pred)
 
-            tracking.configure_mlflow()
-            mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+            registry.tracking.configure_mlflow()
+            mlflow.set_experiment(registry.tracking.TRAINING_EXPERIMENT)
             with mlflow.start_run():
                 run_dir = artifacts.create_run_dir(cfg.model.artifact_dir, "baseline")
                 metrics_payload: dict[str, object] = {"validation": val_metrics}
@@ -220,7 +220,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 logger.info("saved baseline run to %s", run_dir)
 
-                tracking.log_params(
+                registry.tracking.log_params(
                     {
                         "alpha": cfg.model.alpha,
                         "feature_families": rf.feature_families,
@@ -229,8 +229,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "seed": cfg.data.random_seed,
                     }
                 )
-                tracking.log_metrics(run_metrics)
-                tracking.set_tags(
+                registry.tracking.log_metrics(run_metrics)
+                registry.tracking.set_tags(
                     {
                         "model_type": "ridge",
                         "run_type": "production",

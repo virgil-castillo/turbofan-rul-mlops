@@ -357,7 +357,7 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     """CLI logs one production GRU MLflow run with params, metrics, and tags."""
     import mlflow
 
-    from turbofan import tracking
+    from turbofan import registry
 
     module = _load_train_sequence_module()
     run_dir = tmp_path / "run"
@@ -474,8 +474,10 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
 
     assert module.main() == 0
 
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     row = runs.iloc[0]
     assert row["tags.model_type"] == "gru"
@@ -508,7 +510,7 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     import torch as _torch
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -541,8 +543,10 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     _assert_metric_keys(metrics, "official_test")
 
     # --- registered model version linked to the run + prediction artifacts ---
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     run_id = runs.iloc[0]["run_id"]
 

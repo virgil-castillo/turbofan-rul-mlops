@@ -1,4 +1,4 @@
-"""Tests for turbofan.tracking."""
+"""Tests for turbofan.registry.tracking."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from mlflow.tracking import MlflowClient
 
-from turbofan import tracking
+from turbofan.registry import tracking
 
 
 def _sqlite_uri(tmp_path: Path, name: str = "mlflow.db") -> str:

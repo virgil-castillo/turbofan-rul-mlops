@@ -76,7 +76,7 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     import mlflow
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     cfg_path = _write_minimal_baseline_config(tmp_path)
     artifact_dir = tmp_path / "artifacts"
@@ -101,8 +101,10 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
 
     # --- the production MLflow run: params, metrics, tags ---
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     row = runs.iloc[0]
     assert row["tags.model_type"] == "ridge"
