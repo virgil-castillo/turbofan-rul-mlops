@@ -1,8 +1,14 @@
-# Pipeline Diagram
+# Workflow Overview: End-to-End Pipeline
 
 End-to-end view of the turbofan RUL workflow, from raw C-MAPSS data loading
 through training, the MLflow registry, and inference/serving. The Docker
 deployment path is intentionally omitted.
+
+This is the big picture the per-command workflow docs zoom into: training maps to
+[`train-baseline`](train-baseline.md) / [`train-sequence`](train-sequence.md),
+registry promotion to [`promote-model`](promote-model.md), and inference to
+[`predict`](predict.md) / [`serve-api`](serve-api.md). See the
+[index](README.md) for all commands.
 
 The shared preprocessing contract is
 `SensorDropper → OperatingModeNormalizer → SensorColumnSelector → FeatureEngineer → StandardScaler`
