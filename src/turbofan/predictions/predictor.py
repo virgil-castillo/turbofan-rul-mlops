@@ -14,6 +14,7 @@ from turbofan.predictions.contracts import (
     PredictionRow,
     PredictionScope,
     RawRecords,
+    ValidationResult,
 )
 from turbofan.sklearn_types import DataFramePredictor
 
@@ -76,16 +77,22 @@ class PyfuncPredictor:
 
         Args:
             records: Raw canonical inference records.
-            allow_partial: Accepted for call compatibility. The pyfunc wrapper
-                validates strictly and does not skip rows.
+            allow_partial: When ``True``, individually invalid rows (and
+                duplicate engine_id/cycle rows) are skipped and reported as
+                warnings instead of raising. When ``False`` (default), any
+                invalid input raises.
 
         Returns:
             Prediction response with per-row predictions and response metadata.
+            ``metadata.warnings`` lists any rows skipped under partial mode.
+
+        Raises:
+            SchemaValidationError: If validation fails and ``allow_partial`` is
+                ``False``, or if no valid rows remain after partial validation.
         """
-        del allow_partial
-        input_rows = len(records)
-        frame = _records_to_frame(records)
-        output = self._model.predict(frame)
+        input_rows = _record_count(records)
+        validated = _validate_records(records, allow_partial=allow_partial)
+        output = self._model.predict(validated.records)
         if not isinstance(output, pd.DataFrame):
             raise ValueError("Pyfunc model predict() must return a DataFrame.")
         prediction_rows = _prediction_rows_from_output(
@@ -102,19 +109,48 @@ class PyfuncPredictor:
                 prediction_scope=self._metadata.prediction_scope,
                 input_rows=input_rows,
                 prediction_rows=len(prediction_rows),
-                warnings=[],
+                warnings=validated.warnings,
             ),
         )
 
 
-def _records_to_frame(records: RawRecords) -> pd.DataFrame:
-    """Coerce raw records into a canonical-column DataFrame for pyfunc input."""
+def _record_count(records: RawRecords) -> int:
+    """Return the number of raw input records.
+
+    Args:
+        records: Raw records as mappings or a DataFrame.
+
+    Returns:
+        Count of original input rows before validation.
+    """
     if isinstance(records, pd.DataFrame):
-        frame = records.copy()
+        return len(records.index)
+    return len(records)
+
+
+def _validate_records(
+    records: RawRecords,
+    *,
+    allow_partial: bool,
+) -> ValidationResult:
+    """Validate raw records into a canonical frame and row warnings.
+
+    Args:
+        records: Raw records as mappings or a DataFrame.
+        allow_partial: Whether invalid rows should be skipped and reported.
+
+    Returns:
+        Validated canonical records plus any partial-mode skip warnings.
+
+    Raises:
+        SchemaValidationError: If validation fails and ``allow_partial`` is
+            ``False``, or if no valid rows remain after partial validation.
+    """
+    if isinstance(records, pd.DataFrame):
+        frame: RawRecords = records.copy()
     else:
         frame = pd.DataFrame(list(records))
-    validated = validation.validate_raw_records(frame)
-    return validated.records
+    return validation.validate_raw_records(frame, partial=allow_partial)
 
 
 def _prediction_rows_from_output(

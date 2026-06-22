@@ -57,3 +57,22 @@ def test_pyfunc_predictor_coerces_integer_features_before_model_prediction() -> 
         pd.api.types.is_float_dtype(model.received[column])
         for column in FEATURE_COLUMNS
     )
+
+
+def test_pyfunc_predictor_allow_partial_skips_invalid_row_and_warns() -> None:
+    """``allow_partial=True`` drops invalid rows and surfaces their warnings."""
+    valid = _integer_record()
+    invalid = {**_integer_record(), "engine_id": -1}
+    model = _CapturingModel()
+    predictor = PyfuncPredictor(
+        model,
+        model_type="ridge",
+        artifact_id="turbofan-ridge-fd001/1",
+    )
+
+    result = predictor.predict([valid, invalid], allow_partial=True)
+
+    assert result.metadata.input_rows == 2
+    assert result.metadata.prediction_rows == 1
+    assert len(result.predictions) == 1
+    assert any("Skipped row 1" in warning for warning in result.metadata.warnings)
