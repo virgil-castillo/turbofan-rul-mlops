@@ -6,7 +6,6 @@ from typing import cast
 
 import pandas as pd
 
-from turbofan.data.contracts import CANONICAL_COLUMNS
 from turbofan.predictions import validation
 from turbofan.predictions.contracts import (
     ModelType,
@@ -114,8 +113,8 @@ def _records_to_frame(records: RawRecords) -> pd.DataFrame:
         frame = records.copy()
     else:
         frame = pd.DataFrame(list(records))
-    validation.validate_raw_records(frame)
-    return frame.loc[:, [c for c in CANONICAL_COLUMNS if c in frame.columns]]
+    validated = validation.validate_raw_records(frame)
+    return validated.records
 
 
 def _prediction_rows_from_output(
