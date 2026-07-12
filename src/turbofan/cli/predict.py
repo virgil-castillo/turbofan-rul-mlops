@@ -144,8 +144,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-partial",
         action="store_true",
         help=(
-            "Accepted for compatibility. The registry model validates strictly, "
-            "so partial-row warnings are no longer surfaced."
+            "Skip individually invalid rows (and duplicate engine_id/cycle "
+            "rows) instead of failing the request; each skipped row is "
+            "reported as a warning in the prediction metadata."
         ),
     )
     parser.add_argument("--data-dir", type=Path, default=None)
