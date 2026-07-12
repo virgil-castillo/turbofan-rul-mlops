@@ -44,16 +44,17 @@ flowchart TD
         direction TB
         MLF["Start MLflow run<br/>log params, metrics, tags"]
         ARTIFACTS["Save run artifacts<br/>metrics.json, config.json, predictions.csv"]
-        REGISTER["Register model version<br/>turbofan-ridge-<subset> + alias"]
-        MLF --> ARTIFACTS --> REGISTER
+        REGISTER["Register model version<br/>turbofan-ridge-<subset>"]
+        ARTIFACTS --> REGISTER
     end
 
     START --> CFG
     CFG2 --> SPLIT
     XY --> BUILD
-    FIT --> VALP
-    OFFEVAL --> MLF
-    SKIP --> MLF
+    FIT --> VALP --> MLF
+    MLF --> OFFICIAL
+    OFFEVAL --> ARTIFACTS
+    SKIP --> ARTIFACTS
     REGISTER --> DONE(["Registered model version<br/>printed metrics"])
 ```
 

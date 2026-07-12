@@ -47,16 +47,17 @@ flowchart TD
         MLF["Start MLflow run<br/>log params, metrics, history, tags"]
         ARTIFACTS["Save run artifacts<br/>metrics.json, config.json,<br/>training_history.csv, predictions.csv"]
         PAYLOAD["Build model checkpoint payload<br/>(state dict, feature pipeline, normalizer,<br/>sequence config, max_rul, seed)"]
-        REGISTER["Register model version<br/>turbofan-<arch>-<subset> + alias"]
-        MLF --> ARTIFACTS --> PAYLOAD --> REGISTER
+        REGISTER["Register model version<br/>turbofan-<arch>-<subset>"]
+        ARTIFACTS --> PAYLOAD --> REGISTER
     end
 
     START --> CFG
     DEVICE --> SPLIT
     LOADER --> SEED
-    LOOP --> EVALV
-    OFFEVAL --> MLF
-    SKIP --> MLF
+    LOOP --> EVALV --> MLF
+    MLF --> OFFICIAL
+    OFFEVAL --> ARTIFACTS
+    SKIP --> ARTIFACTS
     REGISTER --> DONE(["Registered model version<br/>printed metrics"])
 ```
 

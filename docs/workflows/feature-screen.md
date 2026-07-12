@@ -28,7 +28,7 @@ flowchart TD
         SKIPQ{"Cell already<br/>completed?"}
         PREP["prepare_sequence_data<br/>(split, features, windows, loaders)"]
         TRAIN["train_prepared_sequence<br/>(build + train GRU/LSTM)"]
-        EVALC["Evaluate official test<br/>RMSE, MAE, PHM08"]
+        EVALC["Read best validation-window<br/>RMSE and MAE"]
         APPEND["append_row to results CSV"]
         SKIP["Skip cell"]
         SKIPQ -->|no| PREP --> TRAIN --> EVALC --> APPEND

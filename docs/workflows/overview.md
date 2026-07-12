@@ -77,22 +77,20 @@ flowchart TD
     end
     RTRAIN --> VAL
     STRAIN --> VAL
-    RTRAIN --> OFF
-    STRAIN --> OFF
     LOADTE --> OFF
     LOADRUL --> OFF
 
     %% ============ Tracking & Registry ============
     subgraph TRACK["Experiment tracking & registry"]
         MLF["MLflow run<br/>params, metrics, history, artifacts<br/>(SQLite store)"]
-        REG["log_and_register<br/>turbofan-&lt;arch&gt;-&lt;subset&gt;<br/>version + alias"]
-        PROMO["turbofan-promote<br/>alias -> production"]
-        MLF --> REG --> PROMO
+        REG["log_and_register<br/>turbofan-&lt;arch&gt;-&lt;subset&gt;<br/>register a version"]
+        VERSION["Registered model version"]
+        PROMO["turbofan-promote<br/>explicitly repoint alias -> version"]
+        REG --> VERSION
+        VERSION -.->|operator selects a version| PROMO
     end
-    VAL --> MLF
-    OFF --> MLF
-    RTRAIN --> MLF
-    STRAIN --> MLF
+    VAL --> MLF --> OFF
+    OFF --> REG
 
     %% ============ Inference / Serving ============
     subgraph INFER["Inference & serving"]
