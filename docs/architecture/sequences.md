@@ -1,4 +1,4 @@
-# `turbofan.sequences` Package Modules
+# Sequences Architecture
 
 ```mermaid
 flowchart TD

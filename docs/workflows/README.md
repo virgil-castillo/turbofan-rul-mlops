@@ -4,8 +4,8 @@ Start with the [**end-to-end overview**](overview.md) for the big picture, then
 drill into one doc per `turbofan-*` command below — each tracing what happens
 from invocation to result through named phases (Setup, Preprocessing, Training,
 Evaluation, …) with a step-reference table. For the static folder-dependency map
-underneath these flows, see
-[`../package_boundaries_diagram.md`](../package_boundaries_diagram.md).
+underneath these flows, see the
+[architecture diagrams](../architecture/README.md).
 
 | Command | Workflow | Summary |
 |---|---|---|

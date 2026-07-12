@@ -1,4 +1,4 @@
-# `turbofan.serving` Package Modules
+# Serving Architecture
 
 `serving/` is the FastAPI transport adapter only. Inference contracts,
 validation, the pyfunc predictor adapter, and result serialization live inward

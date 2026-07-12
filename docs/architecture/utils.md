@@ -1,4 +1,4 @@
-# `turbofan.utils` Package Modules
+# Utilities Architecture
 
 ```mermaid
 flowchart TD

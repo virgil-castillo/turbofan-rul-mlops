@@ -1,4 +1,4 @@
-# `turbofan.training` Package Modules
+# Training Architecture
 
 `training/` holds the application-level train/evaluate use cases that compose
 the data, feature, sequence, model, and evaluation layers. It is consumed by the

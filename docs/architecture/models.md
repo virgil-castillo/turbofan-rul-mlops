@@ -1,4 +1,4 @@
-# `turbofan.models` Package Modules
+# Models Architecture
 
 `models/` holds only estimator and network definitions. Training workflows live
 in `turbofan.training`; evaluation primitives in `turbofan.evaluation`.

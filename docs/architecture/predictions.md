@@ -1,4 +1,4 @@
-# `turbofan.predictions` Package Modules
+# Predictions Architecture
 
 `predictions/` is the inward-facing inference core: contracts, validation,
 RUL-compute math, the loaded-model predictor adapter, and result serialization.

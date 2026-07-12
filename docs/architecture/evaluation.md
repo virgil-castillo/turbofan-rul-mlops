@@ -1,4 +1,4 @@
-# `turbofan.evaluation` Package Modules
+# Evaluation Architecture
 
 `evaluation/` owns evaluation primitives: regression metrics, prediction
 selection, official-label alignment, and the Ridge/sequence official-test
@@ -27,8 +27,19 @@ flowchart TD
     evaluate_py -->|"computes metrics via"| metrics_py
     sequence_official_py -->|"reuses align_official_test_labels"| evaluate_py
 
-    Consumers["Consumers:\ntraining.sequence_pipeline / sequence_training,\nbenchmarks.official_jobs, cli.train_*/predict"]
-    Consumers --> metrics_py
-    Consumers --> evaluate_py
-    Consumers --> sequence_official_py
+    TrainingPipeline["training.sequence_pipeline"]
+    TrainingLoop["training.sequence_training"]
+    Benchmarks["benchmarks.official_jobs"]
+    BaselineCli["cli.train_baseline"]
+    SequenceCli["cli.train_sequence"]
+    PredictCli["cli.predict"]
+    TrainingPipeline --> metrics_py
+    TrainingPipeline --> sequence_official_py
+    TrainingLoop --> metrics_py
+    Benchmarks --> metrics_py
+    Benchmarks --> evaluate_py
+    BaselineCli --> metrics_py
+    BaselineCli --> evaluate_py
+    SequenceCli --> metrics_py
+    PredictCli --> metrics_py
 ```

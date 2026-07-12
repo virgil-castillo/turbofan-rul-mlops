@@ -1,12 +1,12 @@
-# Benchmarks Package
+# Benchmarks Architecture
 
 `benchmarks/` regenerates the official C-MAPSS benchmark CSVs. `official_jobs.py`
 enumerates and runs train+evaluate jobs (delegating the actual train/evaluate
 work to the shared pipeline modules documented in
-[the shared train/evaluate pipeline diagram](../../../docs/workflows_usage_diagram.md));
+[the shared train/evaluate pipeline diagram](../workflows/shared-pipeline-usage.md));
 `official_results.py` persists `RunRecord`s to CSV and aggregates them into the
 summary frame. The only external entrypoint is the
-`regenerate_official_baselines` CLI.
+`turbofan-regenerate-baselines` CLI.
 
 ```mermaid
 flowchart TD
