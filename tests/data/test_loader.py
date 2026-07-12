@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 
 from turbofan.config.schema import DataConfig
+from turbofan.data.contracts import CANONICAL_COLUMNS
 from turbofan.data.loader import (
-    COLUMN_NAMES,
     load_raw_test,
     load_raw_train,
     load_rul_labels,
@@ -19,7 +19,7 @@ from turbofan.data.loader import (
 def test_load_raw_train_column_names(data_cfg: DataConfig) -> None:
     """load_raw_train assigns the correct 26 column names."""
     df = load_raw_train(data_cfg)
-    assert list(df.columns) == COLUMN_NAMES
+    assert list(df.columns) == CANONICAL_COLUMNS
 
 
 def test_load_raw_train_returns_nonempty_dataframe(data_cfg: DataConfig) -> None:
@@ -38,7 +38,7 @@ def test_load_raw_train_engine_id_column(data_cfg: DataConfig) -> None:
 def test_load_raw_test_column_names(data_cfg: DataConfig) -> None:
     """load_raw_test assigns the correct 26 column names."""
     df = load_raw_test(data_cfg)
-    assert list(df.columns) == COLUMN_NAMES
+    assert list(df.columns) == CANONICAL_COLUMNS
 
 
 def test_load_raw_train_missing_file_raises(tmp_path: Path) -> None:

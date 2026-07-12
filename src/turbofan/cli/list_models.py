@@ -11,11 +11,11 @@ import argparse
 import os
 from collections.abc import Sequence
 
-from turbofan import registry, tracking
+from turbofan import registry
 from turbofan.registry import RegisteredModelInfo
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 _HEADERS = ("name", "versions", "production", "val_rmse", "run_link")
 _PLACEHOLDER = "-"
@@ -32,12 +32,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
-    tracking.configure_mlflow()
+    turbofan_logging.setup_logging(args.log_level)
+    registry.tracking.configure_mlflow()
     try:
         models = registry.list_registered()
-    except Exception as exc:  # noqa: BLE001 - surface any MLflow error as exit 1
+    except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1
         logger.error(str(exc))
+        logger.debug("Traceback for the error above:", exc_info=True)
         return 1
 
     if not models:

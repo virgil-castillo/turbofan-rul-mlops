@@ -2,9 +2,13 @@
 
 The architecture comes from ``sequence.architecture`` in the project config; the
 model is constructed through the sequence registry and registered under its
-per-architecture registered-model name (``turbofan-<arch>-<subset>``). The
-``turbofan-train-sequence-gru`` console script is a backward-compatible alias
-pointing at this module's :func:`main`.
+per-architecture registered-model name (``turbofan-<arch>-<subset>``).
+
+Data preparation, model construction/training, and official-test evaluation are
+delegated to :mod:`turbofan.training.sequence_pipeline`, shared with the
+official-eval sweep and the feature-family screen so the three cannot drift
+apart. The split and feature pipeline use ``cfg.data.random_seed`` as the data
+seed and model initialisation/training reuse the same seed.
 """
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ import argparse
 import os
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 
@@ -23,35 +28,26 @@ import torch
 from sklearn.pipeline import Pipeline
 from torch import nn
 
-from turbofan import registry, tracking
-from turbofan.config.schema import ProjectConfig, load_config
-from turbofan.data.loader import load_raw_test, load_raw_train, load_rul_labels
-from turbofan.features.pipeline import build_feature_pipeline
-from turbofan.models.artifacts import create_run_dir, save_json, save_predictions
-from turbofan.models.evaluate import add_rul_column
-from turbofan.models.metrics import official_test_metrics, regression_metrics
-from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import (
-    predict_windows,
-    resolve_device,
-    seed_everything,
-    train_sequence_model,
-)
-from turbofan.models.split import split_by_engine
-from turbofan.models.test_evaluation import align_labels_to_eligible_engines
-from turbofan.sequences.dataset import build_sequence_loader
-from turbofan.sequences.windowing import (
-    WindowedSequences,
-    build_final_windows,
-    build_sliding_windows,
-)
-from turbofan.utils.logging import get_logger, run_file_logging, setup_logging
+from turbofan import registry
+from turbofan.config import schema
+from turbofan.config.schema import ProjectConfig
+from turbofan.evaluation import metrics
+from turbofan.sequences.windowing import WindowedSequences
+from turbofan.training import artifacts, sequence_pipeline, sequence_training
+from turbofan.training.sequence_training import SequenceLoader
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments.
+
+    Args:
+        argv: Optional command-line arguments. Uses ``sys.argv[1:]`` when
+            ``None``.
 
     Returns:
         Parsed argparse namespace.
@@ -60,7 +56,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/default.yaml"),
+        default=_REPO_ROOT / "configs/default.yaml",
         help="Path to YAML project config.",
     )
     parser.add_argument(
@@ -69,7 +65,7 @@ def _parse_args() -> argparse.Namespace:
         default=os.environ.get("LOG_LEVEL", "INFO"),
         help="Logging verbosity (falls back to the LOG_LEVEL env var or INFO).",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _config_to_dict(cfg: ProjectConfig) -> dict[str, object]:
@@ -111,29 +107,26 @@ def _prediction_frame(
 
 def _evaluate_windows(
     model: nn.Module,
+    loader: SequenceLoader,
     windows: WindowedSequences,
     device: torch.device,
-    batch_size: int,
     max_rul: int,
 ) -> tuple[dict[str, float], pd.DataFrame]:
-    """Evaluate labeled sequence windows.
+    """Evaluate labeled validation windows and build the prediction artifact.
 
     Args:
         model: Trained sequence model.
-        windows: Labeled sequence windows.
+        loader: Sequential loader over ``windows``.
+        windows: Labeled validation windows.
         device: Torch device used for inference.
-        batch_size: Prediction batch size.
         max_rul: Maximum RUL cap for prediction rescaling.
 
     Returns:
         Metrics and prediction artifact rows.
     """
-    loader = build_sequence_loader(windows, batch_size=batch_size, shuffle=False)
-    y_pred = np.clip(
-        predict_windows(model, loader, device, max_rul=max_rul), 0.0, None
+    metrics, y_true, y_pred = sequence_pipeline.evaluate_window_metrics(
+        model, loader, windows, device=device, max_rul=max_rul
     )
-    y_true = windows.y.astype(np.float64)
-    metrics = regression_metrics(y_true, y_pred)
     return metrics, _prediction_frame(windows, y_true, y_pred)
 
 
@@ -157,41 +150,25 @@ def _evaluate_official_test(
         Metrics and prediction rows, or None when official files are missing.
     """
     try:
-        test_raw = load_raw_test(cfg.data)
-        rul_labels = load_rul_labels(cfg.data)
+        official = sequence_pipeline.predict_sequence_official(
+            cfg.data,
+            pipeline=pipeline,
+            feature_cols=feature_cols,
+            model=model,
+            device=device,
+            window_size=cfg.sequence.window_size,
+            batch_size=cfg.sequence.batch_size,
+            max_rul=cfg.data.max_rul,
+        )
     except FileNotFoundError:
         return None
-
-    _test_id_cols = [c for c in ("engine_id", "cycle") if c in test_raw.columns]
-    test_features = pipeline.transform(test_raw)
-    test_df = pd.concat(
-        [
-            test_raw[_test_id_cols].reset_index(drop=True),
-            test_features.reset_index(drop=True),
-        ],
-        axis=1,
+    official_metrics = metrics.official_test_metrics(
+        official.y_true, official.y_pred
     )
-    test_windows = build_final_windows(
-        test_df,
-        feature_cols=feature_cols,
-        window_size=cfg.sequence.window_size,
-        target_col=None,
+    predictions = _prediction_frame(
+        official.windows, official.y_true, official.y_pred
     )
-    loader = build_sequence_loader(
-        test_windows,
-        batch_size=cfg.sequence.batch_size,
-        shuffle=False,
-    )
-    y_pred = np.clip(
-        predict_windows(model, loader, device, max_rul=cfg.data.max_rul), 0.0, None
-    )
-    y_true = align_labels_to_eligible_engines(
-        test_windows.metadata,
-        rul_labels,
-    )
-    metrics = official_test_metrics(y_true, y_pred)
-    predictions = _prediction_frame(test_windows, y_true, y_pred)
-    return metrics, predictions
+    return official_metrics, predictions
 
 
 def _model_payload(
@@ -229,115 +206,68 @@ def _model_payload(
     }
 
 
-def main() -> None:
-    """Train, evaluate, and persist a sequence model run for any RNN."""
-    args = _parse_args()
-    setup_logging(args.log_level)
-    cfg = load_config(args.config)
+def main(argv: Sequence[str] | None = None) -> int:
+    """Train, evaluate, and persist a sequence model run for any RNN.
+
+    Args:
+        argv: Optional command-line arguments.
+
+    Returns:
+        Process exit code (0 on success).
+    """
+    args = _parse_args(argv)
+    turbofan_logging.setup_logging(args.log_level)
+    cfg = schema.load_config(args.config)
     architecture = cfg.sequence.architecture
 
-    device = resolve_device(cfg.sequence.device)
+    device = sequence_training.resolve_device(cfg.sequence.device)
 
     tmp_log_dir = Path(tempfile.mkdtemp())
     tmp_run_log = tmp_log_dir / "run.log"
     try:
-        with run_file_logging(tmp_run_log):
+        with turbofan_logging.run_file_logging(tmp_run_log):
             logger.info("loading training data for %s", cfg.data.fd_subset)
-            train_raw = load_raw_train(cfg.data)
-            train_labeled = add_rul_column(train_raw, max_rul=cfg.data.max_rul)
-            train_df, val_df = split_by_engine(
-                train_labeled,
-                test_size=cfg.data.test_size,
-                random_seed=cfg.data.random_seed,
-            )
-
-            pipeline = build_feature_pipeline(
-                sensor_drop=cfg.features.sensor_cols_to_drop or None,
-                n_modes=cfg.features.n_modes,
-                random_state=cfg.data.random_seed,
-                feature_families=(
-                    sf := cfg.features.for_model(architecture)
-                ).feature_families,
+            sf = cfg.features.for_model(architecture)
+            prepared = sequence_pipeline.prepare_sequence_data(
+                cfg.data,
+                feature_families=sf.feature_families,
                 windows=sf.windows,
                 lag_steps=sf.lag_steps,
-            )
-            _id_cols = ["engine_id", "cycle", "rul"]
-            train_features = pipeline.fit_transform(train_df)
-            val_features = pipeline.transform(val_df)
-            feature_cols = pipeline.named_steps["feature_engineer"].feature_cols_
-
-            train_normalized = pd.concat(
-                [
-                    train_df[_id_cols].reset_index(drop=True),
-                    train_features.reset_index(drop=True),
-                ],
-                axis=1,
-            )
-            val_normalized = pd.concat(
-                [
-                    val_df[_id_cols].reset_index(drop=True),
-                    val_features.reset_index(drop=True),
-                ],
-                axis=1,
-            )
-
-            train_windows = build_sliding_windows(
-                train_normalized,
-                feature_cols=feature_cols,
+                sensor_drop=cfg.features.sensor_cols_to_drop or None,
+                n_modes=cfg.features.n_modes,
+                data_seed=cfg.data.random_seed,
+                max_rul=cfg.data.max_rul,
+                test_size=cfg.data.test_size,
                 window_size=cfg.sequence.window_size,
-            )
-            validation_windows = build_sliding_windows(
-                val_normalized,
-                feature_cols=feature_cols,
-                window_size=cfg.sequence.window_size,
-            )
-
-            train_loader = build_sequence_loader(
-                train_windows,
                 batch_size=cfg.sequence.batch_size,
-                shuffle=True,
             )
-            validation_windows_loader = build_sequence_loader(
-                validation_windows,
-                batch_size=cfg.sequence.batch_size,
-                shuffle=False,
-            )
+            feature_cols = prepared.feature_cols
 
-            seed_everything(cfg.data.random_seed)
-            model = build_sequence_model(
-                architecture,
-                input_size=len(feature_cols),
-                hidden_size=cfg.sequence.hidden_size,
-                num_layers=cfg.sequence.num_layers,
-                dropout=cfg.sequence.dropout,
-            )
             logger.info(
                 "training %s for up to %d epochs", architecture, cfg.sequence.epochs
             )
             training_started = perf_counter()
-            result = train_sequence_model(
-                model=model,
-                train_loader=train_loader,
-                validation_windows_loader=validation_windows_loader,
-                config=cfg.sequence,
+            result = sequence_pipeline.train_prepared_sequence(
+                prepared,
+                cfg.sequence,
                 device=device,
-                random_seed=cfg.data.random_seed,
+                model_seed=cfg.data.random_seed,
                 max_rul=cfg.data.max_rul,
             )
             training_duration_seconds = perf_counter() - training_started
 
             window_metrics, window_predictions = _evaluate_windows(
                 result.model,
-                validation_windows,
+                prepared.val_loader,
+                prepared.val_windows,
                 device,
-                cfg.sequence.batch_size,
-                max_rul=cfg.data.max_rul,
+                cfg.data.max_rul,
             )
 
-            tracking.configure_mlflow()
-            mlflow.set_experiment(tracking.TRAINING_EXPERIMENT)
+            registry.tracking.configure_mlflow()
+            mlflow.set_experiment(registry.tracking.TRAINING_EXPERIMENT)
             with mlflow.start_run():
-                run_dir = create_run_dir(
+                run_dir = artifacts.create_run_dir(
                     cfg.sequence.artifact_dir, f"sequence_{architecture}"
                 )
                 metrics_payload: dict[str, object] = {
@@ -352,7 +282,7 @@ def main() -> None:
                 official = _evaluate_official_test(
                     cfg,
                     result.model,
-                    pipeline,
+                    prepared.pipeline,
                     feature_cols,
                     device,
                 )
@@ -362,7 +292,7 @@ def main() -> None:
                     run_metrics["official_rmse"] = official_metrics["rmse"]
                     run_metrics["official_mae"] = official_metrics["mae"]
                     run_metrics["official_phm08"] = official_metrics["phm08_score"]
-                    save_predictions(
+                    artifacts.save_predictions(
                         official_predictions,
                         run_dir / "official_test_predictions.csv",
                     )
@@ -373,20 +303,20 @@ def main() -> None:
                     )
 
                 payload = _model_payload(
-                    result.model, cfg, feature_cols, pipeline
+                    result.model, cfg, feature_cols, prepared.pipeline
                 )
-                save_json(metrics_payload, run_dir / "metrics.json")
-                save_json(_config_to_dict(cfg), run_dir / "config.json")
+                artifacts.save_json(metrics_payload, run_dir / "metrics.json")
+                artifacts.save_json(_config_to_dict(cfg), run_dir / "config.json")
                 result.history.to_csv(
                     run_dir / "training_history.csv", index=False
                 )
-                save_predictions(
+                artifacts.save_predictions(
                     window_predictions,
                     run_dir / "validation_window_predictions.csv",
                 )
                 logger.info("saved %s run to %s", architecture, run_dir)
 
-                tracking.log_params(
+                registry.tracking.log_params(
                     {
                         "architecture": architecture,
                         "window_size": cfg.sequence.window_size,
@@ -404,9 +334,9 @@ def main() -> None:
                         "seed": cfg.data.random_seed,
                     }
                 )
-                tracking.log_metrics(run_metrics)
-                tracking.log_history(result.history)
-                tracking.set_tags(
+                registry.tracking.log_metrics(run_metrics)
+                registry.tracking.log_history(result.history)
+                registry.tracking.set_tags(
                     {
                         "model_type": architecture,
                         "run_type": "production",
@@ -446,7 +376,8 @@ def main() -> None:
                     )
     finally:
         shutil.rmtree(tmp_log_dir, ignore_errors=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

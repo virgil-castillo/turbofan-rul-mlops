@@ -1,4 +1,4 @@
-"""Run the turbofan FastAPI inference service."""
+"""Run the turbofan FastAPI serving application."""
 from __future__ import annotations
 
 import argparse
@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import uvicorn
 
-from turbofan.inference.service import create_app
+from turbofan.serving import service
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -38,7 +38,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
-    app = create_app(model_name=args.model, alias=args.alias)
+    app = service.create_app(model_name=args.model, alias=args.alias)
     uvicorn.run(app, host=args.host, port=args.port)
     return 0
 

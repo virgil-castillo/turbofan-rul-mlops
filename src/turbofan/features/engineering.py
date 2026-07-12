@@ -6,8 +6,9 @@ from typing import Any, Literal, Self, get_args
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
+
+from turbofan.sklearn_types import BaseEstimator, TransformerMixin
 
 
 def _slope(x: npt.NDArray[np.floating[Any]]) -> float:
@@ -44,7 +45,7 @@ FeatureFamily = Literal[
 _VALID_FEATURE_FAMILIES: frozenset[str] = frozenset(get_args(FeatureFamily))
 
 
-class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+class FeatureEngineer(BaseEstimator, TransformerMixin):
     """Apply a config-driven feature transformation to normalized sensor columns.
 
     Expects a DataFrame whose columns are ``s_*`` sensor columns (already
@@ -70,7 +71,7 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         self.windows = windows
         self.lag_steps = lag_steps
 
-    def fit(self, X: pd.DataFrame, y: object = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: object = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Record input sensor columns and compute output column names.
 
         Args:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from turbofan.data.labels import compute_rul_labels
+from turbofan.data import labels
 
 
 def _sensor_columns(df: pd.DataFrame) -> list[str]:
@@ -27,7 +27,7 @@ def compute_rul_curves(
         DataFrame with all original columns plus ``rul``.
     """
     result = df.copy()
-    result["rul"] = compute_rul_labels(df, max_rul=max_rul)
+    result["rul"] = labels.compute_rul_labels(df, max_rul=max_rul)
     return result
 
 

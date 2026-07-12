@@ -11,14 +11,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from turbofan import registry, tracking
-from turbofan.inference.predictors import PyfuncPredictor
-from turbofan.inference.schemas import CANONICAL_COLUMNS, FEATURE_COLUMNS, RawRecords
-from turbofan.inference.service import prediction_result_to_dict
-from turbofan.models.metrics import official_test_metrics
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan import registry
+from turbofan.data.contracts import CANONICAL_COLUMNS, FEATURE_COLUMNS
+from turbofan.evaluation import metrics
+from turbofan.predictions import serialization
+from turbofan.predictions.contracts import RawRecords
+from turbofan.predictions.predictor import PyfuncPredictor
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -32,13 +33,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     evaluation: dict[str, float] | None = None
     try:
         records = _read_records(args.input)
         predictor = _resolve_predictor(args.model, args.alias)
         result = predictor.predict(records, allow_partial=args.allow_partial)
-        payload = prediction_result_to_dict(result)
+        payload = serialization.prediction_result_to_dict(result)
         _write_predictions(args.output, payload)
         predictions_list = payload["predictions"]
         if not isinstance(predictions_list, list):
@@ -49,8 +50,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if isinstance(meta, dict):
                 meta["evaluation"] = evaluation
         _write_metadata(args.metadata_output, payload)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI boundary surfaces any failure as exit 1
         logger.error(str(exc))
+        logger.debug("Traceback for the error above:", exc_info=True)
         return 1
 
     metadata = result.metadata
@@ -77,7 +79,7 @@ def _resolve_predictor(model: str, alias: str) -> PyfuncPredictor:
     Returns:
         A loaded predictor adapter for the resolved registry model.
     """
-    tracking.configure_mlflow()
+    registry.tracking.configure_mlflow()
     if model.startswith("models:/"):
         return registry.load_predictor_from_uri(model)
     return registry.load_predictor(model, alias)
@@ -115,7 +117,7 @@ def _try_evaluate(
         [float(str(row["prediction"])) for row in predictions],
         dtype=np.float64,
     )
-    return official_test_metrics(labels, y_pred)
+    return metrics.official_test_metrics(labels, y_pred)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -142,8 +144,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-partial",
         action="store_true",
         help=(
-            "Accepted for compatibility. The registry model validates strictly, "
-            "so partial-row warnings are no longer surfaced."
+            "Skip individually invalid rows (and duplicate engine_id/cycle "
+            "rows) instead of failing the request; each skipped row is "
+            "reported as a warning in the prediction metadata."
         ),
     )
     parser.add_argument("--data-dir", type=Path, default=None)

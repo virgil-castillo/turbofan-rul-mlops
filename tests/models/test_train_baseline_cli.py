@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import NamedTuple
@@ -14,6 +13,7 @@ import pytest
 
 from turbofan.cli.train_baseline import main as baseline_main
 from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+from turbofan.data import loader
 from turbofan.utils.logging import setup_logging
 
 
@@ -76,7 +76,7 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     import mlflow
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     cfg_path = _write_minimal_baseline_config(tmp_path)
     artifact_dir = tmp_path / "artifacts"
@@ -101,8 +101,10 @@ def test_train_baseline_cli_writes_records_logs_run_and_registers(
     assert set(metrics["official_test"]) == {"rmse", "mae", "phm08_score"}
 
     # --- the production MLflow run: params, metrics, tags ---
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     row = runs.iloc[0]
     assert row["tags.model_type"] == "ridge"
@@ -240,14 +242,9 @@ def _run_baseline_cli(
     Returns:
         CLI result with returncode, stdout, and stderr.
     """
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["turbofan.cli.train_baseline", "--config", str(cfg_path), *extra_args],
-    )
-    baseline_main()
+    returncode = baseline_main(["--config", str(cfg_path), *extra_args])
     captured = capsys.readouterr()
-    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
+    return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
 def test_predict_with_clipping_debug_line_respects_log_level(
@@ -288,9 +285,9 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
             "s_1": [1.0, 2.0, 3.0, 10.0, 20.0],
         }
     )
-    monkeypatch.setattr(module, "load_raw_test", lambda cfg: test_raw)
+    monkeypatch.setattr(loader, "load_raw_test", lambda cfg: test_raw)
     monkeypatch.setattr(
-        module,
+        loader,
         "load_rul_labels",
         lambda cfg: pd.Series([10.0, 20.0], name="rul"),
     )
@@ -311,15 +308,3 @@ def test_official_eval_predicts_full_trajectory_before_final_selection(
     assert list(predictions["engine_id"]) == [1, 2]
     assert list(predictions["cycle"]) == [3, 2]
     assert list(predictions["prediction"]) == [2.0, 4.0]
-
-
-def test_clip_rul_predictions_bounds_values_to_rul_cap(tmp_path: Path) -> None:
-    """Prediction post-processing clips values into the configured RUL range."""
-    module = _load_train_baseline_module()
-
-    clipped = module._clip_rul_predictions(
-        np.array([-5.0, 10.0, 200.0], dtype=np.float64),
-        rul_cap=125,
-    )
-
-    assert clipped.tolist() == [0.0, 10.0, 125.0]

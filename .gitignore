@@ -15,10 +15,7 @@ env/
 .env
 
 # Testing
-.pytest_cache/
-.pytest-basetemp*/
-.tmp_pytest/
-.codex_pytest_*/
+.*pytest*
 .coverage
 htmlcov/
 
@@ -45,6 +42,12 @@ outputs/*
 !outputs/models/.gitkeep
 !outputs/figures/.gitkeep
 !outputs/logs/.gitkeep
+
+# Reviewed benchmark snapshots live under results/baselines.
+results/*
+!results/README.md
+!results/baselines/
+!results/baselines/**
 
 # Model artifacts
 artifacts/

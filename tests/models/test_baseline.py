@@ -7,7 +7,8 @@ import pytest
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
-from turbofan.models.baseline import build_baseline_pipeline
+from turbofan.config.schema import DataConfig, ModelConfig, ProjectConfig
+from turbofan.models.baseline import build_baseline_pipeline, build_ridge_estimator
 
 
 def _make_df() -> tuple[pd.DataFrame, pd.Series]:
@@ -109,3 +110,16 @@ def test_unknown_model_name_raises() -> None:
     """Unsupported model names fail fast."""
     with pytest.raises(ValueError, match="Unsupported model"):
         build_baseline_pipeline(model_name="random_forest")  # type: ignore[arg-type]
+
+
+def test_build_ridge_estimator_honors_alpha_and_seed(data_cfg: DataConfig) -> None:
+    """The Ridge estimator carries the configured alpha and pipeline seed."""
+    cfg = ProjectConfig(
+        project_name="t", data=data_cfg, model=ModelConfig(alpha=37.0)
+    )
+
+    estimator = build_ridge_estimator(cfg, seed=11)
+
+    assert estimator.named_steps["model"].alpha == 37.0
+    normalizer = estimator.named_steps["features"].named_steps["normalizer"]
+    assert normalizer.random_state == 11

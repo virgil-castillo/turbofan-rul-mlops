@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from turbofan.data.labels import compute_rul_labels
+from turbofan.data.labels import add_rul_column, compute_rul_labels
 
 
 def _make_df(engine_cycles: dict[int, int]) -> pd.DataFrame:
@@ -70,3 +70,17 @@ def test_rul_series_name() -> None:
     df = _make_df({1: 5})
     rul = compute_rul_labels(df, max_rul=125)
     assert rul.name == "rul"
+
+
+def test_add_rul_column_uses_capped_rul() -> None:
+    """add_rul_column attaches a capped rul column without mutating the input."""
+    df = pd.DataFrame(
+        {
+            "engine_id": [1, 1, 1],
+            "cycle": [1, 2, 3],
+            "s_1": [1.0, 2.0, 3.0],
+        }
+    )
+    result = add_rul_column(df, max_rul=1)
+    assert list(result["rul"]) == [1, 1, 0]
+    assert "rul" not in df.columns

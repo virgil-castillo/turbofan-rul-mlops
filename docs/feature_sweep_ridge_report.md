@@ -1,6 +1,16 @@
 # Ridge Feature-Engineering Sweep
 
-Analysis of `results/feature_sweep_ridge_fd00{1-4}.csv`.
+Analysis of `results/baselines/feature_sweep_ridge_fd00{1-4}.csv`.
+
+> **Data provenance.** The sweep data was generated 2026-05-29, before commit
+> `3e5afc8` (2026-06-05) added standard-scaling of the engineered pipeline
+> output. The findings below therefore describe the pre-scaling pipeline.
+> Ridge's L2 penalty is scale-sensitive, so results on unscaled engineered
+> channels need not carry over; the sweep must be re-run on the scaled pipeline
+> before any Ridge config change (tracked in the [roadmap](roadmap.md)). The
+> deployed configs and the official test-set table at the end of this report
+> are current: they are retrained and evaluated on the present pipeline by
+> `turbofan-regenerate-baselines`.
 
 ## Method
 
@@ -146,6 +156,10 @@ lifetime/cap numbers, not a directly measured quantity.
 
 ## Recommendations
 
+These recommendations are conclusions about the pre-scaling pipeline (see the
+provenance note); re-validate them against the re-run sweep before acting on any
+of them.
+
 - `raw_plus_rolling_mean` is the recommended feature set: best on all four subsets
   and robust to window choice.
 - A small window is a safe default (~4–6); `raw_plus_rolling_mean` tolerates larger
@@ -157,22 +171,26 @@ lifetime/cap numbers, not a directly measured quantity.
 
 ## Official test-set results
 
-Production Ridge models, evaluated on the C-MAPSS official test set. These models
-were trained with the configs selected by the *prior* PHM08-based ranking; RMSE
-re-ranking shifts the best window on three subsets (FD001 2→20, FD003 4→6, FD004
-8→6; FD002 unchanged at 4), so a production refresh at the new configs is pending
-and the table reflects the deployed models as-is:
+Production Ridge models, evaluated on the C-MAPSS official test set. The deployed
+configs keep the windows selected by the prior PHM08-based ranking. The RMSE
+re-ranking above prefers different windows on three subsets (FD001 2→20, FD003
+4→6, FD004 8→6; FD002 unchanged at 4), but that re-ranking comes from the
+pre-scaling sweep data, so the deployed configs stay as-is until the sweep is
+re-run on the scaled pipeline (see the provenance note). Values are the committed
+snapshot (`results/baselines/latest_official_eval_*.csv`) written by
+`turbofan-regenerate-baselines`:
 
 | Subset | Feature config (deployed) | Val RMSE | Test RMSE | Test MAE | Test PHM08 |
 |--------|---------------|---:|---:|---:|---:|
-| FD001 | raw_plus_rolling_mean, w=2 | 20.72 | 21.58 | 17.44 | 1,315 |
-| FD002 | raw_plus_rolling_mean, w=4 | 19.35 | 31.31 | 22.85 | 17,733 |
-| FD003 | raw_plus_rolling_mean, w=4 | 17.07 | 23.01 | 18.20 | 2,492 |
-| FD004 | raw_plus_rolling_mean, w=8 | 18.47 | 32.88 | 26.20 | 9,646 |
+| FD001 | raw_plus_rolling_mean, w=2 | 20.72 | 21.58 | 17.44 | 1,316 |
+| FD002 | raw_plus_rolling_mean, w=4 | 19.35 | 31.30 | 22.85 | 17,700 |
+| FD003 | raw_plus_rolling_mean, w=4 | 17.07 | 23.01 | 18.19 | 2,491 |
+| FD004 | raw_plus_rolling_mean, w=8 | 18.48 | 32.88 | 26.22 | 9,643 |
 
 The PHM08 score here is the canonical one-prediction-per-engine final-test metric.
 Multi-condition subsets (FD002, FD004) show the largest val→test RMSE gap (~12–14
-points), consistent with a harder distribution shift on those subsets.
+points), consistent with a harder distribution shift on those subsets (an
+interpretation; the measured quantity is the gap).
 
 ## References
 

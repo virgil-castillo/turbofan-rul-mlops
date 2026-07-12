@@ -20,12 +20,10 @@ def test_check_uses_repo_data_raw_by_default(
         return True
 
     monkeypatch.setattr(download_data, "check", fake_check)
-    monkeypatch.setattr("sys.argv", ["turbofan-download-data", "--check"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        download_data.main()
+    code = download_data.main(["--check"])
 
-    assert exc_info.value.code == 0
+    assert code == 0
     assert captured == [Path("data/raw")]
 
 
@@ -36,9 +34,10 @@ def test_kaggle_uses_repo_data_raw_by_default(
     downloaded: list[Path] = []
     checked: list[Path] = []
 
-    def fake_download_kaggle(raw_dir: Path = Path("wrong-default")) -> None:
+    def fake_download_kaggle(raw_dir: Path = Path("wrong-default")) -> bool:
         """Capture the download target passed by the CLI."""
         downloaded.append(raw_dir)
+        return True
 
     def fake_check(raw_dir: Path = Path("wrong-default")) -> bool:
         """Capture the verification target passed by the CLI."""
@@ -47,22 +46,18 @@ def test_kaggle_uses_repo_data_raw_by_default(
 
     monkeypatch.setattr(download_data, "download_kaggle", fake_download_kaggle)
     monkeypatch.setattr(download_data, "check", fake_check)
-    monkeypatch.setattr("sys.argv", ["turbofan-download-data", "--kaggle"])
 
-    download_data.main()
+    code = download_data.main(["--kaggle"])
 
+    assert code == 0
     assert downloaded == [Path("data/raw")]
     assert checked == [Path("data/raw")]
 
 
-def test_raw_dir_argument_is_not_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_raw_dir_argument_is_not_supported() -> None:
     """The command keeps a fixed config-aligned raw directory."""
-    monkeypatch.setattr(
-        "sys.argv",
-        ["turbofan-download-data", "--check", "--raw-dir", "custom/raw"],
-    )
 
     with pytest.raises(SystemExit) as exc_info:
-        download_data.main()
+        download_data.main(["--check", "--raw-dir", "custom/raw"])
 
     assert exc_info.value.code == 2

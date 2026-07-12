@@ -16,6 +16,8 @@ import pytest
 import torch
 
 import turbofan.experiments.feature_family_screen as _screen_module
+from turbofan.config import schema
+from turbofan.data import labels, loader
 from turbofan.experiments.feature_family_screen import (
     CSV_COLUMNS,
     ScreenCell,
@@ -25,7 +27,11 @@ from turbofan.experiments.feature_family_screen import (
     csv_path,
     enumerate_cells,
 )
-from turbofan.models.sequence_training import TrainingResult
+from turbofan.features import pipeline as feature_pipeline
+from turbofan.models import sequence_models
+from turbofan.sequences import dataset, windowing
+from turbofan.training import sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -318,7 +324,7 @@ def test_csv_columns_order() -> None:
         "val_mae",
         "training_duration_seconds",
     ]
-    assert CSV_COLUMNS == expected
+    assert expected == CSV_COLUMNS
 
 
 # ---------------------------------------------------------------------------
@@ -507,27 +513,27 @@ def _install_run_cell_patches(
         calls["resolve_device"].append(requested)
         return torch.device("cpu")
 
-    monkeypatch.setattr(_screen_module, "load_config", fake_load_config)
-    monkeypatch.setattr(_screen_module, "load_raw_train", fake_load_raw_train)
-    monkeypatch.setattr(_screen_module, "add_rul_column", fake_add_rul_column)
-    monkeypatch.setattr(_screen_module, "split_by_engine", fake_split_by_engine)
+    monkeypatch.setattr(schema, "load_config", fake_load_config)
+    monkeypatch.setattr(loader, "load_raw_train", fake_load_raw_train)
+    monkeypatch.setattr(labels, "add_rul_column", fake_add_rul_column)
+    monkeypatch.setattr(split, "split_by_engine", fake_split_by_engine)
     monkeypatch.setattr(
-        _screen_module, "build_feature_pipeline", fake_build_feature_pipeline
+        feature_pipeline, "build_feature_pipeline", fake_build_feature_pipeline
     )
     monkeypatch.setattr(
-        _screen_module, "build_sliding_windows", fake_build_sliding_windows
+        windowing, "build_sliding_windows", fake_build_sliding_windows
     )
     monkeypatch.setattr(
-        _screen_module, "build_sequence_loader", fake_build_sequence_loader
+        dataset, "build_sequence_loader", fake_build_sequence_loader
     )
-    monkeypatch.setattr(_screen_module, "seed_everything", fake_seed_everything)
+    monkeypatch.setattr(sequence_training, "seed_everything", fake_seed_everything)
     monkeypatch.setattr(
-        _screen_module, "build_sequence_model", fake_build_sequence_model
+        sequence_models, "build_sequence_model", fake_build_sequence_model
     )
     monkeypatch.setattr(
-        _screen_module, "train_sequence_model", fake_train_sequence_model
+        sequence_training, "train_sequence_model", fake_train_sequence_model
     )
-    monkeypatch.setattr(_screen_module, "resolve_device", fake_resolve_device)
+    monkeypatch.setattr(sequence_training, "resolve_device", fake_resolve_device)
 
     return calls
 

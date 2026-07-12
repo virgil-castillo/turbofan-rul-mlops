@@ -1,7 +1,6 @@
 """Smoke tests for the generalized turbofan.cli.train_sequence entrypoint."""
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 from types import ModuleType
 from typing import NamedTuple
@@ -10,9 +9,15 @@ import pandas as pd
 import pytest
 import torch
 
+from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
+from turbofan.data import labels, loader
+from turbofan.features import pipeline as feature_pipeline
+from turbofan.models import sequence_models
 from turbofan.models.sequence_models import build_sequence_model
-from turbofan.models.sequence_training import TrainingResult
+from turbofan.sequences import dataset, windowing
+from turbofan.training import artifacts, sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 
 class _CliResult(NamedTuple):
@@ -149,7 +154,7 @@ def test_train_sequence_cli_trains_and_registers_lstm(
     import mlflow
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -162,21 +167,16 @@ def test_train_sequence_cli_trains_and_registers_lstm(
     _write_config(cfg_path, raw_dir, artifact_dir, tmp_path, architecture="lstm")
 
     module = _load_module()
-    import sys
-
-    monkeypatch_argv = ["turbofan.cli.train_sequence", "--config", str(cfg_path)]
-    old_argv = sys.argv
-    sys.argv = monkeypatch_argv
-    try:
-        module.main()
-    finally:
-        sys.argv = old_argv
+    code = module.main(["--config", str(cfg_path)])
     out = capsys.readouterr().out
 
+    assert code == 0
     assert "validation_windows rmse" in out
 
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     assert runs.iloc[0]["tags.model_type"] == "lstm"
     run_id = runs.iloc[0]["run_id"]
@@ -250,45 +250,45 @@ def test_train_sequence_cli_constructs_model_via_registry_architecture(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
+        lambda argv=None: module.argparse.Namespace(
+            config=tmp_path / "c.yaml", log_level="INFO"
+        ),
     )
-    monkeypatch.setattr(module, "load_config", lambda p: cfg)
-    monkeypatch.setattr(module, "resolve_device", lambda r: torch.device("cpu"))
+    monkeypatch.setattr(schema, "load_config", lambda p: cfg)
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        sequence_training, "resolve_device", lambda r: torch.device("cpu")
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
-        module, "split_by_engine", lambda f, test_size, random_seed: (f, f)
+        feature_pipeline,
+        "build_feature_pipeline",
+        lambda **kw: _FakePipeline(["s1", "s2"]),
     )
-    monkeypatch.setattr(module, "build_sliding_windows", lambda *a, **k: object())
-    monkeypatch.setattr(module, "build_sequence_loader", lambda *a, **k: object())
-    monkeypatch.setattr(module, "build_sequence_model", fake_build_sequence_model)
-    monkeypatch.setattr(module, "train_sequence_model", fake_train)
+    monkeypatch.setattr(loader, "load_raw_train", lambda c: _fake_df)
+    monkeypatch.setattr(labels, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(
+        split, "split_by_engine", lambda f, test_size, random_seed: (f, f)
+    )
+    monkeypatch.setattr(windowing, "build_sliding_windows", lambda *a, **k: object())
+    monkeypatch.setattr(dataset, "build_sequence_loader", lambda *a, **k: object())
+    monkeypatch.setattr(
+        sequence_models, "build_sequence_model", fake_build_sequence_model
+    )
+    monkeypatch.setattr(sequence_training, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
         lambda *a, **k: ({"rmse": 0.0, "mae": 0.0}, pd.DataFrame()),
     )
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *a, **k: None)
-    monkeypatch.setattr(module, "create_run_dir", lambda a, n: tmp_path)
-    monkeypatch.setattr(module, "save_json", lambda p, pa: None)
-    monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
+    monkeypatch.setattr(artifacts, "create_run_dir", lambda a, n: tmp_path)
+    monkeypatch.setattr(artifacts, "save_json", lambda p, pa: None)
+    monkeypatch.setattr(artifacts, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     monkeypatch.setattr(module.registry, "log_and_register", fake_log_and_register)
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
     assert built_architectures == ["lstm"]
     assert captured_model_types == ["lstm"]
-
-
-def test_train_sequence_gru_alias_main_is_same_callable() -> None:
-    """The backward-compatible GRU entrypoint reuses the generalized main."""
-    from turbofan.cli.train_sequence import main as sequence_main
-    from turbofan.cli.train_sequence_gru import main as gru_main
-
-    assert gru_main is sequence_main

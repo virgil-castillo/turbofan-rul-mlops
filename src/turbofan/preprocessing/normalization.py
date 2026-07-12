@@ -7,8 +7,9 @@ from typing import Any, Self
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.cluster import KMeans
+
+from turbofan.sklearn_types import BaseEstimator, TransformerMixin
 
 _EXCLUDE_COLS: frozenset[str] = frozenset({"engine_id", "cycle", "rul"})
 _DEFAULT_OP_COLS: list[str] = ["op_1", "op_2", "op_3"]
@@ -89,7 +90,7 @@ def _apply_floor(s: pd.Series[Any], std_floor: float) -> pd.Series[Any]:
     return result
 
 
-class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+class OperatingModeNormalizer(BaseEstimator, TransformerMixin):
     """Normalize turbofan sensor readings per operating mode.
 
     For single-mode data (``n_modes=1``) all rows share a single set of
@@ -149,7 +150,7 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
     # mode_means_: dict[int, pd.Series[Any]]
     # mode_stds_: dict[int, pd.Series[Any]]
 
-    def fit(self, X: pd.DataFrame, y: pd.Series[Any] | None = None) -> Self:
+    def fit(self, X: pd.DataFrame, y: pd.Series[Any] | None = None) -> Self:  # noqa: ARG002 - sklearn transformer API requires this signature
         """Compute per-mode statistics from ``X``.
 
         Args:
@@ -414,7 +415,7 @@ class OperatingModeNormalizer(BaseEstimator, TransformerMixin):  # type: ignore[
                         f"payload 'mode_centers'[{i}] must be a list of numbers."
                     )
 
-        obj: OperatingModeNormalizer = cls.__new__(cls)
+        obj = cls.__new__(cls)
         # Bypass __init__ validation; set params manually
         obj.feature_cols = list(payload["feature_cols"])
         obj.op_cols = list(payload["op_cols"])

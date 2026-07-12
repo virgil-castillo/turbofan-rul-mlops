@@ -13,10 +13,12 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
-from turbofan.experiments.feature_family_screen import run_screen
-from turbofan.utils.logging import get_logger, setup_logging
+from turbofan.experiments import feature_family_screen
+from turbofan.utils import logging as turbofan_logging
 
-logger = get_logger(__name__)
+logger = turbofan_logging.get_logger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -71,13 +73,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results"),
-        help="Root directory for result CSV files.",
+        default=_REPO_ROOT / "outputs/results",
+        help="Root directory for generated result CSV files.",
     )
     parser.add_argument(
         "--configs-dir",
         type=Path,
-        default=Path("configs/subsets"),
+        default=_REPO_ROOT / "configs/subsets",
         help="Directory containing per-subset YAML configs.",
     )
     parser.add_argument(
@@ -111,7 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    turbofan_logging.setup_logging(args.log_level)
     logger.info(
         "starting feature-family screen: architectures=%s subsets=%s seeds=%s "
         "device=%s",
@@ -120,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.seeds,
         args.device,
     )
-    run_screen(
+    feature_family_screen.run_screen(
         architectures=args.architectures,
         subsets=args.subsets,
         sequence_windows=args.sequence_windows,

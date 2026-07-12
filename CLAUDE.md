@@ -2,31 +2,23 @@
 
 Dev contract for Claude Code when working in this repository.
 
-## Environment
-
-Conda lives at `$env:USERPROFILE\miniconda3`. Claude Code does not inherit a login shell, so the `mlops` env must be activated explicitly before running Python commands.
-
-**PowerShell tool:**
-```powershell
-. "$env:USERPROFILE\miniconda3\shell\condabin\conda-hook.ps1"
-conda activate mlops
-```
-
-**Bash tool:**
-```bash
-source ~/miniconda3/Scripts/activate
-conda activate mlops
-```
-
 ## Commands
 
-```bash
+```text
 ruff check src/ tests/                 # lint
 mypy src/turbofan                       # type-check
 
-pytest                                  # all tests
+pytest                                  # all tests; coverage-gated (fails <93%); temp in workspace-local .pytest_tmp/
 pytest tests/test_file.py               # single file
 pytest -k "test_name"                   # single test by name
+```
+
+## Pre-commit
+
+To run all hooks manually against every file:
+
+```text
+pre-commit run --all-files
 ```
 
 ## Commit style
@@ -38,5 +30,5 @@ Use conventional commits: `type(scope): message` (e.g. `feat(features): add roll
   where applicable.
 - **Type annotations.** All function signatures must be fully annotated;
   `mypy --strict` must pass.
-- **Ruff** enforces `E`, `F`, `W`, `I`, `UP`, and `ANN` rules at line
-  length 88. Fix lint errors before committing.
+- **Ruff** enforces `E`, `F`, `W`, `I`, `UP`, `ANN`, `B`, `BLE`, `ARG`,
+  `C4`, and `SIM` rules at line length 88. Fix lint errors before committing.

@@ -1,9 +1,8 @@
-"""Smoke tests for turbofan.cli.train_sequence_gru."""
+"""Smoke tests for GRU training via the turbofan.cli.train_sequence entrypoint."""
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from csv import DictReader
 from pathlib import Path
 from types import ModuleType
@@ -13,10 +12,18 @@ import pandas as pd
 import pytest
 import torch
 
-from turbofan.cli.train_sequence_gru import main as gru_main
+from turbofan.cli.train_sequence import main as sequence_main
+from turbofan.config import schema
 from turbofan.config.schema import DataConfig, ProjectConfig, SequenceConfig
-from turbofan.models.gru import GRURULRegressor
-from turbofan.models.sequence_training import TrainingResult
+from turbofan.data import labels, loader
+from turbofan.features import pipeline as feature_pipeline
+from turbofan.models.sequence_models import (
+    SequenceRULRegressor,
+    build_sequence_model,
+)
+from turbofan.sequences import dataset, windowing
+from turbofan.training import artifacts, sequence_training, split
+from turbofan.training.sequence_training import TrainingResult
 
 
 class _CliResult(NamedTuple):
@@ -175,28 +182,19 @@ def _run_cli(
 
     Args:
         cfg_path: YAML config path.
-        monkeypatch: pytest monkeypatch fixture for sys.argv injection.
+        monkeypatch: pytest monkeypatch fixture.
         capsys: pytest capsys fixture for stdout/stderr capture.
 
     Returns:
         CLI result with returncode, stdout, and stderr.
     """
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["turbofan.cli.train_sequence_gru", "--config", str(cfg_path)],
-    )
-    gru_main()
+    returncode = sequence_main(["--config", str(cfg_path)])
     captured = capsys.readouterr()
-    return _CliResult(returncode=0, stdout=captured.out, stderr=captured.err)
+    return _CliResult(returncode=returncode, stdout=captured.out, stderr=captured.err)
 
 
-def _load_train_sequence_gru_module() -> ModuleType:
+def _load_train_sequence_module() -> ModuleType:
     """Load the generalized sequence training CLI module that ``main`` lives in.
-
-    The ``turbofan-train-sequence-gru`` console script now aliases the
-    generalized :mod:`turbofan.cli.train_sequence` entrypoint, so the
-    monkeypatch targets resolve against that module.
 
     Returns:
         Imported CLI module.
@@ -211,7 +209,7 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     tmp_path: Path,
 ) -> None:
     """CLI seeds torch before constructing the GRU model."""
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     seed = 123
     cfg = ProjectConfig(
         project_name="test",
@@ -234,9 +232,9 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     )
     captured_state: dict[str, torch.Tensor] = {}
 
-    def fake_train_gru_model(
+    def fake_train_sequence_model(
         *,
-        model: GRURULRegressor,
+        model: SequenceRULRegressor,
         train_loader: object,
         validation_windows_loader: object,
         config: SequenceConfig,
@@ -270,11 +268,13 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "config.yaml", log_level="INFO"
+        ),
     )
-    monkeypatch.setattr(module, "load_config", lambda path: cfg)
+    monkeypatch.setattr(schema, "load_config", lambda path: cfg)
     monkeypatch.setattr(
-        module,
+        sequence_training,
         "resolve_device",
         lambda requested: torch.device("cpu"),
     )
@@ -282,26 +282,30 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
     )
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        feature_pipeline,
+        "build_feature_pipeline",
+        lambda **kw: _FakePipeline(["s1", "s2"]),
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(loader, "load_raw_train", lambda data_config: _fake_df)
+    monkeypatch.setattr(labels, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
-        module,
+        split,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
     monkeypatch.setattr(
-        module,
+        windowing,
         "build_sliding_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
-        module,
+        dataset,
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(
+        sequence_training, "train_sequence_model", fake_train_sequence_model
+    )
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
@@ -311,9 +315,11 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
         ),
     )
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
-    monkeypatch.setattr(module, "create_run_dir", lambda artifact_dir, name: tmp_path)
-    monkeypatch.setattr(module, "save_json", lambda payload, path: None)
-    monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
+    monkeypatch.setattr(
+        artifacts, "create_run_dir", lambda artifact_dir, name: tmp_path
+    )
+    monkeypatch.setattr(artifacts, "save_json", lambda payload, path: None)
+    monkeypatch.setattr(artifacts, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", fake_torch_save)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     # Disk artifacts are stubbed out above, so skip registry/artifact logging
@@ -324,10 +330,11 @@ def test_train_sequence_gru_cli_seeds_model_initialization(
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
     torch.manual_seed(999)
-    module.main()
+    assert module.main() == 0
 
     torch.manual_seed(seed)
-    expected = GRURULRegressor(
+    expected = build_sequence_model(
+        "gru",
         input_size=2,
         hidden_size=cfg.sequence.hidden_size,
         num_layers=cfg.sequence.num_layers,
@@ -345,9 +352,9 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     """CLI logs one production GRU MLflow run with params, metrics, and tags."""
     import mlflow
 
-    from turbofan import tracking
+    from turbofan import registry
 
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     run_dir = tmp_path / "run"
     cfg = ProjectConfig(
         project_name="test",
@@ -373,10 +380,11 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     )
     window_metrics = {"rmse": 1.0, "mae": 2.0}
 
-    def fake_train_gru_model(**kwargs: object) -> TrainingResult:
+    def fake_train_sequence_model(**kwargs: object) -> TrainingResult:
         del kwargs
         return TrainingResult(
-            model=GRURULRegressor(
+            model=build_sequence_model(
+                "gru",
                 input_size=2,
                 hidden_size=6,
                 num_layers=2,
@@ -409,39 +417,47 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "config.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "config.yaml", log_level="INFO"
+        ),
     )
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
     )
-    monkeypatch.setattr(module, "load_config", lambda path: cfg)
-    monkeypatch.setattr(module, "resolve_device", lambda requested: torch.device("cpu"))
+    monkeypatch.setattr(schema, "load_config", lambda path: cfg)
     monkeypatch.setattr(
-        module, "build_feature_pipeline", lambda **kw: _FakePipeline(["s1", "s2"])
+        sequence_training, "resolve_device", lambda requested: torch.device("cpu")
     )
-    monkeypatch.setattr(module, "load_raw_train", lambda data_config: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda frame, max_rul: frame)
     monkeypatch.setattr(
-        module,
+        feature_pipeline,
+        "build_feature_pipeline",
+        lambda **kw: _FakePipeline(["s1", "s2"]),
+    )
+    monkeypatch.setattr(loader, "load_raw_train", lambda data_config: _fake_df)
+    monkeypatch.setattr(labels, "add_rul_column", lambda frame, max_rul: frame)
+    monkeypatch.setattr(
+        split,
         "split_by_engine",
         lambda frame, test_size, random_seed: (frame, frame),
     )
     monkeypatch.setattr(
-        module,
+        windowing,
         "build_sliding_windows",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
-        module,
+        dataset,
         "build_sequence_loader",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train_gru_model)
+    monkeypatch.setattr(
+        sequence_training, "train_sequence_model", fake_train_sequence_model
+    )
     monkeypatch.setattr(module, "_evaluate_windows", fake_evaluate_windows)
     monkeypatch.setattr(module, "_evaluate_official_test", lambda *args, **kwargs: None)
-    monkeypatch.setattr(module, "create_run_dir", fake_create_run_dir)
-    monkeypatch.setattr(module, "save_json", lambda payload, path: None)
-    monkeypatch.setattr(module, "save_predictions", lambda frame, path: None)
+    monkeypatch.setattr(artifacts, "create_run_dir", fake_create_run_dir)
+    monkeypatch.setattr(artifacts, "save_json", lambda payload, path: None)
+    monkeypatch.setattr(artifacts, "save_predictions", lambda frame, path: None)
     monkeypatch.setattr(module.torch, "save", lambda payload, path: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     # Disk artifacts are stubbed out above, so skip registry/artifact logging
@@ -451,10 +467,12 @@ def test_train_sequence_gru_cli_logs_mlflow_run(
     )
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     row = runs.iloc[0]
     assert row["tags.model_type"] == "gru"
@@ -487,7 +505,7 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     import torch as _torch
     from mlflow.tracking import MlflowClient
 
-    from turbofan import registry, tracking
+    from turbofan import registry
 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -520,8 +538,10 @@ def test_train_sequence_gru_cli_writes_artifacts_registers_and_logs_predictions(
     _assert_metric_keys(metrics, "official_test")
 
     # --- registered model version linked to the run + prediction artifacts ---
-    tracking.configure_mlflow()
-    runs = mlflow.search_runs(experiment_names=[tracking.TRAINING_EXPERIMENT])
+    registry.tracking.configure_mlflow()
+    runs = mlflow.search_runs(
+        experiment_names=[registry.tracking.TRAINING_EXPERIMENT]
+    )
     assert len(runs) == 1
     run_id = runs.iloc[0]["run_id"]
 
@@ -615,7 +635,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     tmp_path: Path,
 ) -> None:
     """GRU training calls build_feature_pipeline with subset mode count."""
-    module = _load_train_sequence_gru_module()
+    module = _load_train_sequence_module()
     captured: list[dict[str, object]] = []
 
     def _capturing_pipeline(**kwargs: object) -> _FakePipeline:
@@ -645,8 +665,8 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
 
     def fake_train(**kwargs: object) -> TrainingResult:
         return TrainingResult(
-            model=GRURULRegressor(
-                input_size=2, hidden_size=4, num_layers=1, dropout=0.0
+            model=build_sequence_model(
+                "gru", input_size=2, hidden_size=4, num_layers=1, dropout=0.0
             ),
             history=pd.DataFrame([{"epoch": 1}]),
             best_epoch=1,
@@ -656,30 +676,32 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module,
         "_parse_args",
-        lambda: argparse.Namespace(config=tmp_path / "c.yaml", log_level="INFO"),
+        lambda argv=None: argparse.Namespace(
+            config=tmp_path / "c.yaml", log_level="INFO"
+        ),
     )
-    monkeypatch.setattr(module, "load_config", lambda p: cfg)
+    monkeypatch.setattr(schema, "load_config", lambda p: cfg)
     monkeypatch.setattr(
-        module, "resolve_device", lambda r: torch.device("cpu")
+        sequence_training, "resolve_device", lambda r: torch.device("cpu")
     )
     _fake_df = pd.DataFrame(
         {"engine_id": [1, 1, 1], "cycle": [1, 2, 3], "rul": [3, 2, 1]}
     )
-    monkeypatch.setattr(module, "build_feature_pipeline", _capturing_pipeline)
-    monkeypatch.setattr(module, "load_raw_train", lambda c: _fake_df)
-    monkeypatch.setattr(module, "add_rul_column", lambda f, max_rul: f)
+    monkeypatch.setattr(feature_pipeline, "build_feature_pipeline", _capturing_pipeline)
+    monkeypatch.setattr(loader, "load_raw_train", lambda c: _fake_df)
+    monkeypatch.setattr(labels, "add_rul_column", lambda f, max_rul: f)
     monkeypatch.setattr(
-        module,
+        split,
         "split_by_engine",
         lambda f, test_size, random_seed: (f, f),
     )
     monkeypatch.setattr(
-        module, "build_sliding_windows", lambda *a, **k: object()
+        windowing, "build_sliding_windows", lambda *a, **k: object()
     )
     monkeypatch.setattr(
-        module, "build_sequence_loader", lambda *a, **k: object()
+        dataset, "build_sequence_loader", lambda *a, **k: object()
     )
-    monkeypatch.setattr(module, "train_sequence_model", fake_train)
+    monkeypatch.setattr(sequence_training, "train_sequence_model", fake_train)
     monkeypatch.setattr(
         module,
         "_evaluate_windows",
@@ -691,11 +713,9 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     monkeypatch.setattr(
         module, "_evaluate_official_test", lambda *a, **k: None
     )
-    monkeypatch.setattr(
-        module, "create_run_dir", lambda a, n: tmp_path
-    )
-    monkeypatch.setattr(module, "save_json", lambda p, pa: None)
-    monkeypatch.setattr(module, "save_predictions", lambda f, p: None)
+    monkeypatch.setattr(artifacts, "create_run_dir", lambda a, n: tmp_path)
+    monkeypatch.setattr(artifacts, "save_json", lambda p, pa: None)
+    monkeypatch.setattr(artifacts, "save_predictions", lambda f, p: None)
     monkeypatch.setattr(module.torch, "save", lambda p, pa: None)
     monkeypatch.setattr(module, "_model_payload", lambda *a, **k: {})
     # Disk artifacts are stubbed out above, so skip registry/artifact logging
@@ -705,7 +725,7 @@ def test_train_sequence_gru_cli_uses_subset_derived_mode_count(
     )
     monkeypatch.setattr(module.mlflow, "log_artifact", lambda *a, **k: None)
 
-    module.main()
+    assert module.main() == 0
 
     assert captured, "build_feature_pipeline was never called"
     assert captured[0]["n_modes"] == 1  # FD001 → 1 mode

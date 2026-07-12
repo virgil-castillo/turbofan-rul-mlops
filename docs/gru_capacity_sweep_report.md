@@ -2,14 +2,26 @@
 
 Source files:
 
-- `results/stage2_capacity_sweep_fd001.csv`
-- `results/stage2_capacity_sweep_fd002.csv`
-- `results/stage2_capacity_sweep_fd003.csv`
-- `results/stage2_capacity_sweep_fd004.csv`
-- `results/training_log.jsonl` (training durations and best epoch; last 48 entries)
+- `results/baselines/stage2_capacity_sweep_fd001.csv`
+- `results/baselines/stage2_capacity_sweep_fd002.csv`
+- `results/baselines/stage2_capacity_sweep_fd003.csv`
+- `results/baselines/stage2_capacity_sweep_fd004.csv`
+- `results/baselines/training_log.jsonl` (training durations and best epoch; last 48 entries)
 
 Ranking is by validation RMSE (lower is better). The PHM08 score is computed only
 on the official test set and is not used to rank validation runs.
+
+> **Data provenance.** The Stage 1/Stage 2 data was generated 2026-05-31, before
+> commit `3e5afc8` (2026-06-05) added standard-scaling of the engineered pipeline
+> output, and before the post-scaling
+> [feature-family screen](feature_family_screen_report.md) re-selected the
+> production sequence configurations (now `raw+rolling_slope` on FD001/FD002,
+> `raw` on FD003, and `raw+rolling_mean` on FD004 — see the README results). The
+> within-sweep comparisons below (hidden width, learning rate) describe the
+> pre-scaling pipeline; the screen fixed `hidden_size=64` rather than re-testing
+> it, so the width choice rests on this sweep's pre-scaling evidence. The
+> "selected configuration per subset" table records what this sweep chose at the
+> time and is superseded as a production recommendation.
 
 ## Sweep design
 
@@ -28,7 +40,7 @@ swept in Stage 2.
 
 ### Stage 1 bases promoted into Stage 2
 
-These are the two top-RMSE rows of each `results/stage1_temporal_sweep_<fd>.csv`.
+These are the two top-RMSE rows of each `results/baselines/stage1_temporal_sweep_<fd>.csv`.
 Note the feature family already differs by subset (Stage 1's own grid was
 subset-specific), so the bases are not directly comparable across subsets:
 
@@ -85,7 +97,8 @@ of each other. There is no learning rate that is best everywhere.
 
 ## Selected configuration per subset
 
-Top-ranked run for each subset (the recommended production capacity):
+Top-ranked run for each subset (this sweep's selection; superseded as a
+production recommendation — see the provenance note):
 
 | subset | feature_set | windows | seq window | hidden | lr | best epoch | RMSE | MAE | train time |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -172,14 +185,11 @@ early-stop at epoch 1–2.
 - All numbers are validation-split metrics. No official test-set / PHM08 ranking is
   implied.
 
-## Next step
+## Follow-up status
 
-Retrain the per-subset selected configurations (table above, all `hidden_size=64`)
-with the Stage 2 SLURM retrain driver:
-
-```bash
-jobs/slurm/run_gru_selected_retrain.sh
-```
-
-Before promoting FD004, re-run its top config with a lower learning rate or higher
-patience to confirm whether the epoch-2 stop is a real optimum or premature.
+The per-subset selected configurations above were retrained
+(`jobs/slurm/run_gru_selected_retrain.sh`, 2026-06-01) and served as the
+production GRU models until the post-scaling
+[feature-family screen](feature_family_screen_report.md) re-selected the sequence
+configurations (see the provenance note). The FD004 epoch-2 early-stop question
+was overtaken by that re-selection rather than answered within this sweep.

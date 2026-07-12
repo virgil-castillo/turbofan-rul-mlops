@@ -2,32 +2,34 @@
 
 A comparison of what the two models require from feature engineering. Ridge detail
 is in [feature_sweep_ridge_report.md](feature_sweep_ridge_report.md); the current
-GRU reference is the two-stage
-[gru_capacity_sweep_report.md](gru_capacity_sweep_report.md). The GRU
+sequence-model reference is the
+[feature-family screen](feature_family_screen_report.md), whose winning
+configurations are the production models behind the committed snapshot
+(`results/baselines/latest_official_eval_summary.csv`) used in §1 and §7. The GRU
 feature-engineering mechanism figures used in §2–§5 come from the now-archived
 [GRU feature sweep](archive/feature_sweep_gru_report.md) (fixed `hidden_size=64`,
-`window_size=45`). Ranking is by validation RMSE; the PHM08 score appears only for
+`window_size=45`); that sweep predates the pipeline scaling change — see §8.
+Ranking is by validation RMSE; the PHM08 score appears only for
 official-test results (§7).
 
-## 1. Overall performance: the GRU roughly halves Ridge's error
+## 1. Overall performance: the GRU cuts Ridge's validation error by 19–50%
 
-Best validation RMSE per subset. Ridge is its best feature-sweep config
-(`alpha=100`); the GRU is the best run from the two-stage temporal + capacity sweep
-([gru_capacity_sweep_report.md](gru_capacity_sweep_report.md)). Both use the same
-engine-level split and `max_rul=125`:
+Validation RMSE per subset for the production configurations, from the committed
+snapshot (`results/baselines/latest_official_eval_summary.csv`): Ridge uses the
+deployed feature-sweep config (`alpha=100`), the GRU the winning cell from the
+[feature-family screen](feature_family_screen_report.md). Both use the same
+engine-level split and `max_rul=125`. GRU figures are mean ± sd over five model
+seeds (42–46); Ridge is deterministic at the production seed:
 
 | Dataset | Ridge RMSE | GRU RMSE | RMSE Δ |
 |---|---:|---:|---:|
-| FD001 | 20.28 | 10.19 | −50% |
-| FD002 | 19.35 | 12.78 | −34% |
-| FD003 | 17.05 | 10.07 | −41% |
-| FD004 | 18.44 | 14.73 | −20% |
+| FD001 | 20.72 | 10.39 ± 0.33 | −50% |
+| FD002 | 19.35 | 13.08 ± 0.15 | −32% |
+| FD003 | 17.07 | 10.46 ± 0.22 | −39% |
+| FD004 | 18.48 | 14.96 ± 0.10 | −19% |
 
-The GRU roughly halves RMSE on the clean subsets. Its advantage is largest on
-single-condition data (FD001/FD003) and smallest on FD004 (6 modes, longest
-lifetimes), where the two models converge. The GRU figures improved slightly versus
-the archived fixed-capacity sweep (e.g. FD001 10.82 → 10.19) once the sequence
-window and hidden size were tuned per subset.
+The GRU halves RMSE on FD001, cuts it by roughly a third on FD002/FD003, and by
+19% on FD004 (6 modes, longest lifetimes), where the two models come closest.
 
 ## 2. Primary divergence: the rolling-window direction is opposite
 
@@ -49,7 +51,9 @@ For plain `rolling_mean`, RMSE vs window on FD001:
 The same transformation has opposite optimal settings because the two models
 consume time differently.
 
-## 3. The lag family: useless for Ridge, harmful for the GRU
+## 3. The lag family: no value for either model
+
+From the archived pre-scaling sweep:
 
 | | Ridge | GRU |
 |---|---|---|
@@ -58,9 +62,14 @@ consume time differently.
 | Mechanism | First-difference removes the absolute level [4]; a memoryless linear fit [1] has nothing to anchor to | Off-scale lag channels degrade input conditioning [5]; training fails to improve and early-stops at epoch 1–3 [6] |
 
 For Ridge the lag-difference carries no marginal information once `raw` is present.
-For the GRU it is worse than useless: it destabilizes training, visible in the
-`best_epoch` column (lag runs early-stop at epoch 1–3 vs 5–17 for working sets).
-Either way, the lag family should be dropped from the search space.
+The GRU column above is a pre-scaling measurement: the unscaled lag channels were
+off-scale relative to the normalized raw inputs, and training failed to improve
+(early-stop at epoch 1–3 vs 5–17 for working sets). The post-scaling
+[feature-family screen](feature_family_screen_report.md) re-tested lag on scaled
+inputs and the catastrophic non-convergence does not reproduce: lag is neutral to
+mildly harmful there (all Δ vs raw between −0.51 and +1.46 across both
+architectures and all subsets). The selection conclusion is the same in both
+eras — lag earns no place in either model's feature set.
 
 ## 4. The role of the raw channels differs
 
@@ -88,7 +97,8 @@ GRU — engineer to denoise, because the model already has temporal context [2, 
 - a rolling mean helps mainly as a wide denoiser [4] on top of the 45-cycle
   sequence;
 - `raw` alone is already competitive;
-- lag is harmful (non-convergence [5, 6]), not just redundant;
+- lag adds nothing — pre-scaling it destabilized training outright [5, 6], and
+  after scaling it remains neutral to mildly harmful (§3);
 - raw is added to rolling only under multiple operating modes (FD004);
 - per-mode normalization is equally mandatory for FD002/FD004.
 
@@ -112,37 +122,49 @@ lag family should be abandoned.
 
 Production models, evaluated on the C-MAPSS official test set (unseen engines,
 single prediction per engine at the last cycle). The PHM08 score is the canonical
-final-test metric. Both models were retrained on CPU (2026-06-01) from their
-per-subset selected configs: the **GRU rows are the Stage 2 capacity-sweep selected
-configs** (see [gru_capacity_sweep_report.md](gru_capacity_sweep_report.md)) and the
-**Ridge rows are the best feature-sweep config** for each subset. The Ridge values
-reproduce the prior deployed numbers exactly (Ridge is deterministic given the same
-config and seed):
+final-test metric. Values are the committed snapshot
+(`results/baselines/latest_official_eval_summary.csv`), written by
+`turbofan-regenerate-baselines`, which retrains each selected configuration and
+evaluates it on the official test set: GRU as mean ± sd over five model seeds
+(42–46), Ridge at the single production seed:
 
-| Subset | Ridge test RMSE | Ridge test MAE | GRU test RMSE | GRU test MAE | GRU RMSE Δ vs Ridge |
+| Subset | Ridge test RMSE | Ridge test PHM08 | GRU test RMSE | GRU test PHM08 | GRU RMSE Δ vs Ridge |
 |--------|---:|---:|---:|---:|---:|
-| FD001 | 21.58 | 17.44 | 15.40 | 11.36 | −29% |
-| FD002 | 31.31 | 22.85 | 25.08 | 16.44 | −20% |
-| FD003 | 23.01 | 18.20 | 14.16 | 10.08 | −38% |
-| FD004 | 32.88 | 26.20 | 25.58 | 18.22 | −22% |
+| FD001 | 21.58 | 1,316 | 14.29 ± 0.11 | 330 ± 13 | −34% |
+| FD002 | 31.30 | 17,700 | 24.34 ± 0.40 | 4,992 ± 501 | −22% |
+| FD003 | 23.01 | 2,491 | 14.22 ± 0.17 | 414 ± 22 | −38% |
+| FD004 | 32.88 | 9,643 | 26.00 ± 0.41 | 4,603 ± 507 | −21% |
 
-The validation-set advantage carries to official test: the GRU leads by 20–38% on
-RMSE. Single-condition subsets (FD001, FD003) keep a ~4–5 point val→test gap, while
-multi-condition subsets (FD002, FD004) widen to ~11–12 points — the official test
-distribution likely differs more from training on the multi-mode data.
+The validation-set advantage carries to official test: the GRU leads by 21–38% on
+RMSE. The GRU's val→test RMSE gap is ~4 points on the single-condition subsets
+(FD001, FD003) and ~11 points on the multi-condition subsets (FD002, FD004) —
+consistent with a larger train/test distribution shift on the multi-mode data (an
+interpretation; the measured quantity is the gap).
 
 ## 8. Limitations and open questions
 
 The §2–§5 feature-engineering findings come from the archived
 [GRU feature sweep](archive/feature_sweep_gru_report.md), which fixed the GRU at
-`hidden_size=64`, `window_size=45` (Ridge at `alpha=100`). They concern feature
-choices at those fixed settings. The follow-up two-stage sweep has since varied the
-sequence window (Stage 1) and the capacity (Stage 2): it confirmed `hidden_size=64`
-as the best width on all four subsets and produced the refined per-subset best RMSE
-used in §1 (see [gru_capacity_sweep_report.md](gru_capacity_sweep_report.md)). The
-lag family was excluded from that sweep on the strength of the §3 finding, so the
-window-direction and lag conclusions are consistent with — but not re-measured by —
-the newer sweep.
+`hidden_size=64`, `window_size=45` (Ridge at `alpha=100`). Two boundaries apply.
+
+First, they concern feature choices at those fixed settings; the follow-up
+[two-stage sweep](gru_capacity_sweep_report.md) varied the sequence window and
+capacity and found `hidden_size=64` the best width on all four subsets.
+
+Second, the archived sweep, the Ridge sweep, and the two-stage sweep all ran
+before commit `3e5afc8` (2026-06-05) added standard-scaling of the engineered
+pipeline output, so their absolute numbers describe the pre-scaling pipeline. The
+post-scaling [feature-family screen](feature_family_screen_report.md) re-measured
+the sequence side on scaled inputs and now defines the production GRU/LSTM
+configurations; §1 and §7 report those models from the committed snapshot. Where
+the screen re-tested a §2–§5 mechanism, its verdict supersedes: the lag family's
+"catastrophic for the GRU" result softened to neutral-to-mildly-harmful (§3),
+while the wide-rolling-window direction for sequence models was confirmed (the
+screen's window-20 families are the ones that help). The Ridge sweep has not been
+re-run since the scaling change, so the Ridge mechanisms in §2–§5 stand as
+pre-scaling observations (the re-run is tracked in the
+[roadmap](roadmap.md)); the Ridge production configs and official numbers are
+current as committed.
 
 ## References
 

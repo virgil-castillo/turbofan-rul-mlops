@@ -33,19 +33,19 @@ dev = [
     "nbformat",
     "jupyter",
     "scipy",
+    "pre-commit",
 ]
 
 [project.scripts]
 turbofan-download-data = "turbofan.cli.download_data:main"
 turbofan-train-baseline = "turbofan.cli.train_baseline:main"
 turbofan-train-sequence = "turbofan.cli.train_sequence:main"
-turbofan-train-sequence-gru = "turbofan.cli.train_sequence_gru:main"
 turbofan-predict = "turbofan.cli.predict:main"
 turbofan-serve-api = "turbofan.cli.serve_api:main"
 turbofan-promote = "turbofan.cli.promote_model:main"
 turbofan-models = "turbofan.cli.list_models:main"
 turbofan-feature-screen = "turbofan.cli.run_feature_screen:main"
-turbofan-export-eval = "turbofan.cli.export_official_eval:main"
+turbofan-regenerate-baselines = "turbofan.cli.regenerate_official_baselines:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -55,7 +55,10 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "ANN"]
+select = ["E", "F", "W", "I", "UP", "ANN", "B", "BLE", "ARG", "C4", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]
 
 [tool.mypy]
 strict = true
@@ -80,4 +83,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto"
+addopts = "-n auto --basetemp=.pytest_tmp --cov=turbofan --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["turbofan"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 93

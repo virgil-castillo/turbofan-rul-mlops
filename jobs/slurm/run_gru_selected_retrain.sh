@@ -43,7 +43,7 @@ echo "device=$DEVICE"
 for fd in "${SUBSET_ARGS[@]}"; do
     echo ""
     echo "=== retraining ${fd^^} ==="
-    turbofan-train-sequence-gru \
+    turbofan-train-sequence \
         --config "configs/subsets/$fd.yaml" \
         --device "$DEVICE"
 done
