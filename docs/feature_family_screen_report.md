@@ -94,7 +94,7 @@ For FD001, rolling_slope gives the largest single-seed gain at window-20 (Δ -2.
 | lag | step=1 | 15.97 | +0.64 | 14.15 | +0.68 |
 | lag | step=5 | 15.33 | +0.00 | 14.35 | +0.88 |
 
-For FD002, rolling_slope again has the best window-20 result in the single-seed table (-2.05; the seq60 winning cell averages 13.08±0.15 over five seeds, -2.9% vs raw), with rolling_delta close behind (-1.93) and rolling_mean also positive (-1.45). All three gains appear only at window-20; their window-5 counterparts hurt or barely help. Rolling_std is harmful at both window sizes (+2.30 / +1.21), and lag features are neutral to slightly harmful. The window-20 pattern is especially pronounced in this six-condition subset, where broader temporal context appears to help the GRU navigate operating-condition variability.
+For FD002, rolling_slope again has the best window-20 result in the single-seed table (-2.05; the seq60 winning cell averages 13.08±0.15 over five seeds, -2.9% vs raw), with rolling_delta close behind (-1.93) and rolling_mean also positive (-1.45). All three gains appear only at window-20; their window-5 counterparts hurt or barely help. Rolling_std is harmful at both window sizes (+2.30 / +1.21), and lag features are neutral to slightly harmful. The window-20 pattern is especially pronounced in this six-condition subset; the Discussion, parts (b) and (c), gives the regime-separation mechanism.
 
 #### GRU — FD003  (raw=12 feats, +family=24 feats)
 
@@ -226,7 +226,7 @@ On FD003, rolling_delta win20 is the nominal best family (seq60: -0.47 single-se
 | lag | step=1 | 16.46 | +0.46 | 15.37 | **-0.13** |
 | lag | step=5 | 15.95 | -0.05 | 15.53 | +0.04 |
 
-On FD004, rolling_mean win20 is the best family (seq30: -0.65; the winning cell averages 15.05±0.17 over five seeds, -5.9% vs raw). As with the GRU, seed 42 was the worst draw here, so the seed average is better than the single-seed value. This departs from FD001–FD003, where slope or delta led: on this hardest six-condition subset, smoothed level features appear more useful than raw derivatives. Rolling_std is again harmful (+2.56 at both window sizes). Rolling_slope and rolling_delta each straddle zero (win5 hurts, win20 near-neutral), and lag is muted, making rolling_mean win20 the only family with a replicated benefit.
+On FD004, rolling_mean win20 is the best family (seq30: -0.65; the winning cell averages 15.05±0.17 over five seeds, -5.9% vs raw). As with the GRU, seed 42 was the worst draw here, so the seed average is better than the single-seed value. This departs from FD001–FD003, where slope or delta led: on this hardest six-condition subset, the smoothed level family outperforms the derivative families. Rolling_std is again harmful (+2.56 at both window sizes). Rolling_slope and rolling_delta each straddle zero (win5 hurts, win20 near-neutral), and lag is muted, making rolling_mean win20 the only family with a replicated benefit.
 
 ## Cross-cutting trends
 
@@ -257,7 +257,7 @@ The pooled within-cell standard deviation is **0.26 RMSE points** (per-cell rang
 
 ### Window 20 beats window 5
 
-The mean Δ vs raw across all rolling families is +1.03 (GRU) and +1.23 (LSTM) at window 5, versus +0.38 (GRU) and +0.81 (LSTM) at window 20. Window 20 is the better of the two tested settings on this grid, and the difference (≈0.4–0.7 RMSE) is larger than the observed seed-noise floor. The rolling families that help do so at window 20; the window-5 variants are mostly neutral to harmful. Longer sequence windows point the same way (raw seq60 beats seq30 by ~1.4 RMSE on average, ~2.4 on FD001), suggesting that degradation here is a long-timescale phenomenon that needs integration over many cycles to surface.
+The mean Δ vs raw across all rolling families is +1.03 (GRU) and +1.23 (LSTM) at window 5, versus +0.38 (GRU) and +0.81 (LSTM) at window 20. Window 20 is the better of the two tested settings on this grid, and the difference (≈0.4–0.7 RMSE) is larger than the observed seed-noise floor. The rolling families that help do so at window 20; the window-5 variants are mostly neutral to harmful. Longer sequence windows point the same way (raw seq60 beats seq30 by ~1.4 RMSE on average, ~2.4 on FD001); Discussion (c) attributes both effects to the long timescale of the degradation signal.
 
 ### Which families help which model
 
@@ -274,7 +274,7 @@ Rolling_std is the only family that never improves on raw for either architectur
 
 ### Single- vs multi-condition subsets
 
-A consistent dataset-level trend: the single-condition subsets (FD001, FD003) already have a strong raw baseline, so feature gains are small and — per the seed band — several of the apparent gains shrink toward the noise floor (LSTM FD003's best family drops to -1.1% on replication). The six-condition subsets (FD002, FD004) have higher RMSE but show a clearer case for selected window-20 features, especially smoothing, plausibly because the broader window helps separate the slow degradation trend from regime-switching transients the model cannot otherwise resolve without operating-condition labels.
+A consistent dataset-level trend: the single-condition subsets (FD001, FD003) already have a strong raw baseline, so feature gains are small and — per the seed band — several of the apparent gains shrink toward the noise floor (LSTM FD003's best family drops to -1.1% on replication). The six-condition subsets (FD002, FD004) have higher RMSE but show a clearer case for selected window-20 features, especially smoothing; Discussion (b) gives the regime-separation mechanism.
 
 ## Discussion: why these effects
 
